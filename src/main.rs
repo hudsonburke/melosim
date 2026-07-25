@@ -1,16 +1,41 @@
+use serde::{Deserialize, Serialize};
 
-pub struct EntityID(i64);
+pub struct EntityID(u32);
 
+#[derive(Serialize, Deserialize)]
 pub struct World {
-    entities: Vec<EntityID>,
+    next_id: u32,
+    bodies: Vec<Body>,
+    joints: Vec<Joint>,
+    sites: Vec<Site>,
+    materials: Vec<Material>,
+    geometries: Vec<Geometry>,
 }
 
 impl World {
-    pub fn new() -> Self {
-        Self {entities: Vec<EntityID>::default()}
+    pub fn spawn(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    pub fn add_body(&mut self, mass: f64, com: [f64; 3], inertia: [f64; 6]) -> u32 {
+        let id = self.spawn();
+        self.bodies.push(Body {
+            id,
+            mass,
+            com,
+            inertia,
+        });
+        id
+    }
+
+    pub fn get_body(&self, id: u32) -> Option<&Body> {
+        self.bodies.iter().find(|b| b.id == id)
     }
 }
 
+pub struct Joint {}
 pub struct Geometry {
     body: EntityID,
     mesh: String,
