@@ -1,7 +1,6 @@
 mod actuator;
 mod body;
 mod cable;
-mod exo;
 mod geometry;
 mod joint;
 mod material;
@@ -12,7 +11,6 @@ mod wrap;
 pub use actuator::*;
 pub use body::*;
 pub use cable::*;
-pub use exo::*;
 pub use geometry::*;
 pub use joint::*;
 pub use material::*;

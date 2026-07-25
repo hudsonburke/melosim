@@ -14,7 +14,6 @@ pub struct World {
     pub materials: Vec<Material>,
     pub geometries: Vec<Geometry>,
     pub cable_guides: Vec<CableGuide>,
-    pub exo_parts: Vec<ExoPart>,
     pub cables: Vec<Cable>,
     pub wrap_geoms: Vec<WrapGeom>,
     pub transforms: Vec<Frame>,
@@ -154,17 +153,6 @@ impl World {
     pub fn add_cable_guide(&mut self, site: EntityID, diameter: f64) -> EntityID {
         let id = self.spawn();
         self.cable_guides.push(CableGuide { id, site, diameter });
-        id
-    }
-
-    // ── ExoPart ──────────────────────────────────────────────────
-
-    pub fn add_exo_part(
-        &mut self, name: String, part_type: ExoPartType,
-        body: EntityID, offset: Vec3, ports: Vec<CablePort>,
-    ) -> EntityID {
-        let id = self.spawn();
-        self.exo_parts.push(ExoPart { id, name, part_type, body, offset, ports });
         id
     }
 
