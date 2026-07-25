@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+use crate::id::EntityID;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Actuator {
     pub id: EntityID,
@@ -5,32 +8,30 @@ pub struct Actuator {
     pub actuator_type: ActuatorType,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ActuatorType {
-    // Motor directly on a joint
     JointMotor {
         joint: EntityID,
         gear: f64,
         max_torque: f64,
     },
-    // Position-controlled joint
     PositionMotor {
         joint: EntityID,
         kp: f64,
     },
-    // Motor pulling on a cable
     CableMotor {
         cable: EntityID,
         gear: f64,
         max_force: f64,
         speed: f64,
     },
-    // Muscle actuator
     MuscleActuator {
         muscle: EntityID,
         model: MuscleModelType,
     },
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum MuscleModelType {
     Hill,
     Millard,

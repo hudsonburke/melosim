@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::id::EntityID;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Joint {

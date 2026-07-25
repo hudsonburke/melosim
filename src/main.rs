@@ -1,3 +1,7 @@
+use melosim::math::{Transform, Vec3};
+use melosim::components::{JointType, JointLimits, Landmark, MusclePoint};
+use melosim::world::World;
+
 fn main() {
     let mut world = World::new();
 
@@ -16,10 +20,7 @@ fn main() {
         pelvis,
         femur,
         JointType::Ball,
-        Some(JointLimits {
-            lower: -2.0,
-            upper: 2.0,
-        }),
+        Some(JointLimits { lower: -2.0, upper: 2.0 }),
     );
 
     // Create a site for ASIS landmark
@@ -36,20 +37,10 @@ fn main() {
     let _muscle_id = world.add_muscle(
         "iliopsoas".to_string(),
         vec![
-            MusclePoint {
-                body: pelvis,
-                offset: Vec3::new(0.0, 0.0, 0.1),
-            },
-            MusclePoint {
-                body: femur,
-                offset: Vec3::new(0.0, -0.2, 0.0),
-            },
+            MusclePoint { body: pelvis, offset: Vec3::new(0.0, 0.0, 0.1) },
+            MusclePoint { body: femur, offset: Vec3::new(0.0, -0.2, 0.0) },
         ],
-        2000.0,
-        0.11,
-        0.13,
-        30.0,
-        0.1,
+        2000.0, 0.11, 0.13, 30.0, 0.1,
     );
 
     // Validate

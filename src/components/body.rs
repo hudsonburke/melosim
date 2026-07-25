@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use crate::id::EntityID;
+use crate::math::{Transform, Vec3};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Body {
@@ -15,7 +17,6 @@ pub struct Frame {
     pub transform: Transform,
 }
 
-use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Site {
     pub id: EntityID,

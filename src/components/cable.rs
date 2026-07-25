@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use crate::id::EntityID;
+use crate::math::Vec3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CableGuide {

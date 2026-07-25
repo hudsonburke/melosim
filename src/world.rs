@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use crate::components::*;
+use crate::id::EntityID;
+use crate::math::{Transform, Vec3};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct World {
@@ -32,12 +35,7 @@ impl World {
 
     pub fn add_body(&mut self, mass: f64, com: [f64; 3], inertia: [f64; 6]) -> EntityID {
         let id = self.spawn();
-        self.bodies.push(Body {
-            id,
-            mass,
-            com,
-            inertia,
-        });
+        self.bodies.push(Body { id, mass, com, inertia });
         id
     }
 
@@ -59,13 +57,7 @@ impl World {
         limits: Option<JointLimits>,
     ) -> EntityID {
         let id = self.spawn();
-        self.joints.push(Joint {
-            id,
-            body_a,
-            body_b,
-            joint_type,
-            limits,
-        });
+        self.joints.push(Joint { id, body_a, body_b, joint_type, limits });
         id
     }
 
@@ -87,14 +79,8 @@ impl World {
     ) -> EntityID {
         let id = self.spawn();
         self.muscles.push(Muscle {
-            id,
-            name,
-            path,
-            max_force,
-            optimal_fiber_length,
-            tendon_slack_length,
-            pcsa,
-            pennation_angle,
+            id, name, path, max_force, optimal_fiber_length,
+            tendon_slack_length, pcsa, pennation_angle,
         });
         id
     }
@@ -118,19 +104,12 @@ impl World {
     // ── Material ─────────────────────────────────────────────────
 
     pub fn add_material(
-        &mut self,
-        body: EntityID,
-        density: f64,
-        youngs_modulus: f64,
-        poissons_ratio: f64,
+        &mut self, body: EntityID, density: f64,
+        youngs_modulus: f64, poissons_ratio: f64,
     ) -> EntityID {
         let id = self.spawn();
         self.materials.push(Material {
-            id,
-            body,
-            density,
-            youngs_modulus,
-            poissons_ratio,
+            id, body, density, youngs_modulus, poissons_ratio,
         });
         id
     }
@@ -143,12 +122,7 @@ impl World {
 
     pub fn add_geometry(&mut self, body: EntityID, mesh: String, role: GeometryRole) -> EntityID {
         let id = self.spawn();
-        self.geometries.push(Geometry {
-            id,
-            body,
-            mesh,
-            role,
-        });
+        self.geometries.push(Geometry { id, body, mesh, role });
         id
     }
 
@@ -156,64 +130,22 @@ impl World {
 
     pub fn add_transform(&mut self, body: EntityID, transform: Transform) -> EntityID {
         let id = self.spawn();
-        self.transforms.push(Frame {
-            id,
-            body,
-            transform,
-        });
+        self.transforms.push(Frame { id, body, transform });
         id
     }
 
     pub fn get_transform(&self, body: EntityID) -> Option<&Transform> {
-        self.transforms
-            .iter()
-            .find(|f| f.body == body)
-            .map(|f| &f.transform)
-    }
-
-    // ── Muscle ───────────────────────────────────────────────────
-
-    pub fn add_muscle2(
-        &mut self,
-        name: String,
-        path: Vec<MusclePoint>,
-        max_force: f64,
-        optimal_fiber_length: f64,
-        tendon_slack_length: f64,
-        pcsa: f64,
-        pennation_angle: f64,
-    ) -> EntityID {
-        let id = self.spawn();
-        self.muscles.push(Muscle {
-            id,
-            name,
-            path,
-            max_force,
-            optimal_fiber_length,
-            tendon_slack_length,
-            pcsa,
-            pennation_angle,
-        });
-        id
+        self.transforms.iter().find(|f| f.body == body).map(|f| &f.transform)
     }
 
     // ── Tendon ───────────────────────────────────────────────────
 
     pub fn add_tendon(
-        &mut self,
-        name: String,
-        spring_length: f64,
-        width: f64,
-        via_points: Vec<EntityID>,
+        &mut self, name: String, spring_length: f64,
+        width: f64, via_points: Vec<EntityID>,
     ) -> EntityID {
         let id = self.spawn();
-        self.tendons.push(Tendon {
-            id,
-            name,
-            spring_length,
-            width,
-            via_points,
-        });
+        self.tendons.push(Tendon { id, name, spring_length, width, via_points });
         id
     }
 
@@ -228,40 +160,22 @@ impl World {
     // ── ExoPart ──────────────────────────────────────────────────
 
     pub fn add_exo_part(
-        &mut self,
-        name: String,
-        part_type: ExoPartType,
-        body: EntityID,
-        offset: Vec3,
-        ports: Vec<CablePort>,
+        &mut self, name: String, part_type: ExoPartType,
+        body: EntityID, offset: Vec3, ports: Vec<CablePort>,
     ) -> EntityID {
         let id = self.spawn();
-        self.exo_parts.push(ExoPart {
-            id,
-            name,
-            part_type,
-            body,
-            offset,
-            ports,
-        });
+        self.exo_parts.push(ExoPart { id, name, part_type, body, offset, ports });
         id
     }
 
     // ── Cable ────────────────────────────────────────────────────
 
     pub fn add_cable(
-        &mut self,
-        name: String,
-        path: Vec<CableSegment>,
-        tendon: Option<EntityID>,
+        &mut self, name: String,
+        path: Vec<CableSegment>, tendon: Option<EntityID>,
     ) -> EntityID {
         let id = self.spawn();
-        self.cables.push(Cable {
-            id,
-            name,
-            path,
-            tendon,
-        });
+        self.cables.push(Cable { id, name, path, tendon });
         id
     }
 
@@ -269,11 +183,7 @@ impl World {
 
     pub fn add_wrap_geom(&mut self, body: EntityID, geom_type: WrapGeomType) -> EntityID {
         let id = self.spawn();
-        self.wrap_geoms.push(WrapGeom {
-            id,
-            body,
-            geom_type,
-        });
+        self.wrap_geoms.push(WrapGeom { id, body, geom_type });
         id
     }
 
@@ -286,15 +196,13 @@ impl World {
             if self.get_body(joint.body_a).is_none() {
                 errors.push(format!(
                     "Joint {:?} references missing body_a {:?}",
-                    joint.id.inner(),
-                    joint.body_a.inner()
+                    joint.id.inner(), joint.body_a.inner()
                 ));
             }
             if self.get_body(joint.body_b).is_none() {
                 errors.push(format!(
                     "Joint {:?} references missing body_b {:?}",
-                    joint.id.inner(),
-                    joint.body_b.inner()
+                    joint.id.inner(), joint.body_b.inner()
                 ));
             }
         }
@@ -304,8 +212,7 @@ impl World {
                 if self.get_body(point.body).is_none() {
                     errors.push(format!(
                         "Muscle '{}' path references missing body {:?}",
-                        muscle.name,
-                        point.body.inner()
+                        muscle.name, point.body.inner()
                     ));
                 }
             }
@@ -315,8 +222,7 @@ impl World {
             if self.get_body(material.body).is_none() {
                 errors.push(format!(
                     "Material {:?} references missing body {:?}",
-                    material.id.inner(),
-                    material.body.inner()
+                    material.id.inner(), material.body.inner()
                 ));
             }
         }
