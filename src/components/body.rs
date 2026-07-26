@@ -13,14 +13,14 @@ pub struct InertialProperties {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Frame {
     pub entity: EntityID,
-    pub body: EntityID,
+    pub parent: EntityID,
     pub transform: Transform,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Site {
     pub entity: EntityID,
-    pub body: EntityID,
+    pub parent: EntityID,
     pub offset: Vec3,
 }
 

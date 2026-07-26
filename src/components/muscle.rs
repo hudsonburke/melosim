@@ -13,14 +13,3 @@ pub struct Muscle {
     pub pcsa: f64,
     pub pennation_angle: f64,
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MusclePoint {
-    pub body: EntityID,
-    pub offset: Vec3,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MuscleAttachment {
-    pub site: EntityID,
-}

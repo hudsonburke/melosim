@@ -4,14 +4,12 @@ use crate::id::EntityID;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MeshGeometry {
     pub entity: EntityID,
-    pub body: EntityID,
     pub mesh: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrimitiveGeometry {
     pub entity: EntityID,
-    pub body: EntityID,
     pub shape: Shape,
 }
 
