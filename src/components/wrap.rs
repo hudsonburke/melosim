@@ -3,7 +3,7 @@ use crate::id::EntityID;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WrapGeom {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub body: EntityID,
     pub geom_type: WrapGeomType,
 }

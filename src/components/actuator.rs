@@ -3,7 +3,7 @@ use crate::id::EntityID;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Actuator {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub name: String,
     pub actuator_type: ActuatorType,
 }

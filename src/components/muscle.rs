@@ -4,7 +4,7 @@ use crate::math::Vec3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Muscle {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub name: String,
     pub path: Vec<MusclePoint>,
     pub max_force: f64,

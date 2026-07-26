@@ -3,7 +3,7 @@ use crate::id::EntityID;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Joint {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub body_a: EntityID,
     pub body_b: EntityID,
     pub joint_type: JointType,

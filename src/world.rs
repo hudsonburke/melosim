@@ -6,17 +6,18 @@ use crate::math::{Transform, Vec3};
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct World {
     next_id: u32,
-    pub bodies: Vec<Body>,
+    pub inertials: Vec<InertialProperties>,
+    pub frames: Vec<Frame>,
     pub joints: Vec<Joint>,
     pub muscles: Vec<Muscle>,
     pub tendons: Vec<Tendon>,
     pub sites: Vec<Site>,
     pub materials: Vec<Material>,
-    pub geometries: Vec<Geometry>,
+    pub mesh_geometries: Vec<MeshGeometry>,
+    pub primitive_geometries: Vec<PrimitiveGeometry>,
     pub cable_guides: Vec<CableGuide>,
     pub cables: Vec<Cable>,
     pub wrap_geoms: Vec<WrapGeom>,
-    pub transforms: Vec<Frame>,
 }
 
 impl World {
@@ -30,20 +31,32 @@ impl World {
         id
     }
 
-    // ── Body ─────────────────────────────────────────────────────
+    // ── InertialProperties ───────────────────────────────────────
 
-    pub fn add_body(&mut self, mass: f64, com: [f64; 3], inertia: [f64; 6]) -> EntityID {
-        let id = self.spawn();
-        self.bodies.push(Body { id, mass, com, inertia });
-        id
+    pub fn add_inertial(&mut self, mass: f64, com: [f64; 3], inertia: [f64; 6]) -> EntityID {
+        let entity = self.spawn();
+        self.inertials.push(InertialProperties { entity, mass, com, inertia });
+        entity
     }
 
-    pub fn get_body(&self, id: EntityID) -> Option<&Body> {
-        self.bodies.iter().find(|b| b.id == id)
+    pub fn get_inertial(&self, entity: EntityID) -> Option<&InertialProperties> {
+        self.inertials.iter().find(|i| i.entity == entity)
     }
 
-    pub fn get_body_mut(&mut self, id: EntityID) -> Option<&mut Body> {
-        self.bodies.iter_mut().find(|b| b.id == id)
+    pub fn get_inertial_mut(&mut self, entity: EntityID) -> Option<&mut InertialProperties> {
+        self.inertials.iter_mut().find(|i| i.entity == entity)
+    }
+
+    // ── Frame ────────────────────────────────────────────────────
+
+    pub fn add_frame(&mut self, body: EntityID, transform: Transform) -> EntityID {
+        let entity = self.spawn();
+        self.frames.push(Frame { entity, body, transform });
+        entity
+    }
+
+    pub fn get_frame(&self, body: EntityID) -> Option<&Transform> {
+        self.frames.iter().find(|f| f.body == body).map(|f| &f.transform)
     }
 
     // ── Joint ────────────────────────────────────────────────────
@@ -55,13 +68,13 @@ impl World {
         joint_type: JointType,
         limits: Option<JointLimits>,
     ) -> EntityID {
-        let id = self.spawn();
-        self.joints.push(Joint { id, body_a, body_b, joint_type, limits });
-        id
+        let entity = self.spawn();
+        self.joints.push(Joint { entity, body_a, body_b, joint_type, limits });
+        entity
     }
 
-    pub fn get_joint(&self, id: EntityID) -> Option<&Joint> {
-        self.joints.iter().find(|j| j.id == id)
+    pub fn get_joint(&self, entity: EntityID) -> Option<&Joint> {
+        self.joints.iter().find(|j| j.entity == entity)
     }
 
     // ── Muscle ───────────────────────────────────────────────────
@@ -76,28 +89,28 @@ impl World {
         pcsa: f64,
         pennation_angle: f64,
     ) -> EntityID {
-        let id = self.spawn();
+        let entity = self.spawn();
         self.muscles.push(Muscle {
-            id, name, path, max_force, optimal_fiber_length,
+            entity, name, path, max_force, optimal_fiber_length,
             tendon_slack_length, pcsa, pennation_angle,
         });
-        id
+        entity
     }
 
-    pub fn get_muscle(&self, id: EntityID) -> Option<&Muscle> {
-        self.muscles.iter().find(|m| m.id == id)
+    pub fn get_muscle(&self, entity: EntityID) -> Option<&Muscle> {
+        self.muscles.iter().find(|m| m.entity == entity)
     }
 
     // ── Site ─────────────────────────────────────────────────────
 
     pub fn add_site(&mut self, body: EntityID, offset: Vec3) -> EntityID {
-        let id = self.spawn();
-        self.sites.push(Site { id, body, offset });
-        id
+        let entity = self.spawn();
+        self.sites.push(Site { entity, body, offset });
+        entity
     }
 
-    pub fn get_site(&self, id: EntityID) -> Option<&Site> {
-        self.sites.iter().find(|s| s.id == id)
+    pub fn get_site(&self, entity: EntityID) -> Option<&Site> {
+        self.sites.iter().find(|s| s.entity == entity)
     }
 
     // ── Material ─────────────────────────────────────────────────
@@ -106,35 +119,31 @@ impl World {
         &mut self, body: EntityID, density: f64,
         youngs_modulus: f64, poissons_ratio: f64,
     ) -> EntityID {
-        let id = self.spawn();
+        let entity = self.spawn();
         self.materials.push(Material {
-            id, body, density, youngs_modulus, poissons_ratio,
+            entity, body, density, youngs_modulus, poissons_ratio,
         });
-        id
+        entity
     }
 
-    pub fn get_material(&self, id: EntityID) -> Option<&Material> {
-        self.materials.iter().find(|m| m.id == id)
+    pub fn get_material(&self, entity: EntityID) -> Option<&Material> {
+        self.materials.iter().find(|m| m.entity == entity)
     }
 
-    // ── Geometry ─────────────────────────────────────────────────
+    // ── MeshGeometry ─────────────────────────────────────────────
 
-    pub fn add_geometry(&mut self, body: EntityID, mesh: String, role: GeometryRole) -> EntityID {
-        let id = self.spawn();
-        self.geometries.push(Geometry { id, body, mesh, role });
-        id
+    pub fn add_mesh_geometry(&mut self, body: EntityID, mesh: String) -> EntityID {
+        let entity = self.spawn();
+        self.mesh_geometries.push(MeshGeometry { entity, body, mesh });
+        entity
     }
 
-    // ── Transform ────────────────────────────────────────────────
+    // ── PrimitiveGeometry ────────────────────────────────────────
 
-    pub fn add_transform(&mut self, body: EntityID, transform: Transform) -> EntityID {
-        let id = self.spawn();
-        self.transforms.push(Frame { id, body, transform });
-        id
-    }
-
-    pub fn get_transform(&self, body: EntityID) -> Option<&Transform> {
-        self.transforms.iter().find(|f| f.body == body).map(|f| &f.transform)
+    pub fn add_primitive_geometry(&mut self, body: EntityID, shape: Shape) -> EntityID {
+        let entity = self.spawn();
+        self.primitive_geometries.push(PrimitiveGeometry { entity, body, shape });
+        entity
     }
 
     // ── Tendon ───────────────────────────────────────────────────
@@ -143,17 +152,17 @@ impl World {
         &mut self, name: String, spring_length: f64,
         width: f64, via_points: Vec<EntityID>,
     ) -> EntityID {
-        let id = self.spawn();
-        self.tendons.push(Tendon { id, name, spring_length, width, via_points });
-        id
+        let entity = self.spawn();
+        self.tendons.push(Tendon { entity, name, spring_length, width, via_points });
+        entity
     }
 
     // ── CableGuide ───────────────────────────────────────────────
 
     pub fn add_cable_guide(&mut self, site: EntityID, diameter: f64) -> EntityID {
-        let id = self.spawn();
-        self.cable_guides.push(CableGuide { id, site, diameter });
-        id
+        let entity = self.spawn();
+        self.cable_guides.push(CableGuide { entity, site, diameter });
+        entity
     }
 
     // ── Cable ────────────────────────────────────────────────────
@@ -162,17 +171,17 @@ impl World {
         &mut self, name: String,
         path: Vec<CableSegment>, tendon: Option<EntityID>,
     ) -> EntityID {
-        let id = self.spawn();
-        self.cables.push(Cable { id, name, path, tendon });
-        id
+        let entity = self.spawn();
+        self.cables.push(Cable { entity, name, path, tendon });
+        entity
     }
 
     // ── WrapGeom ─────────────────────────────────────────────────
 
     pub fn add_wrap_geom(&mut self, body: EntityID, geom_type: WrapGeomType) -> EntityID {
-        let id = self.spawn();
-        self.wrap_geoms.push(WrapGeom { id, body, geom_type });
-        id
+        let entity = self.spawn();
+        self.wrap_geoms.push(WrapGeom { entity, body, geom_type });
+        entity
     }
 
     // ── Validation ───────────────────────────────────────────────
@@ -181,23 +190,23 @@ impl World {
         let mut errors = Vec::new();
 
         for joint in &self.joints {
-            if self.get_body(joint.body_a).is_none() {
+            if self.get_inertial(joint.body_a).is_none() {
                 errors.push(format!(
                     "Joint {:?} references missing body_a {:?}",
-                    joint.id.inner(), joint.body_a.inner()
+                    joint.entity.inner(), joint.body_a.inner()
                 ));
             }
-            if self.get_body(joint.body_b).is_none() {
+            if self.get_inertial(joint.body_b).is_none() {
                 errors.push(format!(
                     "Joint {:?} references missing body_b {:?}",
-                    joint.id.inner(), joint.body_b.inner()
+                    joint.entity.inner(), joint.body_b.inner()
                 ));
             }
         }
 
         for muscle in &self.muscles {
             for point in &muscle.path {
-                if self.get_body(point.body).is_none() {
+                if self.get_inertial(point.body).is_none() {
                     errors.push(format!(
                         "Muscle '{}' path references missing body {:?}",
                         muscle.name, point.body.inner()
@@ -207,10 +216,10 @@ impl World {
         }
 
         for material in &self.materials {
-            if self.get_body(material.body).is_none() {
+            if self.get_inertial(material.body).is_none() {
                 errors.push(format!(
                     "Material {:?} references missing body {:?}",
-                    material.id.inner(), material.body.inner()
+                    material.entity.inner(), material.body.inner()
                 ));
             }
         }

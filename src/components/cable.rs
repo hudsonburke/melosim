@@ -1,19 +1,18 @@
 use serde::{Deserialize, Serialize};
 use crate::id::EntityID;
-use crate::math::Vec3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CableGuide {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub site: EntityID,
     pub diameter: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CablePort {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub port_type: PortType,
-    pub offset: Vec3,
+    pub offset: crate::math::Vec3,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,7 +24,7 @@ pub enum PortType {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cable {
-    pub id: EntityID,
+    pub entity: EntityID,
     pub name: String,
     pub path: Vec<CableSegment>,
     pub tendon: Option<EntityID>,
