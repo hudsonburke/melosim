@@ -10,11 +10,13 @@
 
 **Separate concerns by access pattern.** Components are organized by which system reads them, not by what they represent. A body's mass is read by the rigid body solver. A muscle's path is read by the wrapping solver. A material's Young's modulus is read by the FEM solver. Different systems, different components.
 
-**Composition over inheritance.** Entities are composed of components. A muscle entity has Muscle + MusclePath + HillTypeParams. An exo part entity has Body + Joint + CableGuide. Add components to give entities new capabilities, remove components to take them away.
+**Composition over inheritance.** Entities are composed of components. A muscle entity has Muscle + MusclePath + HillTypeParams. An exo part entity has Frame + InertialProperties + Joint + CableGuide. Add components to give entities new capabilities, remove components to take them away.
 
 **One-to-one → enum field. One-to-many → separate components.** A joint can only be one type (Hinge, Slide, Ball) — use an enum. A site can serve multiple purposes (muscle attachment, cable guide, landmark) — use separate components linked by entity ID.
 
 **Runtime validation, not just compile-time.** The type system prevents most invalid states. But entity references (does body 42 exist?) are runtime checks. The `validate()` method catches what the compiler can't.
+
+**No monolithic components.** Decompose by access pattern. A body is not a single component — it's an entity with InertialProperties + Frame + maybe MeshGeometry + maybe PrimitiveGeometry. A muscle is not a single component — it's an entity with Muscle + MusclePath + HillTypeParams + maybe FEMMuscleMesh. Each component serves one system.
 
 ## ECS Architecture
 
@@ -27,13 +29,14 @@
 Each component type is a separate `Vec` in the World:
 ```rust
 pub struct World {
-    bodies: Vec<Body>,
+    inertials: Vec<InertialProperties>,
+    frames: Vec<Frame>,
     joints: Vec<Joint>,
     muscles: Vec<Muscle>,
     // ...
 }
 ```
-SoA layout for cache-friendly iteration. The rigid body solver iterates over all bodies reading mass and inertia — contiguous memory.
+SoA layout for cache-friendly iteration. The rigid body solver iterates over all inertials reading mass and inertia — contiguous memory.
 
 ### Systems
 Systems are functions that read/write components:
@@ -41,7 +44,7 @@ Systems are functions that read/write components:
 - MJCF compiler: World → XML (reads components, emits MJCF)
 - OpenSim importer: Python API → World (populates components)
 - OpenSim exporter: World → Python API (reads components, emits .osim)
-- Rigid body solver: reads Body, Joint → writes ForceOutput
+- Rigid body solver: reads Frame, InertialProperties → writes ForceOutput
 - Muscle force solver: reads Muscle, MusclePath, HillTypeParams → writes ForceOutput
 - Wrapping solver: reads MusclePath, WrapGeom → updates MusclePath points
 
@@ -50,19 +53,20 @@ Systems are functions that read/write components:
 ### Core Components
 | Component | Fields | Read by |
 |---|---|---|
-| `Body` | id, mass, com, inertia | Rigid body solver |
-| `Joint` | id, body_a, body_b, joint_type, limits | Rigid body solver |
-| `Site` | id, body, offset | Cable routing, landmarks, muscle paths |
-| `Material` | id, body, density, youngs_modulus, poissons_ratio | FEM solver |
-| `Geometry` | id, body, mesh, role | Visualization, collision |
-| `Frame` | id, body, transform | All systems (parent-relative transforms) |
+| `InertialProperties` | entity, mass, com, inertia | Rigid body solver |
+| `Frame` | entity, body, transform | All systems (parent-relative transforms) |
+| `Joint` | entity, body_a, body_b, joint_type, limits | Rigid body solver |
+| `Site` | entity, body, offset | Cable routing, landmarks, muscle paths |
+| `Material` | entity, body, density, youngs_modulus, poissons_ratio | FEM solver |
+| `MeshGeometry` | entity, body, mesh | Visualization, export |
+| `PrimitiveGeometry` | entity, body, shape (Sphere/Cylinder/etc.) | Collision, wrapping |
 
 ### Muscle Decomposition
 A muscle is an entity that can have multiple components:
 
 | Component | Fields | Read by |
 |---|---|---|
-| `Muscle` | id, name | Identity only |
+| `Muscle` | entity, name | Identity only |
 | `MusclePath` | muscle, points, wrap_geoms | Wrapping solver, visualization, export |
 | `HillTypeParams` | muscle, max_force, fiber_length, pcsa, pennation, curves | Hill-type force solver |
 | `FEMMuscleMesh` | muscle, mesh, material, fiber_directions | FEM force solver |
@@ -73,22 +77,24 @@ A muscle is an entity that can have multiple components:
 ### Cable Routing
 | Component | Fields | Read by |
 |---|---|---|
-| `CableGuide` | id, site, diameter | Cable routing solver |
-| `Cable` | id, name, path, tendon | Cable routing solver |
+| `CableGuide` | entity, site, diameter | Cable routing solver |
+| `Cable` | entity, name, path, tendon | Cable routing solver |
 | `CableSegment` | ViaPoint / Port / Wrap (enum) | Cable routing solver |
-| `CablePort` | id, port_type, offset | Cable routing solver |
-| `Tendon` | id, name, spring_length, width, via_points | Tendon force solver |
+| `CablePort` | entity, port_type, offset | Cable routing solver |
+| `Tendon` | entity, name, spring_length, width, via_points | Tendon force solver |
 
 ### Wrapping
 | Component | Fields | Read by |
 |---|---|---|
-| `WrapGeom` | id, body, geom_type (Sphere/Cylinder) | Wrapping solver |
+| `WrapGeom` | entity, body, geom_type (Sphere/Cylinder) | Wrapping solver |
 | `WrapPoint` | site, wrap_geom | Wrapping solver |
+
+Wrapping is defined by path points referencing geometry entities. The geometry entity has a `PrimitiveGeometry` component. The wrapping solver reads path points that reference wrap geometries and computes the wrapping behavior.
 
 ### Actuators
 | Component | Fields | Read by |
 |---|---|---|
-| `Actuator` | id, target, actuator_type (Motor/Position/CableMotor/MuscleActuator) | Control system |
+| `Actuator` | entity, name, actuator_type (Motor/Position/CableMotor/MuscleActuator) | Control system |
 
 ### Joint Types
 | Variant | Data | Use case |
@@ -112,7 +118,7 @@ A muscle is an entity that can have multiple components:
 
 ### Import pipeline
 1. Load model via OpenSim Python API: `model = osim.Model('Rajagopal2015.osim')`
-2. Walk `model.getBodySet()` → create Body + Frame entities
+2. Walk `model.getBodySet()` → create InertialProperties + Frame entities
 3. Walk `model.getJointSet()` → create Joint entities (detect type via `getConcreteClassName()`)
 4. Walk `model.getMuscleSet()` → create Muscle + MusclePath + HillTypeParams entities
 5. Walk `model.getMarkerSet()` → create Site + Landmark entities
@@ -121,7 +127,7 @@ A muscle is an entity that can have multiple components:
 8. Validate all references (bodies exist, muscles reference valid bodies, etc.)
 
 ### Export pipeline
-1. Walk all bodies → emit `<Body>` elements
+1. Walk all inertials → emit `<Body>` elements
 2. Walk all joints → emit `<Joint>` elements (detect type, emit appropriate XML)
 3. Walk all muscles → emit `<Muscle>` elements with `<GeometryPath>` and `<PathPoint>` elements
 4. Walk all markers → emit `<Marker>` elements
@@ -156,16 +162,16 @@ A muscle is an entity that can have multiple components:
 
 ### Import pipeline
 1. Load via MuJoCo C API: `mj_loadXML()` (handles includes, compiler directives)
-2. Walk `mjModel.body_*` → create Body + Frame entities
+2. Walk `mjModel.body_*` → create InertialProperties + Frame entities
 3. Walk `mjModel.joint_*` → create Joint entities
-4. Walk `mjModel.geom_*` → create Geometry entities
+4. Walk `mjModel.geom_*` → create MeshGeometry or PrimitiveGeometry entities
 5. Walk `mjModel.site_*` → create Site entities
 6. Walk `mjModel.actuator_*` → create Actuator entities
 7. Walk `mjModel.tendon_*` → create Tendon entities
 8. Validate all references
 
 ### Export pipeline
-1. Walk all bodies → emit `<body>` elements with `<inertial>`, `<joint>`, `<geom>`, `<site>`
+1. Walk all inertials → emit `<body>` elements with `<inertial>`, `<joint>`, `<geom>`, `<site>`
 2. Walk all actuators → emit `<actuator>` elements
 3. Walk all tendons → emit `<tendon><spatial>` elements
 4. Walk all equality constraints → emit `<equality>` elements
@@ -191,7 +197,7 @@ The importer operates at the whole-model level (resolves names to entity IDs). B
 ```
 Import pipeline:
 ├── import_model()          ← whole-model: resolves names, creates entities
-│   ├── import_body()       ← individual: creates Body entity
+│   ├── import_body()       ← individual: creates InertialProperties + Frame entities
 │   ├── import_joint()      ← individual: creates Joint entity, resolves body refs
 │   ├── import_muscle()     ← individual: creates Muscle entity, resolves body refs
 │   └── import_wrap()       ← individual: creates WrapGeom entity
