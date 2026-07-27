@@ -13,22 +13,21 @@
   outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
+        lib = nixpkgs.lib;
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
+        pkgsX86 = import nixpkgs { system = "x86_64-linux"; };
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
         };
 
-        # Python with OpenSim available via pip.
-        # OpenSim PyPI wheel provides the native library on x86_64-linux.
-        # Must pin to Python 3.13 — OpenSim wheels only support up to 3.13
-        # and PyO3 0.23 doesn't support 3.14 either.
+        # Native Python for core crate tests (no OpenSim needed)
         pythonEnv = (pkgs.python313.withPackages (ps: with ps; [
-          pip
-          setuptools
-          wheel
-          numpy
+          pip setuptools wheel numpy
         ]));
+
+        qemu = pkgs.qemu;
+        isAarch64 = system == "aarch64-linux";
       in {
         packages.default = rustToolchain;
 
@@ -38,75 +37,106 @@
             pkgs.maturin
             pythonEnv
             pkgs.openssl
-            pkgs.libGL
-            pkgs.libGLU
-            pkgs.libX11
-            pkgs.libXi
-            pkgs.libXmu
-            pkgs.libXt
-            pkgs.freetype
-            pkgs.fontconfig
-            pkgs.libxcursor
-            pkgs.libxrandr
-            pkgs.libxinerama
+            pkgs.libGL pkgs.libGLU pkgs.libX11 pkgs.libXi
+            pkgs.libXmu pkgs.libXt pkgs.freetype pkgs.fontconfig
+            pkgs.libxcursor pkgs.libxrandr pkgs.libxinerama
+            qemu
           ];
 
-          nativeBuildInputs = [
-            pkgs.pkg-config
-            pkgs.cmake
-          ];
+          nativeBuildInputs = [ pkgs.pkg-config pkgs.cmake ];
 
+          # Cross-arch roundtrip setup:
+          #   x86_64:    native Python + pip install opensim
+          #   aarch64:   QEMU + x86_64 Python fetched from cache + pip install opensim
+          #
+          # The x86_64 Python is fetched from the binary cache (not built locally).
+          # We avoid pkgsX86.python313.withPackages() because buildEnv derivations
+          # can't be substituted cross-arch — we use bare python313 instead and
+          # create the venv at runtime.
           shellHook = ''
             echo "melosim dev shell"
+            echo "  system: ${system}"
             echo "  rust: $(rustc --version)"
             echo "  cargo: $(cargo --version)"
 
-            # Create venv if it doesn't exist, install opensim
-            if [ ! -d .venv ]; then
-              echo "  Setting up Python venv with OpenSim..."
-              python3 -m venv .venv
-              .venv/bin/pip install --quiet opensim
-              echo "  OpenSim installed."
+            if [ "${system}" = "aarch64-linux" ]; then
+              echo "  arch: aarch64 (QEMU for x86_64 OpenSim)"
+
+              X86_QEMU="${qemu}/bin/qemu-x86_64"
+              X86_PY="${pkgsX86.python313}/bin/python3.13"
+              X86_ZLIB="${pkgsX86.zlib}/lib"
+              X86_GCC_LIB="${pkgsX86.stdenv.cc.cc.lib}/lib"
+              X86_GLIBC="${pkgsX86.glibc}/lib"
+
+              # Create x86_64 environment for OpenSim under QEMU.
+              # pip is not available in Nix's bare python313, so we bootstrap it.
+              if [ ! -f "$PWD/.x86-pip-ready" ]; then
+                echo "  Setting up x86_64 Python with OpenSim (under QEMU)..."
+                # Bootstrap pip
+                curl -sS https://bootstrap.pypa.io/get-pip.py 2>/dev/null | \
+                  $X86_QEMU $X86_PY - --break-system-packages 2>/dev/null
+                # Install opensim
+                LD_LIBRARY_PATH="$X86_ZLIB:$X86_GCC_LIB" \
+                  $X86_QEMU $X86_PY -m pip install opensim --break-system-packages 2>/dev/null
+                touch "$PWD/.x86-pip-ready"
+                echo "  x86_64 OpenSim ready."
+              fi
+
+              LD_LIBRARY_PATH="$X86_ZLIB:$X86_GCC_LIB"
+
+              roundtrip() {
+                local input="$1"
+                local output="''${2:-roundtrip_output.osim}"
+
+                if [ "''${input#*.}" = "json" ]; then
+                  cargo run --bin roundtrip -- --from-json "$input" "$output"
+                else
+                  local json_tmp=$(mktemp /tmp/melosim-XXXXXX.json)
+                  echo "[1/2] Extracting via QEMU..."
+                  LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+                    $X86_QEMU $X86_PY scripts/extract_opensim.py "$input" "$json_tmp"
+                  echo "[2/2] Importing + exporting (native)..."
+                  cargo run --bin roundtrip -- --from-json "$json_tmp" "$output"
+                  rm -f "$json_tmp"
+                fi
+              }
+
+            else
+              # x86_64 — native OpenSim
+              echo "  arch: x86_64 (native OpenSim)"
+
+              if [ ! -d .venv ]; then
+                echo "  Setting up Python venv with OpenSim..."
+                python3 -m venv .venv
+                .venv/bin/pip install --quiet opensim
+              fi
+              source .venv/bin/activate
+
+              roundtrip() {
+                cargo run --bin roundtrip -- "$@"
+              }
             fi
-            source .venv/bin/activate
-            echo "  python: $(python --version)"
-            echo "  opensim: $(python -c 'import opensim; print(opensim.__version__)' 2>/dev/null || echo 'not loaded')"
+
+            echo "  Roundtrip: roundtrip <input.osim> [output.osim]"
+            echo "  python: $(python --version 2>/dev/null || echo 'n/a')"
           '';
         };
 
-        # OCI container with Rust + Python + OpenSim pre-installed.
-        # Can be used for CI or by users who want to run the importer
-        # without setting up the full Nix environment.
+        # OCI container for CI / portable testing.
+        # Best built on x86_64 where OpenSim pip package works natively.
         packages.opensim-container = pkgs.dockerTools.buildImage {
           name = "melosim";
           tag = "latest";
           copyToRoot = pkgs.buildEnv {
             name = "image-root";
             paths = with pkgs; [
-              bashInteractive
-              coreutils-full
-              gnutar
-              gzip
-              git
-              gcc
-              cmake
-              pkg-config
-              openssl
-              libGL
-              libGLU
-              libX11
-              libXi
-              libXmu
-              libXt
-              pkgs.freetype
-              pkgs.fontconfig
-              pkgs.libxcursor
-              pkgs.libxrandr
-              pkgs.libxinerama
+              bashInteractive coreutils-full gnutar gzip git gcc cmake
+              pkg-config openssl
+              libGL libGLU libX11 libXi libXmu libXt
+              freetype fontconfig libxcursor libxrandr libxinerama
               pythonEnv
-              (rustToolchain.override {
-                extensions = [ "rust-src" "clippy" ];
-              })
+              qemu
+              (rustToolchain.override { extensions = [ "rust-src" "clippy" ]; })
             ];
           };
           config = {

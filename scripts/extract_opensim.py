@@ -3,17 +3,15 @@
 Extract OpenSim model data to JSON for melosim Rust importer.
 
 Usage:
-    python extract_opensim.py Rajagopal2015.osim output.json
-
-Requires:
-    opensim (pip install opensim)  — only on your local machine
+    python scripts/extract_opensim.py Rajagopal2015.osim [output.json]
+    qemu-x86_64 python3 scripts/extract_opensim.py model.osim model.json   (on aarch64)
 
 Produces a JSON file matching the OpenSimModelData struct in
 melosim::importer::opensim. The Rust importer reads this JSON
 and populates an ECS World.
 
 Architecture:
-    Your machine (OpenSim) ──JSON──→ Any machine (Rust importer)
+    OpenSim host ──JSON──→ Rust (any platform)
 """
 
 import json
@@ -21,24 +19,22 @@ import sys
 from pathlib import Path
 
 
+def vec3(v):
+    return [v.get(i) for i in range(3)]
+
+
 def extract_body(body):
-    """Extract body data from an OpenSim Body object."""
-    mass_center = body.getMassCenter()
+    mc = body.getMassCenter()
     inertia = body.getInertia()
     return {
         "name": body.getName(),
         "mass": body.getMass(),
-        "mass_center": [mass_center.get(i) for i in range(3)],
-        "inertia": [
-            inertia.get(0), inertia.get(1), inertia.get(2),  # Ixx, Iyy, Izz
-            inertia.get(3), inertia.get(4), inertia.get(5),  # Ixy, Ixz, Iyz
-        ],
+        "mass_center": vec3(mc),
+        "inertia": [inertia.get(i) for i in range(6)],
     }
 
 
 def extract_coordinate(coord):
-    """Extract a coordinate from an OpenSim Coordinate object."""
-    # Check for prescribed function
     prescribed = None
     try:
         pf = coord.getPrescribedFunction()
@@ -48,10 +44,7 @@ def extract_coordinate(coord):
             if func_type == "PolynomialFunction":
                 for i in range(pf.getCoefficientSize()):
                     coeffs.append(pf.getCoefficient(i))
-            prescribed = {
-                "function_type": func_type,
-                "coefficients": coeffs,
-            }
+            prescribed = {"function_type": func_type, "coefficients": coeffs}
     except Exception:
         pass
 
@@ -69,7 +62,6 @@ def extract_coordinate(coord):
 
 
 def extract_effect(effect):
-    """Extract a CoordinateEffect from a SpatialTransform component."""
     function = effect.getFunction()
     func_type = function.getConcreteClassName()
     coeffs = []
@@ -81,7 +73,7 @@ def extract_effect(effect):
     elif func_type == "Constant":
         coeffs = [function.getValue()]
     elif func_type == "NullFunction":
-        return None  # No effect defined for this component
+        return None
 
     return {
         "coordinate_name": effect.getCoordinate().getName(),
@@ -91,35 +83,30 @@ def extract_effect(effect):
 
 
 def extract_spatial_transform(joint):
-    """Extract the SpatialTransform from a CustomJoint."""
     if joint.getConcreteClassName() != "CustomJoint":
         return None
-
     st = joint.getSpatialTransform()
-    transform = {}
-    # The 6 transform components
-    for component_name in [
-        "rotation_x", "rotation_y", "rotation_z",
-        "translation_x", "translation_y", "translation_z",
-    ]:
-        # In OpenSim Python API, transform components are accessed
-        # by index (0-5) rather than name directly
-        transform[component_name] = None
-
-    # TODO: OpenSim Python API needs proper iteration
-    # For now, this is a placeholder — the actual iteration
-    # depends on how PyO3 exposes SpatialTransform components.
-    # In practice you'd do:
-    # for i in range(6):
-    #     component = st.getComponent(i)
-    #     effect = extract_effect(component)
-    #     if effect:
-    #         transform[component_name_map[i]] = effect
-    return transform
+    names = ["rotation_x", "rotation_y", "rotation_z",
+             "translation_x", "translation_y", "translation_z"]
+    result = {n: None for n in names}
+    for idx, name in enumerate(names):
+        try:
+            prop = st.getPropertyByName(name)
+            effect = extract_effect(prop)
+            if effect:
+                result[name] = effect
+        except Exception:
+            try:
+                comp = st.getComponent(idx)
+                effect = extract_effect(comp)
+                if effect:
+                    result[name] = effect
+            except Exception:
+                pass
+    return result
 
 
 def extract_joint(joint):
-    """Extract joint data from an OpenSim Joint object."""
     joint_type = joint.getConcreteClassName()
     data = {
         "name": joint.getName(),
@@ -140,35 +127,23 @@ def extract_joint(joint):
         coord = joint.getCoordinate()
         data["axis"] = list(coord.getAxis())
         data["coordinate"] = extract_coordinate(coord)
-
     elif joint_type == "CustomJoint":
         coords = joint.getCoordinateSet()
-        data["coordinates"] = [
-            extract_coordinate(coords.get(i))
-            for i in range(coords.getSize())
-        ]
+        data["coordinates"] = [extract_coordinate(coords.get(i)) for i in range(coords.getSize())]
         data["spatial_transform"] = extract_spatial_transform(joint)
-
     elif joint_type == "UniversalJoint":
         coords = joint.getCoordinateSet()
-        data["coordinates"] = [
-            extract_coordinate(coords.get(i))
-            for i in range(coords.getSize())
-        ]
-
+        data["coordinates"] = [extract_coordinate(coords.get(i)) for i in range(coords.getSize())]
     elif joint_type == "BallJoint":
         coord = joint.getCoordinate()
         data["coordinate"] = extract_coordinate(coord)
-
     elif joint_type in ("FreeJoint", "WeldJoint"):
-        pass  # No coordinates to extract
-
+        pass
     else:
-        # For unknown types, try to get coordinates if they exist
         try:
-            if joint.getCoordinateSet().getSize() > 0:
-                coord = joint.getCoordinate(0)
-                data["coordinate"] = extract_coordinate(coord)
+            cs = joint.getCoordinateSet()
+            if cs.getSize() > 0:
+                data["coordinate"] = extract_coordinate(cs.get(0))
         except Exception:
             pass
 
@@ -176,19 +151,133 @@ def extract_joint(joint):
 
 
 def extract_marker(marker):
-    """Extract marker data from an OpenSim Marker object."""
-    location = marker.getLocation()
     return {
         "name": marker.getName(),
         "body": marker.getBodyName(),
-        "location": [location.get(i) for i in range(3)],
+        "location": list(marker.getLocation()),
     }
 
 
+def extract_muscle_path_points(force):
+    points = []
+    try:
+        path = force.getGeometryPath()
+        pset = path.getPathPointSet()
+        for j in range(pset.getSize()):
+            pp = pset.get(j)
+            pp_type = pp.getConcreteClassName()
+            body = pp.getBody().getName()
+            loc = vec3(pp.getLocation())
+            coordinate = None
+            function = None
+            if pp_type == "MovingPathPoint":
+                try:
+                    coordinate = pp.getCoordinate().getName()
+                    func = pp.getFunction()
+                    func_type = func.getConcreteClassName()
+                    if "Polynomial" in func_type:
+                        coeffs = [func.getCoefficient(k) for k in range(func.getCoefficientSize())]
+                        function = coeffs
+                except Exception:
+                    pass
+            points.append({
+                "point_type": pp_type,
+                "body": body,
+                "location": loc,
+                "coordinate": coordinate,
+                "function": function,
+            })
+    except Exception:
+        pass
+    return points
+
+
+def extract_muscle(force, body_names, coord_names):
+    name = force.getName()
+    class_name = force.getConcreteClassName()
+
+    def get_f64(method, default=0.0):
+        try:
+            return getattr(force, method)()
+        except Exception:
+            return default
+
+    def get_bool(method, default=False):
+        try:
+            return getattr(force, method)()
+        except Exception:
+            return default
+
+    # Geometry path points
+    path_points = extract_muscle_path_points(force)
+
+    return {
+        "name": name,
+        "muscle_type": class_name,
+        "max_isometric_force": get_f64("getMaxIsometricForce"),
+        "optimal_fiber_length": get_f64("getOptimalFiberLength"),
+        "tendon_slack_length": get_f64("getTendonSlackLength"),
+        "pennation_angle_at_optimal": get_f64("getPennationAngleAtOptimalFiberLength"),
+        "max_contraction_velocity": get_f64("getMaxContractionVelocity", 10.0),
+        "activation_time_constant": get_f64("getActivationTimeConstant", 0.01),
+        "deactivation_time_constant": get_f64("getDeactivationTimeConstant", 0.04),
+        "minimum_activation": get_f64("getMinimumActivation", 0.01),
+        "fiber_damping": get_f64("getFiberDamping", 0.1),
+        "ignore_activation_dynamics": get_bool("getIgnoreActivationDynamics"),
+        "ignore_tendon_compliance": get_bool("getIgnoreTendonCompliance"),
+        "path_points": path_points,
+    }
+
+
+def extract_wrap(wrap):
+    name = wrap.getName()
+    wrap_type = wrap.getConcreteClassName()
+    body = wrap.getFrame().getName()
+    location = list(wrap.getLocation())
+    orientation = list(wrap.getOrientation())
+
+    if "Sphere" in wrap_type:
+        dimensions = [wrap.getRadius()]
+    elif "Cylinder" in wrap_type:
+        dimensions = [wrap.getRadius(), wrap.getLength()]
+    elif "Ellipsoid" in wrap_type:
+        dims = wrap.getDimensions()
+        dimensions = [dims.get(i) for i in range(3)]
+    else:
+        dimensions = []
+
+    return {
+        "name": name,
+        "body": body,
+        "wrap_type": wrap_type,
+        "dimensions": dimensions,
+        "location": location,
+        "orientation": orientation,
+    }
+
+
+def extract_display_geometry(body):
+    geoms = []
+    try:
+        for i in range(body.getPropertyByName("display_geometry").size()):
+            dg = body.getPropertyByName("display_geometry").getValue(i)
+            geoms.append({
+                "body_name": body.getName(),
+                "mesh_file": dg.getPropertyByName("display_geometry_file").getValueString(0),
+                "scale_factors": list(dg.getPropertyByName("scale_factors").getValue(0)),
+                "color": list(dg.getPropertyByName("color").getValue(0)),
+                "opacity": dg.getPropertyByName("opacity").getValue(0),
+                "transform": list(dg.getPropertyByName("transform").getValue(0)) if dg.getPropertyByName("transform").size() > 0 else None,
+            })
+    except Exception:
+        pass
+    return geoms
+
+
 def extract_model(osim_path):
-    """Load an OpenSim model and extract its data structure."""
     import opensim as osim
 
+    print(f"Loading {osim_path}...")
     model = osim.Model(osim_path)
     model.initSystem()
 
@@ -197,36 +286,64 @@ def extract_model(osim_path):
         "bodies": [],
         "joints": [],
         "markers": [],
+        "muscles": [],
+        "wrap_objects": [],
+        "display_geometries": [],
     }
 
-    # Extract bodies
+    # Bodies
     body_set = model.getBodySet()
     for i in range(body_set.getSize()):
-        body = body_set.get(i)
-        data["bodies"].append(extract_body(body))
+        data["bodies"].append(extract_body(body_set.get(i)))
 
-    # Ground is implicit — add it if not already in the set
-    # (OpenSim's BodySet doesn't include ground by default)
     has_ground = any(b["name"] == "ground" for b in data["bodies"])
     if not has_ground:
         data["bodies"].append({
-            "name": "ground",
-            "mass": 0.0,
-            "mass_center": [0.0, 0.0, 0.0],
-            "inertia": [0.0] * 6,
+            "name": "ground", "mass": 0.0,
+            "mass_center": [0.0, 0.0, 0.0], "inertia": [0.0] * 6,
         })
 
-    # Extract joints
+    body_names = {b["name"] for b in data["bodies"]}
+
+    # Joints
     joint_set = model.getJointSet()
     for i in range(joint_set.getSize()):
-        joint = joint_set.get(i)
-        data["joints"].append(extract_joint(joint))
+        data["joints"].append(extract_joint(joint_set.get(i)))
 
-    # Extract markers
+    # Coordinates name map (for muscle path points)
+    coord_names = set()
+    for j in data["joints"]:
+        if j["coordinate"]:
+            coord_names.add(j["coordinate"]["name"])
+        if j["coordinates"]:
+            for c in j["coordinates"]:
+                coord_names.add(c["name"])
+
+    # Markers
     marker_set = model.getMarkerSet()
     for i in range(marker_set.getSize()):
-        marker = marker_set.get(i)
-        data["markers"].append(extract_marker(marker))
+        data["markers"].append(extract_marker(marker_set.get(i)))
+
+    # Muscles (from ForceSet)
+    force_set = model.getForceSet()
+    for i in range(force_set.getSize()):
+        force = force_set.get(i)
+        class_name = force.getConcreteClassName()
+        if "Muscle" in class_name:
+            data["muscles"].append(extract_muscle(force, body_names, coord_names))
+
+    # Wrap objects
+    try:
+        wrap_set = model.getWrapObjectSet()
+        for i in range(wrap_set.getSize()):
+            data["wrap_objects"].append(extract_wrap(wrap_set.get(i)))
+    except Exception:
+        pass
+
+    # Display geometry (attached to bodies)
+    for i in range(body_set.getSize()):
+        body = body_set.get(i)
+        data["display_geometries"].extend(extract_display_geometry(body))
 
     return data
 
@@ -237,20 +354,19 @@ def main():
         sys.exit(1)
 
     osim_path = sys.argv[1]
-    json_path = sys.argv[2] if len(sys.argv) > 2 else "model.json"
-
-    print(f"Loading model from {osim_path}...")
+    json_path = sys.argv[2] if len(sys.argv) > 2 else Path(osim_path).with_suffix(".json")
     data = extract_model(osim_path)
 
-    print(f"  Bodies: {len(data['bodies'])}")
-    print(f"  Joints: {len(data['joints'])}")
-    print(f"  Markers: {len(data['markers'])}")
-    print(f"Writing to {json_path}...")
+    print(f"  Bodies:       {len(data['bodies'])}")
+    print(f"  Joints:       {len(data['joints'])}")
+    print(f"  Markers:      {len(data['markers'])}")
+    print(f"  Muscles:      {len(data['muscles'])}")
+    print(f"  Wrap objects: {len(data['wrap_objects'])}")
+    print(f"  Display geom: {len(data['display_geometries'])}")
 
     with open(json_path, "w") as f:
         json.dump(data, f, indent=2)
-
-    print("Done!")
+    print(f"Wrote {json_path}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,53 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    name: Core tests (JSON fixtures, no OpenSim)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo test
+      - run: cargo clippy -- -D warnings
+      - run: cargo fmt --check
+
+  roundtrip:
+    name: Round-trip (OpenSim needed)
+    # Only run on main branch pushes — requires pip install opensim
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install OpenSim
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install opensim
+          echo "PYTHON_HOME=$PWD/.venv" >> $GITHUB_ENV
+      - name: Download test model
+        run: |
+          # Download a minimal OpenSim arm model for round-trip testing
+          curl -sLo /tmp/arm26.osim \
+            https://raw.githubusercontent.com/opensim-org/opensim-models/main/Models/ARM26/arm26.osim
+          echo "Model downloaded: $(wc -c < /tmp/arm26.osim) bytes"
+      - name: Run round-trip
+        run: |
+          . .venv/bin/activate
+          cargo run --bin roundtrip -- /tmp/arm26.osim /tmp/arm26_output.osim
+      - name: Verify output
+        run: |
+          ls -la /tmp/arm26*.osim
+          echo "--- Output head ---"
+          head -20 /tmp/arm26_output.osim

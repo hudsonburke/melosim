@@ -1,42 +1,71 @@
 // ── Round-trip binary ─────────────────────────────────
-// CLI tool: import an .osim file via PyO3/OpenSim, export it back,
-// and report comparison metrics.
+// CLI tool: import an .osim file via PyO3/OpenSim and export it back.
 //
 // Usage:
-//   cargo run --bin roundtrip -- Rajagopal2015.osim [output.osim]
-//
-// Requires: Python + opensim package installed at runtime.
+//   cargo run --bin roundtrip -- Rajagopal2015.osim [output.osim]   (needs OpenSim)
+//   cargo run --bin roundtrip -- --json model.json [output.osim]    (from extracted JSON, no OpenSim)
+//   qemu-x86_64 roundtrip Rajagopal2015.osim output.osim            (on aarch64 with QEMU)
 
 use std::path::Path;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: roundtrip <input.osim> [output.osim]");
+        eprintln!("Usage:");
+        eprintln!("  roundtrip <input.osim> [output.osim]        # PyO3 import (needs OpenSim)");
+        eprintln!("  roundtrip --from-json <input.json> [output.osim]  # JSON import (no OpenSim)");
         std::process::exit(1);
     }
 
-    let input_path = &args[1];
-    let output_path = args.get(2).map(|s| s.as_str()).unwrap_or("roundtrip_output.osim");
+    // Detect --from-json mode
+    let from_json = args[1] == "--from-json";
+    let input_arg = if from_json { &args[2] } else { &args[1] };
+    let output_path = if from_json {
+        args.get(3).map(|s| s.as_str()).unwrap_or("roundtrip_output.osim")
+    } else {
+        args.get(2).map(|s| s.as_str()).unwrap_or("roundtrip_output.osim")
+    };
 
-    // Verify input exists
-    if !Path::new(input_path).exists() {
-        eprintln!("Error: input file not found: {}", input_path);
+    if !Path::new(input_arg).exists() {
+        eprintln!("Error: input file not found: {}", input_arg);
         std::process::exit(1);
     }
 
     println!("=== melosim Round-Trip ===");
-    println!("Input:  {}", input_path);
+    println!("Input:  {}", input_arg);
     println!("Output: {}", output_path);
     println!();
 
-    // Step 1: Import via PyO3 (OpenSim Python API)
-    println!("[1/3] Importing model via PyO3 (OpenSim)...");
-    let world = match import_via_pyo3(input_path) {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("Import failed: {}", e);
-            std::process::exit(1);
+    // Step 1: Import
+    let world = if from_json {
+        println!("[1/3] Importing model from JSON fixture...");
+        match melosim::importer::opensim::load_opensim_json(input_arg) {
+            Ok(model) => {
+                let mut world = melosim::world::World::new();
+                melosim::importer::opensim::import_opensim_model(&mut world, &model)
+                    .unwrap_or_else(|errors| {
+                        eprintln!("Import failed with {} errors:", errors.len());
+                        for e in &errors {
+                            eprintln!("  {}", e);
+                        }
+                        std::process::exit(1);
+                    });
+                world
+            }
+            Err(e) => {
+                eprintln!("Failed to load JSON: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("[1/3] Importing model via PyO3 (OpenSim)...");
+        match import_via_pyo3(input_arg) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("Import failed: {}", e);
+                eprintln!("Tip: On aarch64, use '--from-json' with a pre-extracted JSON file instead.");
+                std::process::exit(1);
+            }
         }
     };
     println!("  Bodies: {}", world.count::<melosim::components::InertialProperties>());
@@ -58,7 +87,7 @@ fn main() {
 
     // Step 3: Export
     println!("\n[3/3] Exporting to .osim XML...");
-    let model_name = Path::new(input_path)
+    let model_name = Path::new(input_arg)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("model");
