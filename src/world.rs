@@ -67,29 +67,53 @@ impl World {
             .map_or(0, |m| m.len())
     }
 
-    /// Validate cross-entity references.
+    /// Remove a component from an entity. Returns the component if it existed.
+    pub fn remove<T: 'static>(&mut self, key: EntityKey) -> Option<T> {
+        self.components
+            .get_mut::<ComponentMap<T>>()
+            .and_then(|map| map.remove(key))
+    }
+
+    /// Validate cross-entity references and data integrity.
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
 
-        // Check that Joint body references exist
-        for (key, joint) in self.iter::<Joint>() {
-            if self.get::<InertialProperties>(joint.body_a).is_none() {
-                errors.push(format!(
-                    "Joint {:?} references missing body_a {:?}",
-                    key.data().as_ffi(),
-                    joint.body_a.data().as_ffi()
+        // ── Joint validation ──
+        // Check that joint body_a/body_b references exist
+        let check_joint = |body_a: EntityKey, body_b: EntityKey| -> Vec<String> {
+            let mut errs = Vec::new();
+            if self.get::<InertialProperties>(body_a).is_none() {
+                errs.push(format!(
+                    "Joint references missing body_a {:?}",
+                    body_a.data().as_ffi()
                 ));
             }
-            if self.get::<InertialProperties>(joint.body_b).is_none() {
-                errors.push(format!(
-                    "Joint {:?} references missing body_b {:?}",
-                    key.data().as_ffi(),
-                    joint.body_b.data().as_ffi()
+            if self.get::<InertialProperties>(body_b).is_none() {
+                errs.push(format!(
+                    "Joint references missing body_b {:?}",
+                    body_b.data().as_ffi()
                 ));
             }
+            errs
+        };
+
+        for (_key, hinge) in self.iter::<HingeJoint>() {
+            errors.extend(check_joint(hinge.body_a, hinge.body_b));
+        }
+        for (_key, slide) in self.iter::<SlideJoint>() {
+            errors.extend(check_joint(slide.body_a, slide.body_b));
+        }
+        for (_key, ball) in self.iter::<BallJoint>() {
+            errors.extend(check_joint(ball.body_a, ball.body_b));
+        }
+        for (_key, free) in self.iter::<FreeJoint>() {
+            errors.extend(check_joint(free.body_a, free.body_b));
+        }
+        for (_key, fixed) in self.iter::<FixedJoint>() {
+            errors.extend(check_joint(fixed.body_a, fixed.body_b));
         }
 
-        // Check that Frame parent references exist
+        // ── Frame parent validation ──
         for (key, frame) in self.iter::<Frame>() {
             if self.get::<InertialProperties>(frame.parent).is_none() {
                 errors.push(format!(
@@ -100,7 +124,7 @@ impl World {
             }
         }
 
-        // Check that Site parent references exist
+        // ── Site parent validation ──
         for (key, site) in self.iter::<Site>() {
             if self.get::<InertialProperties>(site.parent).is_none() {
                 errors.push(format!(
@@ -117,13 +141,17 @@ impl World {
 
 impl std::fmt::Debug for World {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("World")
-            .field("inertials", &self.count::<InertialProperties>())
+        let mut s = f.debug_struct("World");
+        s.field("inertials", &self.count::<InertialProperties>())
             .field("frames", &self.count::<Frame>())
-            .field("joints", &self.count::<Joint>())
+            .field("hinge_joints", &self.count::<HingeJoint>())
+            .field("slide_joints", &self.count::<SlideJoint>())
+            .field("ball_joints", &self.count::<BallJoint>())
+            .field("free_joints", &self.count::<FreeJoint>())
+            .field("fixed_joints", &self.count::<FixedJoint>())
             .field("sites", &self.count::<Site>())
             .field("materials", &self.count::<Material>())
-            .field("muscles", &self.count::<HillTypeMuscleParams>())
-            .finish()
+            .field("muscle_params", &self.count::<HillTypeMuscleParams>());
+        s.finish()
     }
 }

@@ -25,28 +25,45 @@
 - Created by `World::spawn()`
 - Used as foreign keys in component fields
 
-### Components (Struct of Arrays)
-Each component type is a separate `Vec` in the World:
-```rust
-pub struct World {
-    inertials: Vec<InertialProperties>,
-    frames: Vec<Frame>,
-    joints: Vec<Joint>,
-    muscles: Vec<Muscle>,
-    // ...
-}
-```
-SoA layout for cache-friendly iteration. The rigid body solver iterates over all inertials reading mass and inertia — contiguous memory.
-
-### Systems
-Systems are functions that read/write components:
-- MJCF parser: XML → World (populates components)
-- MJCF compiler: World → XML (reads components, emits MJCF)
-- OpenSim importer: Python API → World (populates components)
-- OpenSim exporter: World → Python API (reads components, emits .osim)
-- Rigid body solver: reads Frame, InertialProperties → writes ForceOutput
-- Muscle force solver: reads Muscle, MusclePath, HillTypeParams → writes ForceOutput
-- Wrapping solver: reads MusclePath, WrapGeom → updates MusclePath points
+| Storage (AnyMap of SlotMaps)
+|Each component type is stored in its own `SlotMap` inside an `AnyMap`:
+|```rust
+|pub struct World {
+|    pub components: AnyMap,  // stores SlotMap<EntityKey, T> for each T
+|}
+|```
+|This is the Catherine West pattern (RustConf 2018): type-erased storage with typed access.
+|Adding a new component type does NOT require modifying the World struct — just insert
+|a new SlotMap into the AnyMap at runtime.
+|
+|### Systems
+|Systems are standalone functions that read/write specific component types:
+|- MJCF parser: XML → World (populates components)
+|- MJCF compiler: World → XML (reads components, emits MJCF)
+|- OpenSim importer: Python API → World (populates components)
+|- OpenSim exporter: World → Python API (reads components, emits .osim)
+|- Rigid body solver: reads Frame, InertialProperties → writes ForceOutput
+|- Muscle force solver: reads MusclePath, HillTypeParams → writes ForceOutput
+|- Wrapping solver: reads MusclePath, WrapGeom → updates MusclePath points
+|
+|### System Registry
+|Systems are registered in a `SystemRegistry` at startup:
+|```rust
+|pub struct SystemRegistry {
+|    systems: Vec<Box<dyn Fn(&mut World)>>,
+|}
+|```
+|```rust
+|let mut registry = SystemRegistry::new();
+|registry.add("hinge_joints", hinge_system);
+|registry.add("ball_joints", ball_system);
+|// Custom joint type — no existing code changed
+|registry.add("prismatic_joint", prismatic_system);
+|registry.run(&mut world);
+|```
+|Each system reads ONLY the concrete types it needs. The registry iterates systems in
+|order. Adding a new component type = add a struct + write a system + register it.
+|No changes to World, no changes to existing systems, no trait objects.
 
 ## Component Decomposition
 
@@ -96,15 +113,28 @@ Wrapping is defined by path points referencing geometry entities. The geometry e
 |---|---|---|
 | `Actuator` | entity, name, actuator_type (Motor/Position/CableMotor/MuscleActuator) | Control system |
 
-### Joint Types
-| Variant | Data | Use case |
-|---|---|---|
-| `Hinge` | axis | Pin joint (hip flexion, knee flexion) |
-| `Slide` | axis | Prismatic joint (knee translation) |
-| `Ball` | (none) | Ball-and-socket (hip rotation) |
-| `Free` | (none) | Free body (pelvis in space) |
-| `Fixed` | (none) | Rigid connection |
-| `CustomJoint` | coordinates, base_transform, coordinate_effects | OpenSim custom joints (knee with coupled motion) |
+|### Joint Types
+|Each joint type is a standalone component carrying both the common fields
+|(body_a, body_b, limits) and type-specific data. Every component is its own
+|entity — there is no secondary join needed.
+|
+|| Component | Fields | FK Solver |
+||---|---|---|
+|| `HingeJoint` | body_a, body_b, limits, axis | Hinge system |
+|| `SlideJoint` | body_a, body_b, limits, axis | Slide system |
+|| `BallJoint` | body_a, body_b, limits | Ball system |
+|| `FreeJoint` | body_a, body_b, limits | Free system |
+|| `FixedJoint` | body_a, body_b, limits | Fixed system |
+|
+|Adding a new joint type: define the component struct, write a FK system
+|function, register the system. No changes to any existing code.
+|
+|**Why separate components instead of an enum?** An enum is a closed set —
+|adding a variant requires modifying the enum definition and every match
+|statement. Separate component types are an open set — a downstream crate
+|can define a `PrismaticJoint` without touching melosim's source code.
+|The system registry handles iteration. Each joint type lives in its own
+|SlotMap in the AnyMap, so there's no wasted space for unused variants.
 
 ## Round-Trip Plan: OpenSim (Rajagopal 2015)
 
