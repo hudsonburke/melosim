@@ -1,10 +1,6 @@
-use crate::math::{Transform, Vec3};
 use serde::{Deserialize, Serialize};
-use slotmap::new_key_type;
-
-new_key_type! {
-    pub struct BodyKey;
-}
+use crate::math::{Transform, Vec3};
+use crate::id::EntityKey;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InertialProperties {
@@ -15,12 +11,18 @@ pub struct InertialProperties {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Frame {
-    pub parent: BodyKey,
+    pub parent: EntityKey,
     pub transform: Transform,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Site {
-    pub parent: BodyKey,
+    pub parent: EntityKey,
     pub offset: Vec3,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Landmark {
+    pub site: EntityKey,
+    pub name: String,
 }

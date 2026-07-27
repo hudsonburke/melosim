@@ -1,11 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use slotmap::new_key_type;
-
-new_key_type! {
-    pub struct MuscleKey;
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MuscleState {
     pub fiber_length: f64,
