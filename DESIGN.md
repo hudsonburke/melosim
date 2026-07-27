@@ -202,16 +202,81 @@ Wrapping is defined by path points referencing geometry entities. The geometry e
 || `BallJoint` | body_a, body_b, limits | Ball system |
 || `FreeJoint` | body_a, body_b, limits | Free system |
 || `FixedJoint` | body_a, body_b, limits | Fixed system |
+| `UniversalJoint` | body_a, body_b, limits, axis1, axis2 | Universal system |
+| `CustomJoint` | body_a, body_b, limits, coordinates: Vec<EntityKey> | Custom system |
 |
 |Adding a new joint type: define the component struct, write a FK system
 |function, register the system. No changes to any existing code.
 |
-|**Why separate components instead of an enum?** An enum is a closed set —
-|adding a variant requires modifying the enum definition and every match
-|statement. Separate component types are an open set — a downstream crate
-|can define a `PrismaticJoint` without touching melosim's source code.
-|The system registry handles iteration. Each joint type lives in its own
-|SlotMap in the AnyMap, so there's no wasted space for unused variants.
+||**Why separate components instead of an enum?** An enum is a closed set —
+||adding a variant requires modifying the enum definition and every match
+||statement. Separate component types are an open set — a downstream crate
+||can define a `PrismaticJoint` without touching melosim's source code.
+||The system registry handles iteration. Each joint type lives in its own
+||SlotMap in the AnyMap, so there's no wasted space for unused variants.
+
+|## Coordinate System
+
+|The coordinate system is a family of components that model generalized
+|coordinates and their effect on joint transforms. This is the core of
+|OpenSim's `CustomJoint` — without it, coupled joint motion (like knee
+|flexion driving tibial translation) cannot be represented.
+
+|Coordinates are **separate entities** (not inlined into joints). This
+|allows independent iteration — a system can find all locked coordinates
+|without touching every joint — and avoids duplicating coordinate data
+|when multiple effects reference the same coordinate.
+
+|### Components
+
+|| Component | Fields | Purpose |
+||---|---|---|
+|| `JointCoordinate` | name, range_min, range_max, default_value, stiffness, damping, clamped, locked, prescribed_function | A single DOF definition |
+|| `CoordinateEffect` | coordinate, joint, component (TransformComponent), function (JointFunction) | Maps one coordinate → one spatial transform axis |
+|| `SpatialTransform` | joint, effects: Vec<EntityKey> | Groups all CoordinateEffects for a CustomJoint |
+
+|### TransformComponent enum
+
+|Identifies which of the 6 spatial DOFs a CoordinateEffect drives:
+
+|\```
+|enum TransformComponent { RotationX, RotationY, RotationZ, TranslationX, TranslationY, TranslationZ }
+|\```
+
+|### JointFunction enum
+
+|Functions that map coordinate values (q) to transform components:
+
+|\```
+|enum JointFunction {
+|    Constant(f64),                       // f(q) = c
+|    Linear { slope, intercept },         // f(q) = slope * q + intercept
+|    Polynomial { coefficients: Vec<f64> }, // f(q) = c0 + c1*q + c2*q^2 + ...
+|}
+|\```
+
+|OpenSim's CustomJoint uses PolynomialFunction extensively for coupled
+|motion. A knee joint might have:
+|- Coordinate `knee_flexion` drives `RotationY` via `Linear(-1.0, 0.0)`
+|- Same coordinate drives `TranslationX` via `Polynomial([0.002, -0.015, 0.0])`
+|- Same coordinate drives `TranslationZ` via `Polynomial([-0.42, 0.01, 0.0])`
+
+|Each of these is a separate `CoordinateEffect` entity referencing the same
+|`JointCoordinate` entity.
+
+|### Entity relationship diagram
+
+|\```
+|CustomJoint ──coordinates──→ [JointCoordinate, JointCoordinate, ...]
+|                │
+|                └──→ SpatialTransform
+|                          ├── CoordinateEffect ──→ JointCoordinate (drives RotationY)
+|                          ├── CoordinateEffect ──→ JointCoordinate (drives TranslationX)
+|                          └── CoordinateEffect ──→ JointCoordinate (drives TranslationZ)
+|\```
+
+|This is a pure ECS pattern — components reference other entities by
+|EntityKey, and systems iterate the components they need independently.
 
 ## Round-Trip Plan: OpenSim (Rajagopal 2015)
 

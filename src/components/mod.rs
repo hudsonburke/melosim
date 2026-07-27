@@ -1,5 +1,6 @@
 mod actuator;
 mod body;
+mod coordinate;
 mod geometry;
 mod joint;
 mod material;
@@ -10,6 +11,7 @@ mod wrap;
 
 pub use actuator::*;
 pub use body::*;
+pub use coordinate::*;
 pub use geometry::*;
 pub use joint::*;
 pub use material::*;

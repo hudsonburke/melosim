@@ -24,6 +24,11 @@ pub struct FlatWorld {
     pub ball_joints: Vec<Option<BallJoint>>,
     pub free_joints: Vec<Option<FreeJoint>>,
     pub fixed_joints: Vec<Option<FixedJoint>>,
+    pub universal_joints: Vec<Option<UniversalJoint>>,
+    pub custom_joints: Vec<Option<CustomJoint>>,
+    pub coordinates: Vec<Option<JointCoordinate>>,
+    pub coordinate_effects: Vec<Option<CoordinateEffect>>,
+    pub spatial_transforms: Vec<Option<SpatialTransform>>,
 
     /// Custom types from downstream crates.
     /// Stored as Vec<Option<T>> indexed by the same EntityID.
@@ -78,26 +83,18 @@ impl std::fmt::Debug for FlatWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FlatWorld")
             .field("entities", &self.num_entities)
-            .field(
-                "inertials",
-                &self.inertials.iter().filter_map(|x| x.as_ref()).count(),
-            )
-            .field(
-                "frames",
-                &self.frames.iter().filter_map(|x| x.as_ref()).count(),
-            )
-            .field(
-                "hinge_joints",
-                &self
-                    .hinge_joints
-                    .iter()
-                    .filter_map(|x| x.as_ref())
-                    .count(),
-            )
-            .field(
-                "free_joints",
-                &self.free_joints.iter().filter_map(|x| x.as_ref()).count(),
-            )
+            .field("inertials", &self.inertials.iter().filter_map(|x| x.as_ref()).count())
+            .field("frames", &self.frames.iter().filter_map(|x| x.as_ref()).count())
+            .field("hinge_joints", &self.hinge_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("slide_joints", &self.slide_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("ball_joints", &self.ball_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("free_joints", &self.free_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("fixed_joints", &self.fixed_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("universal_joints", &self.universal_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("custom_joints", &self.custom_joints.iter().filter_map(|x| x.as_ref()).count())
+            .field("coordinates", &self.coordinates.iter().filter_map(|x| x.as_ref()).count())
+            .field("coordinate_effects", &self.coordinate_effects.iter().filter_map(|x| x.as_ref()).count())
+            .field("spatial_transforms", &self.spatial_transforms.iter().filter_map(|x| x.as_ref()).count())
             .finish()
     }
 }

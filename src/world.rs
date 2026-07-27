@@ -131,6 +131,11 @@ impl World {
             ball_joints: collect_dense::<BallJoint>(self, count),
             free_joints: collect_dense::<FreeJoint>(self, count),
             fixed_joints: collect_dense::<FixedJoint>(self, count),
+            universal_joints: collect_dense::<UniversalJoint>(self, count),
+            custom_joints: collect_dense::<CustomJoint>(self, count),
+            coordinates: collect_dense::<JointCoordinate>(self, count),
+            coordinate_effects: collect_dense::<CoordinateEffect>(self, count),
+            spatial_transforms: collect_dense::<SpatialTransform>(self, count),
             extensions: AnyMap::new(),
             num_entities: self.next_id as u32,
         }
@@ -173,6 +178,30 @@ impl World {
         for (_key, fixed) in self.iter::<FixedJoint>() {
             errors.extend(check_joint(fixed.body_a, fixed.body_b));
         }
+        for (_key, univ) in self.iter::<UniversalJoint>() {
+            errors.extend(check_joint(univ.body_a, univ.body_b));
+        }
+        for (key, custom) in self.iter::<CustomJoint>() {
+            errors.extend(check_joint(custom.body_a, custom.body_b));
+            for coord_key in &custom.coordinates {
+                if self.get::<JointCoordinate>(*coord_key).is_none() {
+                    errors.push(format!(
+                        "CustomJoint {:?} references missing coordinate {:?}",
+                        key.data().as_ffi(),
+                        coord_key.data().as_ffi()
+                    ));
+                }
+            }
+        }
+        for (key, effect) in self.iter::<CoordinateEffect>() {
+            if self.get::<JointCoordinate>(effect.coordinate).is_none() {
+                errors.push(format!(
+                    "CoordinateEffect {:?} references missing coordinate {:?}",
+                    key.data().as_ffi(),
+                    effect.coordinate.data().as_ffi()
+                ));
+            }
+        }
 
         for (key, frame) in self.iter::<Frame>() {
             if self.get::<InertialProperties>(frame.parent).is_none() {
@@ -208,6 +237,11 @@ impl std::fmt::Debug for World {
             .field("ball_joints", &self.count::<BallJoint>())
             .field("free_joints", &self.count::<FreeJoint>())
             .field("fixed_joints", &self.count::<FixedJoint>())
+            .field("universal_joints", &self.count::<UniversalJoint>())
+            .field("custom_joints", &self.count::<CustomJoint>())
+            .field("coordinates", &self.count::<JointCoordinate>())
+            .field("coordinate_effects", &self.count::<CoordinateEffect>())
+            .field("spatial_transforms", &self.count::<SpatialTransform>())
             .field("sites", &self.count::<Site>())
             .field("materials", &self.count::<Material>())
             .field("muscle_params", &self.count::<HillTypeMuscleParams>());

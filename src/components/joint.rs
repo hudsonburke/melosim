@@ -52,3 +52,39 @@ pub struct FixedJoint {
     pub body_b: EntityKey,
     pub limits: Option<JointLimits>,
 }
+
+// ── OpenSim-compatible joint types ────────────────────
+// These correspond to OpenSim's UniversalJoint and CustomJoint.
+// CustomJoint is the general case: 1-6 DOFs with SpatialTransform
+// encoded by CoordinateEffect components on separate entities.
+
+/// Two rotational DOFs on orthogonal axes.
+/// Corresponds to OpenSim's `UniversalJoint`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UniversalJoint {
+    pub body_a: EntityKey,
+    pub body_b: EntityKey,
+    pub limits: Option<JointLimits>,
+    /// First rotation axis (in parent frame).
+    pub axis1: [f64; 3],
+    /// Second rotation axis (orthogonal to axis1, in child frame).
+    pub axis2: [f64; 3],
+}
+
+/// A joint defined by a SpatialTransform with up to 6 coordinates.
+///
+/// The joint's spatial transform is the composition of CoordinateEffect
+/// components on separate entities. Each CoordinateEffect maps one
+/// coordinate to one of the six transform components (rotX/Y/Z, transX/Y/Z)
+/// via a JointFunction (Constant, Linear, or Polynomial).
+///
+/// Corresponds to OpenSim's `CustomJoint`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomJoint {
+    pub body_a: EntityKey,
+    pub body_b: EntityKey,
+    pub limits: Option<JointLimits>,
+    /// The coordinates (DOFs) of this joint, in order.
+    /// Each is an EntityKey referencing a JointCoordinate component.
+    pub coordinates: Vec<EntityKey>,
+}

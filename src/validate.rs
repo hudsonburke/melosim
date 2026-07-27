@@ -102,6 +102,121 @@ pub fn validate_fixed(world: &mut World) {
     errors.extend(local_errors);
 }
 
+// ── UniversalJoint validation ──
+
+pub fn validate_universal(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, univ) in world.iter::<UniversalJoint>() {
+        if let Some(err) = check_body(world, key, "UniversalJoint body_a", univ.body_a) {
+            local_errors.push(err);
+        }
+        if let Some(err) = check_body(world, key, "UniversalJoint body_b", univ.body_b) {
+            local_errors.push(err);
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
+}
+
+// ── CustomJoint validation ──
+
+pub fn validate_custom(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, custom) in world.iter::<CustomJoint>() {
+        if let Some(err) = check_body(world, key, "CustomJoint body_a", custom.body_a) {
+            local_errors.push(err);
+        }
+        if let Some(err) = check_body(world, key, "CustomJoint body_b", custom.body_b) {
+            local_errors.push(err);
+        }
+        for (i, coord_key) in custom.coordinates.iter().enumerate() {
+            if world.get::<JointCoordinate>(*coord_key).is_none() {
+                local_errors.push(format!(
+                    "{:?} CustomJoint coordinate[{}] {:?} references missing JointCoordinate",
+                    key.data().as_ffi(),
+                    i,
+                    coord_key.data().as_ffi()
+                ));
+            }
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
+}
+
+// ── Coordinate validation ──
+
+pub fn validate_coordinate(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, coord) in world.iter::<JointCoordinate>() {
+        if coord.clamped && coord.range_min > coord.range_max {
+            local_errors.push(format!(
+                "{:?} JointCoordinate '{}' has invalid range [{}, {}]",
+                key.data().as_ffi(),
+                coord.name,
+                coord.range_min,
+                coord.range_max
+            ));
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
+}
+
+// ── CoordinateEffect validation ──
+
+pub fn validate_coordinate_effect(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, effect) in world.iter::<CoordinateEffect>() {
+        if world.get::<JointCoordinate>(effect.coordinate).is_none() {
+            local_errors.push(format!(
+                "{:?} CoordinateEffect references missing coordinate {:?}",
+                key.data().as_ffi(),
+                effect.coordinate.data().as_ffi()
+            ));
+        }
+        if world.get::<CustomJoint>(effect.joint).is_none()
+            && world.get::<HingeJoint>(effect.joint).is_none()
+            && world.get::<UniversalJoint>(effect.joint).is_none()
+        {
+            local_errors.push(format!(
+                "{:?} CoordinateEffect references missing joint {:?}",
+                key.data().as_ffi(),
+                effect.joint.data().as_ffi()
+            ));
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
+}
+
+// ── SpatialTransform validation ──
+
+pub fn validate_spatial_transform(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, st) in world.iter::<SpatialTransform>() {
+        if world.get::<CustomJoint>(st.joint).is_none() {
+            local_errors.push(format!(
+                "{:?} SpatialTransform references missing CustomJoint {:?}",
+                key.data().as_ffi(),
+                st.joint.data().as_ffi()
+            ));
+        }
+        for (i, effect_key) in st.effects.iter().enumerate() {
+            if world.get::<CoordinateEffect>(*effect_key).is_none() {
+                local_errors.push(format!(
+                    "{:?} SpatialTransform effect[{}] {:?} references missing CoordinateEffect",
+                    key.data().as_ffi(),
+                    i,
+                    effect_key.data().as_ffi()
+                ));
+            }
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
+}
+
 // ── Frame validation ──
 
 pub fn validate_frame(world: &mut World) {
