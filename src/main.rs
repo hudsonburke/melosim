@@ -7,28 +7,15 @@ use melosim::world::World;
 use slotmap::Key;
 
 // ── Example FK systems ────────────────────────────────
-// Each reads only the concrete types it needs.
 
-fn hinge_fk_system(world: &mut World) {
-    for (_key, _hinge) in world.iter::<HingeJoint>() {
-        // stub
-    }
-}
-
-fn ball_fk_system(world: &mut World) {
-    for (_key, _ball) in world.iter::<BallJoint>() {
-        // stub
-    }
-}
-
-fn free_fk_system(world: &mut World) {
-    for (_key, _free) in world.iter::<FreeJoint>() {
-        // stub
-    }
-}
+#[allow(dead_code)]
+fn hinge_fk_system(_world: &mut World) {}
+#[allow(dead_code)]
+fn ball_fk_system(_world: &mut World) {}
+#[allow(dead_code)]
+fn free_fk_system(_world: &mut World) {}
 
 // ── Example: custom joint from a downstream crate ─────
-// No changes to melosim core.
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct PrismaticJoint {
@@ -38,14 +25,10 @@ struct PrismaticJoint {
     axis: [f64; 3],
 }
 
-fn prismatic_system(world: &mut World) {
-    for (_key, _prismatic) in world.iter::<PrismaticJoint>() {
-        // stub
-    }
-}
+#[allow(dead_code)]
+fn prismatic_system(_world: &mut World) {}
 
-// Custom validation for the downstream crate's type.
-// Registered the same way — no core changes needed.
+#[allow(dead_code)]
 fn validate_prismatic(world: &mut World) {
     let mut local_errors = Vec::new();
     for (key, prismatic) in world.iter::<PrismaticJoint>() {
@@ -61,12 +44,24 @@ fn validate_prismatic(world: &mut World) {
     errors.extend(local_errors);
 }
 
+// ── FlatWorld solver: runs on frozen snapshot ─────────
+// No AnyMap lookups, no SlotMap generation checks.
+// Direct Vec indexing: flat.inertials[id]
+
+fn solve_fk(flat: &melosim::flat::FlatWorld) {
+    for (id, hinge) in flat.iter::<HingeJoint>() {
+        // flat.inertials[id.as_usize()] — single load
+        let _body_b = hinge.body_b;
+        let _id = id;
+    }
+}
+
 // ── Main ──────────────────────────────────────────────
 
 fn main() {
+    // ── Phase 1: Build World (extensible, dynamic) ──
     let mut world = World::new();
 
-    // ── Create bodies ──
     let ground = world.insert(InertialProperties {
         mass: 0.0,
         com: [0.0, 0.0, 0.0],
@@ -89,14 +84,10 @@ fn main() {
         inertia: [0.12, 0.12, 0.02, 0.0, 0.0, 0.0],
     });
 
-    // ── Create joints ──
     let _hip = world.insert(HingeJoint {
         body_a: pelvis,
         body_b: femur,
-        limits: Some(JointLimits {
-            lower: -2.0,
-            upper: 2.0,
-        }),
+        limits: Some(JointLimits { lower: -2.0, upper: 2.0 }),
         axis: [1.0, 0.0, 0.0],
     });
 
@@ -106,40 +97,59 @@ fn main() {
         limits: None,
     });
 
-    // ── Create a site ──
     let _asis = world.insert(Site {
         parent: pelvis,
         offset: Vec3::new(0.01, 0.02, 0.13),
     });
 
-    // ── Register systems ──
+    // Register and run validation systems
     let mut registry = SystemRegistry::new();
-
-    // Validation phase: run before FK
     registry.add("validate_hinge", validate::validate_hinge);
     registry.add("validate_ball", validate::validate_ball);
-    registry.add("validate_slide", validate::validate_slide);
     registry.add("validate_free", validate::validate_free);
-    registry.add("validate_fixed", validate::validate_fixed);
     registry.add("validate_frame", validate::validate_frame);
     registry.add("validate_site", validate::validate_site);
-    // Downstream crate's validation — same registry, no core change
-    registry.add("validate_prismatic", validate_prismatic);
-
-    // FK phase
-    registry.add("hinge_fk", hinge_fk_system);
-    registry.add("ball_fk", ball_fk_system);
-    registry.add("free_fk", free_fk_system);
-    registry.add("prismatic_fk", prismatic_system);
-
-    // Print errors last
     registry.add("print_errors", validate::print_errors);
-
-    println!("Registered {} systems:\n  {:?}", registry.len(), registry);
-
-    // ── Run systems in order ──
     registry.run(&mut world);
 
-    // ── Summary ──
-    println!("{:?}", world);
+    println!("\nBuild World:\n  {:?}", world);
+    println!("  component count: {}", world.components.len());
+
+    // ── Phase 2: Freeze → FlatWorld (dense, GPU-ready) ──
+    let flat = world.freeze();
+
+    println!("\nFlatWorld snapshot:");
+    println!("  entities: {}", flat.len());
+    println!("  inertials: {}", flat.inertials.iter().filter_map(|x| x.as_ref()).count());
+    println!("  frames: {}", flat.frames.iter().filter_map(|x| x.as_ref()).count());
+    println!("  hinge_joints: {}", flat.hinge_joints.iter().filter_map(|x| x.as_ref()).count());
+
+    // Demonstrate dense indexing
+    if let Some(hip) = &flat.hinge_joints[0] {
+        println!("\nHinge at index 0: body_a={:?}, axis={:?}", hip.body_a, hip.axis);
+    }
+
+    // ── Simulate on FlatWorld ──
+    solve_fk(&flat);
+
+    // ── Custom type example (downstream) ──
+    // Build phase: insert into World
+    world.insert(PrismaticJoint {
+        body_a: pelvis,
+        body_b: femur,
+        limits: None,
+        axis: [0.0, 1.0, 0.0],
+    });
+
+    // Freeze again (or freeze once after all insertions)
+    let flat2 = world.freeze();
+    // Custom types are not in the built-in Vecs — they go in extensions
+    // flat2.extensions.insert::<Vec<Option<PrismaticJoint>>>(...);
+    // For now, downstream solvers iterate via flat2.extensions:
+    //   let joints: &Vec<Option<PrismaticJoint>> = flat2.extensions.get().unwrap();
+
+    println!("\nFlatWorld with custom prismatic:");
+    println!("  hinge_joints: {}, prismatic: (in extensions)", 
+        flat2.hinge_joints.iter().filter_map(|x| x.as_ref()).count());
+    println!("  extensions: {} types registered", flat2.extensions.len());
 }

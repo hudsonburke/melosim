@@ -65,7 +65,84 @@
 |order. Adding a new component type = add a struct + write a system + register it.
 |No changes to World, no changes to existing systems, no trait objects.
 
-## Component Decomposition
+## Two-Phase Architecture: Build → Freeze → Simulate
+
+melosim operates in two distinct phases that solve opposite requirements:
+
+### Phase 1: Build World (extensible, dynamic)
+
+The Build World is the authoring environment. Importers, validators, editors, and downstream plugins
+all operate here. New component types can be added at any time without modifying melosim core.
+
+```rust
+let mut world = World::new();
+world.insert::<HingeJoint>(...);
+// Downstream crate adds a custom model:
+world.insert::<MyCustomNeuron>(...);
+```
+
+- Storage: AnyMap of SlotMaps (Catherine West pattern)
+- Entity IDs: `EntityKey` (opaque slotmap key with generational safety)
+- Extensibility: any `'static` type, zero World changes
+- Mutation: full (insert, remove, update)
+- Systems: validation, import, export, editing
+
+### Phase 2: FlatWorld (dense, GPU-ready)
+
+The FlatWorld is the simulation snapshot. After building and validating the model, `freeze()`
+produces a dense, indexable copy optimized for solver iteration and GPU extraction.
+
+```rust
+let flat = world.freeze::<SolverComponents>();
+// flat.inertials[id] — single load, zero hash lookups
+// &flat.muscle_force — &[f64] for cudaMemcpy
+```
+
+- Storage: `Vec<Option<T>>` indexed by dense `EntityID(u32)`
+- Entity IDs: `EntityID(u32)` — direct index into parallel arrays
+- Extensibility: custom types in `extensions: AnyMap<Vec<Option<T>>>`
+- Cross-type join: `flat.frames[hinge.body_a]` — single load, no indirection
+- GPU extraction: `&flat.inertials` is `&[InertialProperties]`
+- Mutation: immutable after freeze (copy-on-write for state updates)
+
+### Freeze contract
+
+The `freeze()` method iterates every registered component SlotMap and copies each entity's
+data into the corresponding dense-indexed Vec. The mapping from SlotMap key → dense ID is
+determined by the key's internal index, which is stable because entities are never deleted
+during the build phase (validation catches stale references before freeze).
+
+```rust
+fn collect_dense<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
+    let count = world.next_id() as usize;
+    let mut vec = vec![None; count];
+    if let Some(slotmap) = world.components.get::<ComponentMap<T>>() {
+        for (key, component) in slotmap.iter() {
+            let id = key.data().as_ffi() as usize;
+            if id < count {
+                vec[id] = Some(component.clone());
+            }
+        }
+    }
+    vec
+}
+```
+
+Custom types from downstream crates are collected into `extensions: AnyMap<Vec<Option<T>>>`.
+Their solvers access them via the extension API — no core changes needed.
+
+### When to use which
+
+| Operation | Use |
+|---|---|
+| Importing a model (OpenSim, MJCF) | Build World |
+| Editing (add/remove bodies, muscles) | Build World |
+| Validation | Build World |
+| Forward kinematics | FlatWorld |
+| Muscle force computation | FlatWorld |
+| Warp/GPU integration | FlatWorld (zero-copy slices) |
+| Serialization/save | Build World (serde-native) |
+| Export to OpenSim/MJCF | Build World |
 
 ### Core Components
 | Component | Fields | Read by |

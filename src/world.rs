@@ -1,5 +1,6 @@
 use crate::components::*;
 use crate::id::EntityKey;
+use crate::flat::FlatWorld;
 use anymap2::AnyMap;
 use slotmap::{Key, SlotMap};
 
@@ -15,6 +16,9 @@ pub type ComponentMap<T> = SlotMap<EntityKey, T>;
 pub struct World {
     pub components: AnyMap,
     pub resources: AnyMap,
+    /// Monotonic counter for EntityID assignment during freeze.
+    /// Each insert() increments this. EntityIDs map to slotmap key indices.
+    pub next_id: u64,
 }
 
 impl World {
@@ -22,6 +26,7 @@ impl World {
         Self {
             components: AnyMap::new(),
             resources: AnyMap::new(),
+            next_id: 0,
         }
     }
 
@@ -35,7 +40,11 @@ impl World {
 
     /// Insert a component for a new entity. Returns the EntityKey.
     pub fn insert<T: 'static>(&mut self, component: T) -> EntityKey {
-        self.ensure_map::<T>().insert(component)
+        let key = self.ensure_map::<T>().insert(component);
+        // Track next_id from slotmap key's lower 32 bits (slot index)
+        let slot_idx = (key.data().as_ffi() & 0xFFFF_FFFF) as u64;
+        self.next_id = self.next_id.max(slot_idx + 1);
+        key
     }
 
     /// Get a component by EntityKey.
@@ -81,37 +90,57 @@ impl World {
     }
 
     // ── Resource access ──
-    // Resources are singletons stored by type, not per-entity.
-    // Useful for configuration, error accumulators, solver parameters.
 
-    /// Get a reference to a resource by type.
     pub fn get_resource<T: 'static>(&self) -> Option<&T> {
         self.resources.get::<T>()
     }
 
-    /// Get a mutable reference to a resource by type.
     pub fn get_resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.resources.get_mut::<T>()
     }
 
-    /// Insert a resource (replaces existing).
     pub fn insert_resource<T: 'static>(&mut self, resource: T) {
         self.resources.insert(resource);
     }
 
-    /// Get or create a resource with Default::default().
     pub fn get_resource_or_default<T: Default + 'static>(&mut self) -> &mut T {
         self.resources.entry::<T>().or_insert_with(T::default)
     }
 
-    // ── Validation (legacy wrapper) ──
-    // Runs the built-in validation and returns accumulated errors.
-    // Prefer calling validate systems through the SystemRegistry instead.
+    // ── Freeze: Build World → FlatWorld ──
+
+    /// Freeze the current World into a FlatWorld for simulation.
+    ///
+    /// Iterates each known component type's SlotMap and copies data into
+    /// dense `Vec<Option<T>>` indexed by the key's slot index (as EntityID).
+    ///
+    /// Custom types are NOT collected automatically. After freeze, add them:
+    /// ```rust
+    /// let mut flat = world.freeze();
+    /// flat.extensions.insert(my_custom_vec);
+    /// ```
+    pub fn freeze(&self) -> FlatWorld {
+        let count = self.next_id as usize;
+
+        FlatWorld {
+            inertials: collect_dense::<InertialProperties>(self, count),
+            frames: collect_dense::<Frame>(self, count),
+            sites: collect_dense::<Site>(self, count),
+            hinge_joints: collect_dense::<HingeJoint>(self, count),
+            slide_joints: collect_dense::<SlideJoint>(self, count),
+            ball_joints: collect_dense::<BallJoint>(self, count),
+            free_joints: collect_dense::<FreeJoint>(self, count),
+            fixed_joints: collect_dense::<FixedJoint>(self, count),
+            extensions: AnyMap::new(),
+            num_entities: self.next_id as u32,
+        }
+    }
+
+    // ── Validation ──
 
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
 
-        // Joint body reference checks
         let check_joint = |body_a: EntityKey, body_b: EntityKey| -> Vec<String> {
             let mut errs = Vec::new();
             if self.get::<InertialProperties>(body_a).is_none() {
@@ -182,6 +211,22 @@ impl std::fmt::Debug for World {
             .field("sites", &self.count::<Site>())
             .field("materials", &self.count::<Material>())
             .field("muscle_params", &self.count::<HillTypeMuscleParams>());
+        s.field("next_id", &self.next_id);
         s.finish()
     }
+}
+
+// ── Helper: collect SlotMap into dense Vec ──
+
+fn collect_dense<T: Clone + 'static>(world: &World, count: usize) -> Vec<Option<T>> {
+    let mut vec = vec![None; count];
+    if let Some(slotmap) = world.components.get::<ComponentMap<T>>() {
+        for (key, component) in slotmap.iter() {
+            let idx = (key.data().as_ffi() & 0xFFFF_FFFF) as usize;
+            if idx < count {
+                vec[idx] = Some(component.clone());
+            }
+        }
+    }
+    vec
 }
