@@ -6,6 +6,10 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "roundtrip"
+path = "src/bin/roundtrip.rs"
+
 [dependencies]
 melosim = { path = ".." }
 pyo3 = { version = "0.23", features = ["extension-module"] }

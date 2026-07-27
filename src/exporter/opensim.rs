@@ -28,6 +28,8 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
 
     // ── Build inverse lookup: for each entity, find its joint (where body_b == entity) ──
     let child_joint = build_child_joint_map(world);
+    // Build set of bodies that are parents (body_a) of at least one joint ──
+    let parent_set = build_parent_set(world);
     // ── Build name → key lookup for body names ──
     let body_names = build_body_name_map(world);
     // ── Build name → key lookup for coordinate names ──
@@ -43,21 +45,25 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
             .map(|s| s.as_str())
             .unwrap_or("unknown");
 
-        // Only emit Ground if it has no parent joint (it's the root)
-        // In OpenSim, ground is not emitted in BodySet unless it has a joint
-        let is_ground = name == "ground";
+        // In OpenSim, the root body (ground) is not emitted in BodySet
+        // unless it has a joint. Detect ground as: no joint where this
+        // is body_b (no parent joint) AND is a parent of at least one joint.
         let has_parent_joint = child_joint.contains_key(&body_key);
+        let is_parent = parent_set.contains(&body_key);
 
-        if is_ground && !has_parent_joint {
-            continue; // Skip ground — it's implicit in OpenSim
+        if !has_parent_joint && is_parent {
+            continue; // Skip root body — it's implicit ground in OpenSim
         }
 
         xml.push_str(&format!("      <Body name=\"{}\">\n", escape_attr(name)));
         xml.push_str(&emit_body_properties(world, body_key));
 
         // ── Emit joint if this body is the child of one ──
-        if let Some(&joint_key) = child_joint.get(&body_key) {
-            xml.push_str(&emit_joint(world, joint_key, body_key, &body_names));
+        // We check each joint type's SlotMap directly because
+        // EntityKey values can collide across different SlotMaps.
+        // Storing a generic key → joint type lookup would be ambiguous.
+        if let Some(joint) = find_parent_joint(world, body_key) {
+            xml.push_str(&joint);
         } else {
             // FreeJoint to ground for root bodies without explicit joint
             xml.push_str("        <Joint>\n");
@@ -180,6 +186,21 @@ fn build_child_joint_map(world: &World) -> HashMap<EntityKey, EntityKey> {
     }
 
     map
+}
+
+/// Build a set of body EntityKeys that appear as body_a (parent) in any joint.
+fn build_parent_set(world: &World) -> std::collections::HashSet<EntityKey> {
+    let mut set = std::collections::HashSet::new();
+
+    for (_, joint) in world.iter::<HingeJoint>() { set.insert(joint.body_a); }
+    for (_, joint) in world.iter::<SlideJoint>() { set.insert(joint.body_a); }
+    for (_, joint) in world.iter::<BallJoint>() { set.insert(joint.body_a); }
+    for (_, joint) in world.iter::<FreeJoint>() { set.insert(joint.body_a); }
+    for (_, joint) in world.iter::<FixedJoint>() { set.insert(joint.body_a); }
+    for (_, joint) in world.iter::<UniversalJoint>() { set.insert(joint.body_a); }
+    for (_, joint) in world.iter::<CustomJoint>() { set.insert(joint.body_a); }
+
+    set
 }
 
 /// Build a map from entity key → body name (from Landmarks or entity index).
@@ -511,6 +532,93 @@ fn emit_wrap_objects(
     }
 
     xml
+}
+
+/// Find the parent joint (where body_b == child_key) and return its XML.
+/// Iterates each joint type's SlotMap directly to avoid EntityKey collision
+/// issues that arise when keys from different SlotMaps share (idx, gen) values.
+fn find_parent_joint(world: &World, child_key: EntityKey) -> Option<String> {
+    let body_names = build_body_name_map(world);
+
+    // Check each joint type in order. We compare body_b directly
+    // and emit XML immediately — no trial-and-error key lookup.
+    for (_, joint) in world.iter::<HingeJoint>() {
+        if joint.body_b == child_key {
+            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
+            let mut xml = format!("        <Joint>\n          <PinJoint name=\"hinge_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("            <CoordinateSet>\n");
+            xml.push_str("              <Coordinate name=\"hinge_coord\">\n");
+            xml.push_str(&format!("                <axis>{} {} {}</axis>\n", joint.axis[0], joint.axis[1], joint.axis[2]));
+            if let Some(limits) = &joint.limits {
+                xml.push_str(&format!("                <range_min>{}</range_min>\n", limits.lower));
+                xml.push_str(&format!("                <range_max>{}</range_max>\n", limits.upper));
+            }
+            xml.push_str("              </Coordinate>\n");
+            xml.push_str("            </CoordinateSet>\n");
+            xml.push_str("            <reverse>false</reverse>\n");
+            xml.push_str("          </PinJoint>\n        </Joint>\n");
+            return Some(xml);
+        }
+    }
+    for (_, joint) in world.iter::<FreeJoint>() {
+        if joint.body_b == child_key {
+            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
+            let mut xml = format!("        <Joint>\n          <FreeJoint name=\"free_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </FreeJoint>\n        </Joint>\n");
+            return Some(xml);
+        }
+    }
+    for (_, joint) in world.iter::<FixedJoint>() {
+        if joint.body_b == child_key {
+            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
+            let mut xml = format!("        <Joint>\n          <WeldJoint name=\"weld_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </WeldJoint>\n        </Joint>\n");
+            return Some(xml);
+        }
+    }
+    for (_, joint) in world.iter::<BallJoint>() {
+        if joint.body_b == child_key {
+            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
+            let mut xml = format!("        <Joint>\n          <BallJoint name=\"ball_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </BallJoint>\n        </Joint>\n");
+            return Some(xml);
+        }
+    }
+    for (_, joint) in world.iter::<UniversalJoint>() {
+        if joint.body_b == child_key {
+            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
+            let mut xml = format!("        <Joint>\n          <UniversalJoint name=\"universal_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </UniversalJoint>\n        </Joint>\n");
+            return Some(xml);
+        }
+    }
+
+    None
 }
 
 /// Emit a joint XML element.
