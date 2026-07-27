@@ -4,8 +4,11 @@ use pyo3::prelude::*;
 use melosim::components::*;
 use melosim::id::EntityKey;
 use melosim::importer::opensim::{
-    import_opensim_body, import_opensim_joint, import_opensim_marker, OpenSimBodyData,
-    OpenSimCoordinateData, OpenSimEffectData, OpenSimJointData, OpenSimMarkerData, OpenSimSpatialTransformData,
+    import_opensim_body, import_opensim_joint, import_opensim_marker,
+    import_opensim_muscle, import_opensim_wrap,
+    OpenSimBodyData, OpenSimCoordinateData, OpenSimEffectData, OpenSimJointData,
+    OpenSimMarkerData, OpenSimMuscleData, OpenSimPathPointData,
+    OpenSimSpatialTransformData, OpenSimWrapData,
 };
 use melosim::world::World;
 
@@ -329,6 +332,161 @@ fn extract_marker(marker: &Bound<'_, PyAny>) -> PyResult<OpenSimMarkerData> {
     Ok(OpenSimMarkerData { name, body, location })
 }
 
+/// Extract a muscle from an OpenSim muscle force object.
+fn extract_muscle(
+    force: &Bound<'_, PyAny>,
+    body_map: &std::collections::HashMap<String, EntityKey>,
+    _coord_map: &std::collections::HashMap<String, EntityKey>,
+) -> PyResult<OpenSimMuscleData> {
+    let name = force.call_method0("getName")?.extract::<String>()?;
+    let class_name = force
+        .call_method0("getConcreteClassName")?
+        .extract::<String>()?;
+
+    let get_f64 = |method: &str| -> PyResult<f64> {
+        force
+            .call_method0(method)
+            .map(|v| v.extract::<f64>().unwrap_or(0.0))
+    };
+
+    let get_bool = |method: &str| -> PyResult<bool> {
+        force
+            .call_method0(method)
+            .map(|v| v.extract::<bool>().unwrap_or(false))
+    };
+
+    let max_isometric_force = get_f64("getMaxIsometricForce").unwrap_or(0.0);
+    let optimal_fiber_length = get_f64("getOptimalFiberLength").unwrap_or(0.0);
+    let tendon_slack_length = get_f64("getTendonSlackLength").unwrap_or(0.0);
+    let pennation_angle = get_f64("getPennationAngleAtOptimalFiberLength").unwrap_or(0.0);
+    let max_contraction_velocity = get_f64("getMaxContractionVelocity").unwrap_or(10.0);
+    let activation_tau = get_f64("getActivationTimeConstant").unwrap_or(0.01);
+    let deactivation_tau = get_f64("getDeactivationTimeConstant").unwrap_or(0.04);
+    let min_activation = get_f64("getMinimumActivation").unwrap_or(0.01);
+    let fiber_damping = get_f64("getFiberDamping").unwrap_or(0.1);
+    let ignore_activation = get_bool("getIgnoreActivationDynamics").unwrap_or(false);
+    let ignore_tendon = get_bool("getIgnoreTendonCompliance").unwrap_or(false);
+
+    // Extract path points
+    let mut path_points = Vec::new();
+    if let Ok(path) = force.call_method0("getGeometryPath") {
+        if let Ok(point_set) = path.call_method0("getPathPointSet") {
+            let num_points = point_set.call_method0("getSize")?.extract::<usize>()?;
+            for j in 0..num_points {
+                let pp = point_set.call_method1("get", (j,))?;
+                let pp_type = pp
+                    .call_method0("getConcreteClassName")?
+                    .extract::<String>()?;
+                let body_name = pp.call_method0("getBody")?.call_method0("getName")?;
+                let body: String = body_name.extract::<String>()?;
+                let loc = pp.call_method0("getLocation")?;
+                let location = [
+                    loc.get_item(0)?.extract::<f64>()?,
+                    loc.get_item(1)?.extract::<f64>()?,
+                    loc.get_item(2)?.extract::<f64>()?,
+                ];
+
+                let mut coordinate = None;
+                let mut function = None;
+
+                if pp_type == "MovingPathPoint" {
+                    if let Ok(coord) = pp.call_method0("getCoordinate") {
+                        coordinate = Some(coord.call_method0("getName")?.extract::<String>()?);
+                        // For moving path points, the location is the base location
+                        // and the function is a polynomial
+                        if let Ok(func) = pp.call_method0("getFunction") {
+                            let func_type = func
+                                .call_method0("getConcreteClassName")?
+                                .extract::<String>()?;
+                            if func_type == "PolynomialFunction" || func_type.contains("Polynomial") {
+                                let csize = func
+                                    .call_method0("getCoefficientSize")?
+                                    .extract::<usize>()?;
+                                let mut coeffs = Vec::with_capacity(csize);
+                                for k in 0..csize {
+                                    coeffs.push(
+                                        func.call_method1("getCoefficient", (k,))?
+                                            .extract::<f64>()?,
+                                    );
+                                }
+                                function = Some(coeffs);
+                            }
+                        }
+                    }
+                }
+
+                path_points.push(OpenSimPathPointData {
+                    point_type: pp_type,
+                    body,
+                    location,
+                    coordinate,
+                    function,
+                });
+            }
+        }
+    }
+
+    Ok(OpenSimMuscleData {
+        name,
+        muscle_type: class_name,
+        max_isometric_force,
+        optimal_fiber_length,
+        tendon_slack_length,
+        pennation_angle_at_optimal: pennation_angle,
+        max_contraction_velocity,
+        activation_time_constant: activation_tau,
+        deactivation_time_constant: deactivation_tau,
+        minimum_activation: min_activation,
+        fiber_damping,
+        ignore_activation_dynamics: ignore_activation,
+        ignore_tendon_compliance: ignore_tendon,
+        path_points,
+    })
+}
+
+/// Extract a wrap object from an OpenSim wrap object.
+fn extract_wrap(wrap: &Bound<'_, PyAny>) -> PyResult<OpenSimWrapData> {
+    let name = wrap.call_method0("getName")?.extract::<String>()?;
+    let wrap_type = wrap
+        .call_method0("getConcreteClassName")?
+        .extract::<String>()?;
+
+    // Get the body/frame this wrap is attached to
+    let frame = wrap.call_method0("getFrame")?;
+    let body: String = frame.call_method0("getName")?.extract::<String>()?;
+
+    let location = vec3_from_py(&wrap.call_method0("getLocation")?)?;
+    let orientation = vec3_from_py(&wrap.call_method0("getOrientation")?)?;
+
+    // Dimensions depend on wrap type
+    let dimensions = if wrap_type.contains("Sphere") {
+        let r = wrap.call_method0("getRadius")?.extract::<f64>()?;
+        vec![r]
+    } else if wrap_type.contains("Cylinder") {
+        let r = wrap.call_method0("getRadius")?.extract::<f64>()?;
+        let l = wrap.call_method0("getLength")?.extract::<f64>()?;
+        vec![r, l]
+    } else if wrap_type.contains("Ellipsoid") {
+        let dims = wrap.call_method0("getDimensions")?;
+        vec![
+            dims.get_item(0)?.extract::<f64>()?,
+            dims.get_item(1)?.extract::<f64>()?,
+            dims.get_item(2)?.extract::<f64>()?,
+        ]
+    } else {
+        vec![]
+    };
+
+    Ok(OpenSimWrapData {
+        name,
+        body,
+        wrap_type,
+        dimensions,
+        location,
+        orientation,
+    })
+}
+
 /// Import an OpenSim model from a .osim file path.
 /// Returns a JSON summary of the imported model (component counts).
 #[pyfunction]
@@ -398,6 +556,13 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
             .map_err(|e| PyRuntimeError::new_err(e))?;
     }
 
+    // Build coordinate name → EntityKey map from imported coordinate entities
+    let mut coord_name_map: std::collections::HashMap<String, EntityKey> =
+        std::collections::HashMap::new();
+    for (key, coord) in world.iter::<JointCoordinate>() {
+        coord_name_map.insert(coord.name.clone(), key);
+    }
+
     // Extract markers
     let marker_set = model.call_method0("getMarkerSet")?;
     let num_markers = marker_set.call_method0("getSize")?.extract::<usize>()?;
@@ -412,6 +577,33 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
                 "Marker '{}': body '{}' not found",
                 marker_data.name, marker_data.body
             )));
+        }
+    }
+
+    // Extract muscles
+    let force_set = model.call_method0("getForceSet")?;
+    let num_forces = force_set.call_method0("getSize")?.extract::<usize>()?;
+    for i in 0..num_forces {
+        let force = force_set.call_method1("get", (i,))?;
+        let class_name = force.call_method0("getConcreteClassName")?.extract::<String>()?;
+
+        // Only process muscle-type forces (Millard, Thelen, etc.)
+        if class_name.contains("Muscle") {
+            let muscle_data = extract_muscle(&force, &body_map, &coord_name_map)?;
+            import_opensim_muscle(&mut world, &muscle_data, &body_map, &coord_name_map)
+                .map_err(|e| PyRuntimeError::new_err(e))?;
+        }
+    }
+
+    // Extract wrap objects
+    let wrap_set = model.call_method0("getWrapObjectSet")?;
+    let num_wraps = wrap_set.call_method0("getSize")?.extract::<usize>()?;
+    for i in 0..num_wraps {
+        let wrap = wrap_set.call_method1("get", (i,))?;
+        let wrap_data = extract_wrap(&wrap)?;
+        if body_map.contains_key(&wrap_data.body) {
+            import_opensim_wrap(&mut world, &wrap_data, &body_map)
+                .map_err(|e| PyRuntimeError::new_err(e))?;
         }
     }
 
@@ -433,7 +625,10 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
         "spatial_transforms": world.count::<SpatialTransform>(),
         "sites": world.count::<Site>(),
         "landmarks": world.count::<Landmark>(),
-        "muscle_params": world.count::<HillTypeMuscleParams>(),
+        "muscles": world.count::<Muscle>(),
+        "millard_params": world.count::<Millard2012Params>(),
+        "wraps": world.count::<WrapGeom>(),
+        "display_geoms": world.count::<DisplayGeometry>(),
     });
 
     Ok(summary.to_string())

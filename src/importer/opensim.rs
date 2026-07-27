@@ -33,6 +33,9 @@ pub struct OpenSimModelData {
     pub bodies: Vec<OpenSimBodyData>,
     pub joints: Vec<OpenSimJointData>,
     pub markers: Vec<OpenSimMarkerData>,
+    pub muscles: Vec<OpenSimMuscleData>,
+    pub wrap_objects: Vec<OpenSimWrapData>,
+    pub display_geometries: Vec<OpenSimDisplayGeometryData>,
 }
 
 /// An OpenSim Body's essential properties.
@@ -110,6 +113,58 @@ pub struct OpenSimMarkerData {
     pub location: [f64; 3],
 }
 
+/// An OpenSim Muscle's essential properties for import.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimMuscleData {
+    pub name: String,
+    pub muscle_type: String,
+    pub max_isometric_force: f64,
+    pub optimal_fiber_length: f64,
+    pub tendon_slack_length: f64,
+    pub pennation_angle_at_optimal: f64,
+    pub max_contraction_velocity: f64,
+    pub activation_time_constant: f64,
+    pub deactivation_time_constant: f64,
+    pub minimum_activation: f64,
+    pub fiber_damping: f64,
+    pub ignore_activation_dynamics: bool,
+    pub ignore_tendon_compliance: bool,
+    pub path_points: Vec<OpenSimPathPointData>,
+}
+
+/// A single point along a muscle path, as represented in import data.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimPathPointData {
+    pub point_type: String,  // "BodyFixedPathPoint", "MovingPathPoint"
+    pub body: String,
+    pub location: [f64; 3],
+    pub coordinate: Option<String>,
+    pub function: Option<Vec<f64>>,
+}
+
+/// A wrapping surface imported from OpenSim.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimWrapData {
+    pub name: String,
+    pub body: String,
+    pub wrap_type: String, // "Sphere", "Cylinder", "Ellipsoid"
+    pub dimensions: Vec<f64>,
+    pub location: [f64; 3],
+    pub orientation: [f64; 3],
+}
+
+/// A display (visual) geometry imported from OpenSim.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimDisplayGeometryData {
+    pub body: String,
+    pub mesh_file: Option<String>,
+    pub scale: [f64; 3],
+    pub color: [f64; 3],
+    pub opacity: f64,
+    pub location: [f64; 3],
+    pub orientation: [f64; 3],
+}
+
 // ── Import Functions ──────────────────────────────────
 
 /// Import a full OpenSim model from intermediate data into a World.
@@ -121,6 +176,7 @@ pub fn import_opensim_model(
     data: &OpenSimModelData,
 ) -> Result<(), Vec<String>> {
     let mut body_map: HashMap<String, EntityKey> = HashMap::new();
+    let mut coord_map: HashMap<String, EntityKey> = HashMap::new();
     let mut errors = Vec::new();
 
     // Phase 1: Import all bodies, build name → key map
@@ -156,6 +212,11 @@ pub fn import_opensim_model(
         }
     }
 
+    // Build coordinate name → key map from the world
+    for (key, coord) in world.iter::<JointCoordinate>() {
+        coord_map.insert(coord.name.clone(), key);
+    }
+
     // Phase 3: Import markers
     for marker_data in &data.markers {
         if let Some(&body_key) = body_map.get(&marker_data.body) {
@@ -165,6 +226,29 @@ pub fn import_opensim_model(
                 "Marker '{}': body '{}' not found",
                 marker_data.name, marker_data.body
             ));
+        }
+    }
+
+    // Phase 4: Import muscles (using body_map AND coord_map)
+    for muscle_data in &data.muscles {
+        match import_opensim_muscle(world, muscle_data, &body_map, &coord_map) {
+            Ok(_) => {}
+            Err(e) => errors.push(e),
+        }
+    }
+
+    // Phase 5: Import wrap objects
+    for wrap_data in &data.wrap_objects {
+        match import_opensim_wrap(world, wrap_data, &body_map) {
+            Ok(_) => {}
+            Err(e) => errors.push(e),
+        }
+    }
+
+    // Phase 6: Import display geometries
+    for geom_data in &data.display_geometries {
+        if let Err(e) = import_opensim_display_geometry(world, geom_data, &body_map) {
+            errors.push(e);
         }
     }
 
@@ -229,6 +313,197 @@ pub fn import_opensim_marker(
         name: data.name.clone(),
     });
     site_key
+}
+
+/// Import a single OpenSim muscle: creates Muscle + MusclePath + Millard2012Params.
+pub fn import_opensim_muscle(
+    world: &mut World,
+    data: &OpenSimMuscleData,
+    body_map: &HashMap<String, EntityKey>,
+    coord_map: &HashMap<String, EntityKey>,
+) -> Result<EntityKey, String> {
+    // Step 1: Create the Muscle identity component
+    let muscle_key = world.insert(Muscle {
+        name: data.name.clone(),
+    });
+
+    // Step 2: Create Millard2012Params
+    world.insert(Millard2012Params {
+        muscle: muscle_key,
+        max_isometric_force: data.max_isometric_force,
+        optimal_fiber_length: data.optimal_fiber_length,
+        tendon_slack_length: data.tendon_slack_length,
+        pennation_angle_at_optimal: data.pennation_angle_at_optimal,
+        max_contraction_velocity: data.max_contraction_velocity,
+        activation_time_constant: data.activation_time_constant,
+        deactivation_time_constant: data.deactivation_time_constant,
+        minimum_activation: data.minimum_activation,
+        fiber_damping: data.fiber_damping,
+        ignore_activation_dynamics: data.ignore_activation_dynamics,
+        ignore_tendon_compliance: data.ignore_tendon_compliance,
+    });
+
+    // Step 3: Build PathPoints
+    let mut path_points: Vec<PathPoint> = Vec::new();
+    for pt in &data.path_points {
+        let body_key = body_map.get(&pt.body).ok_or_else(|| {
+            format!(
+                "Muscle '{}': path point references unknown body '{}'",
+                data.name, pt.body
+            )
+        })?;
+
+        let path_point = match pt.point_type.as_str() {
+            "BodyFixedPathPoint" => PathPoint::BodyFixed {
+                body: *body_key,
+                location: pt.location,
+            },
+            "MovingPathPoint" => {
+                let coord_key = pt.coordinate.as_ref().and_then(|name| coord_map.get(name)).copied().ok_or_else(|| {
+                    format!(
+                        "Muscle '{}': MovingPathPoint references unknown coordinate '{:?}'",
+                        data.name, pt.coordinate
+                    )
+                })?;
+
+                // The function maps coordinate value to 3D offset.
+                // If function is provided, use it for all 3 axes (same polynomial).
+                // Otherwise use empty vectors (identity offset).
+                let empty_fn: Vec<f64> = Vec::new();
+                let fn_coeffs = pt.function.as_ref().unwrap_or(&empty_fn);
+                let location_functions = [
+                    fn_coeffs.clone(),
+                    fn_coeffs.clone(),
+                    fn_coeffs.clone(),
+                ];
+
+                PathPoint::Moving {
+                    body: *body_key,
+                    coordinate: coord_key,
+                    location_functions,
+                }
+            }
+            other => {
+                return Err(format!(
+                    "Muscle '{}': unsupported path point type '{}'",
+                    data.name, other
+                ));
+            }
+        };
+        path_points.push(path_point);
+    }
+
+    // Step 4: Create MusclePath
+    world.insert(MusclePath {
+        muscle: muscle_key,
+        points: path_points,
+    });
+
+    Ok(muscle_key)
+}
+
+/// Import a single OpenSim wrap object: creates WrapGeom.
+pub fn import_opensim_wrap(
+    world: &mut World,
+    data: &OpenSimWrapData,
+    body_map: &HashMap<String, EntityKey>,
+) -> Result<EntityKey, String> {
+    let body_key = body_map.get(&data.body).copied().ok_or_else(|| {
+        format!(
+            "Wrap '{}': references unknown body '{}'",
+            data.name, data.body
+        )
+    })?;
+
+    let transform = Transform {
+        translation: data.location.into(),
+        rotation: euler_to_quaternion(data.orientation),
+    };
+
+    let geom_type = match data.wrap_type.as_str() {
+        "Sphere" => {
+            let radius = data.dimensions.first().copied().unwrap_or(0.0);
+            WrapGeomType::Sphere { radius }
+        }
+        "Cylinder" => {
+            let radius = data.dimensions.first().copied().unwrap_or(0.0);
+            let length = data.dimensions.get(1).copied().unwrap_or(0.0);
+            WrapGeomType::Cylinder { radius, length }
+        }
+        "Ellipsoid" => {
+            let radii = [
+                data.dimensions.first().copied().unwrap_or(0.0),
+                data.dimensions.get(1).copied().unwrap_or(0.0),
+                data.dimensions.get(2).copied().unwrap_or(0.0),
+            ];
+            WrapGeomType::Ellipsoid { radii }
+        }
+        other => {
+            return Err(format!(
+                "Wrap '{}': unsupported type '{}'",
+                data.name, other
+            ));
+        }
+    };
+
+    let key = world.insert(WrapGeom {
+        name: data.name.clone(),
+        body: body_key,
+        transform,
+        geom_type,
+    });
+
+    Ok(key)
+}
+
+/// Import a single OpenSim display geometry: creates DisplayGeometry.
+pub fn import_opensim_display_geometry(
+    world: &mut World,
+    data: &OpenSimDisplayGeometryData,
+    body_map: &HashMap<String, EntityKey>,
+) -> Result<(), String> {
+    let body_key = body_map.get(&data.body).copied().ok_or_else(|| {
+        format!(
+            "Display geometry: references unknown body '{}'",
+            data.body
+        )
+    })?;
+
+    let transform = Transform {
+        translation: data.location.into(),
+        rotation: euler_to_quaternion(data.orientation),
+    };
+
+    world.insert(DisplayGeometry {
+        body: body_key,
+        mesh_file: data.mesh_file.clone(),
+        scale: data.scale,
+        color: data.color,
+        opacity: data.opacity,
+        transform,
+    });
+
+    Ok(())
+}
+
+// ── Helper: Euler angles → Quaternion ─────────────────
+
+/// Convert XYZ Euler angles (in radians) to a Quaternion.
+fn euler_to_quaternion(euler: [f64; 3]) -> crate::math::Quaternion {
+    let (roll, pitch, yaw) = (euler[0], euler[1], euler[2]);
+    let cr = (roll * 0.5).cos();
+    let sr = (roll * 0.5).sin();
+    let cp = (pitch * 0.5).cos();
+    let sp = (pitch * 0.5).sin();
+    let cy = (yaw * 0.5).cos();
+    let sy = (yaw * 0.5).sin();
+
+    crate::math::Quaternion {
+        w: cr * cp * cy + sr * sp * sy,
+        x: sr * cp * cy - cr * sp * sy,
+        y: cr * sp * cy + sr * cp * sy,
+        z: cr * cp * sy - sr * sp * cy,
+    }
 }
 
 // ── Type-specific joint importers ─────────────────────

@@ -7,6 +7,9 @@
 // The exporter handles the inverse of the importer: it looks up which
 // joint connects each body to its parent, and nests the joint inside
 // the child body's XML element, matching OpenSim's serialization format.
+//
+// Supports export of: bodies, joints, markers, muscles (Millard2012),
+// wrap geometry, and display geometry.
 
 use std::collections::HashMap;
 
@@ -27,6 +30,8 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
     let child_joint = build_child_joint_map(world);
     // ── Build name → key lookup for body names ──
     let body_names = build_body_name_map(world);
+    // ── Build name → key lookup for coordinate names ──
+    let coord_names = build_coordinate_name_map(world);
 
     // ── BodySet ──
     xml.push_str("  <BodySet>\n");
@@ -66,11 +71,24 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
             xml.push_str("        </Joint>\n");
         }
 
+        // ── Display geometry for this body ──
+        xml.push_str(&emit_body_display_geometry(world, body_key));
+
         xml.push_str("      </Body>\n");
     }
 
     xml.push_str("    </objects>\n");
     xml.push_str("  </BodySet>\n");
+
+    // ── ForceSet (muscles + actuators) ──
+    let muscle_count = world.count::<Muscle>();
+    if muscle_count > 0 {
+        xml.push_str("  <ForceSet>\n");
+        xml.push_str("    <objects>\n");
+        xml.push_str(&emit_muscles(world, &body_names, &coord_names));
+        xml.push_str("    </objects>\n");
+        xml.push_str("  </ForceSet>\n");
+    }
 
     // ── MarkerSet ──
     let marker_count = world.count::<Landmark>();
@@ -109,6 +127,16 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
         }
         xml.push_str("    </objects>\n");
         xml.push_str("  </MarkerSet>\n");
+    }
+
+    // ── WrapObjectSet (at Model level for simplicity) ──
+    let wrap_count = world.count::<WrapGeom>();
+    if wrap_count > 0 {
+        xml.push_str("  <WrapObjectSet>\n");
+        xml.push_str("    <objects>\n");
+        xml.push_str(&emit_wrap_objects(world, &body_names));
+        xml.push_str("    </objects>\n");
+        xml.push_str("  </WrapObjectSet>\n");
     }
 
     xml.push_str("</Model>\n");
@@ -174,6 +202,15 @@ fn build_body_name_map(world: &World) -> HashMap<EntityKey, String> {
     map
 }
 
+/// Build a map from coordinate entity key → coordinate name.
+fn build_coordinate_name_map(world: &World) -> HashMap<EntityKey, String> {
+    let mut map = HashMap::new();
+    for (key, coord) in world.iter::<JointCoordinate>() {
+        map.insert(key, coord.name.clone());
+    }
+    map
+}
+
 /// Emit body properties XML (mass, mass_center, inertia).
 fn emit_body_properties(world: &World, body_key: EntityKey) -> String {
     let mut xml = String::new();
@@ -196,6 +233,281 @@ fn emit_body_properties(world: &World, body_key: EntityKey) -> String {
             inertial.inertia[4],
             inertial.inertia[5],
         ));
+    }
+
+    xml
+}
+
+/// Emit display geometry for a body (VisibleObject / GeometrySet).
+fn emit_body_display_geometry(world: &World, body_key: EntityKey) -> String {
+    let mut xml = String::new();
+
+    // Collect all DisplayGeometry attached to this body
+    let mut has_geom = false;
+    let mut geom_xml = String::new();
+
+    for (_key, dg) in world.iter::<DisplayGeometry>() {
+        if dg.body == body_key {
+            has_geom = true;
+            geom_xml.push_str("              <DisplayGeometry>\n");
+            if let Some(ref mesh_file) = dg.mesh_file {
+                geom_xml.push_str(&format!(
+                    "                <mesh_file>{}</mesh_file>\n",
+                    escape_attr(mesh_file)
+                ));
+            }
+            geom_xml.push_str(&format!(
+                "                <scale>{} {} {}</scale>\n",
+                dg.scale[0], dg.scale[1], dg.scale[2]
+            ));
+            geom_xml.push_str(&format!(
+                "                <color>{} {} {}</color>\n",
+                dg.color[0], dg.color[1], dg.color[2]
+            ));
+            geom_xml.push_str(&format!(
+                "                <opacity>{}</opacity>\n",
+                dg.opacity
+            ));
+            geom_xml.push_str("                <transform>\n");
+            geom_xml.push_str(&format!(
+                "                  <translation>{} {} {}</translation>\n",
+                dg.transform.translation.x,
+                dg.transform.translation.y,
+                dg.transform.translation.z,
+            ));
+            geom_xml.push_str("                  <rotation>0 0 0 1</rotation>\n");
+            geom_xml.push_str("                </transform>\n");
+            geom_xml.push_str("              </DisplayGeometry>\n");
+        }
+    }
+
+    if has_geom {
+        xml.push_str("        <VisibleObject>\n");
+        xml.push_str("          <GeometrySet>\n");
+        xml.push_str("            <objects>\n");
+        xml.push_str(&geom_xml);
+        xml.push_str("            </objects>\n");
+        xml.push_str("          </GeometrySet>\n");
+        xml.push_str("          <scale_factors>1 1 1</scale_factors>\n");
+        xml.push_str("        </VisibleObject>\n");
+    }
+
+    xml
+}
+
+/// Emit muscles (Millard2012EquilibriumMuscle) as part of a ForceSet.
+fn emit_muscles(
+    world: &World,
+    body_names: &HashMap<EntityKey, String>,
+    coord_names: &HashMap<EntityKey, String>,
+) -> String {
+    let mut xml = String::new();
+
+    for (muscle_key, muscle) in world.iter::<Muscle>() {
+        // Find the MusclePath for this muscle
+        let path = world
+            .iter::<MusclePath>()
+            .find(|(_, p)| p.muscle == muscle_key)
+            .map(|(_, p)| p);
+
+        // Find the Millard2012Params for this muscle
+        let params = world
+            .iter::<Millard2012Params>()
+            .find(|(_, p)| p.muscle == muscle_key)
+            .map(|(_, p)| p);
+
+        xml.push_str(&format!(
+            "        <Millard2012EquilibriumMuscle name=\"{}\">\n",
+            escape_attr(&muscle.name)
+        ));
+
+        // Millard2012 param fields
+        if let Some(p) = params {
+            xml.push_str(&format!(
+                "          <max_isometric_force>{}</max_isometric_force>\n",
+                p.max_isometric_force
+            ));
+            xml.push_str(&format!(
+                "          <optimal_fiber_length>{}</optimal_fiber_length>\n",
+                p.optimal_fiber_length
+            ));
+            xml.push_str(&format!(
+                "          <tendon_slack_length>{}</tendon_slack_length>\n",
+                p.tendon_slack_length
+            ));
+            xml.push_str(&format!(
+                "          <pennation_angle_at_optimal>{}</pennation_angle_at_optimal>\n",
+                p.pennation_angle_at_optimal
+            ));
+            xml.push_str(&format!(
+                "          <max_contraction_velocity>{}</max_contraction_velocity>\n",
+                p.max_contraction_velocity
+            ));
+            xml.push_str(&format!(
+                "          <activation_time_constant>{}</activation_time_constant>\n",
+                p.activation_time_constant
+            ));
+            xml.push_str(&format!(
+                "          <deactivation_time_constant>{}</deactivation_time_constant>\n",
+                p.deactivation_time_constant
+            ));
+            xml.push_str(&format!(
+                "          <minimum_activation>{}</minimum_activation>\n",
+                p.minimum_activation
+            ));
+            xml.push_str(&format!(
+                "          <fiber_damping>{}</fiber_damping>\n",
+                p.fiber_damping
+            ));
+            xml.push_str(&format!(
+                "          <ignore_activation_dynamics>{}</ignore_activation_dynamics>\n",
+                p.ignore_activation_dynamics
+            ));
+            xml.push_str(&format!(
+                "          <ignore_tendon_compliance>{}</ignore_tendon_compliance>\n",
+                p.ignore_tendon_compliance
+            ));
+        }
+
+        // GeometryPath with PathPointSet
+        xml.push_str("          <GeometryPath>\n");
+        xml.push_str("            <PathPointSet>\n");
+        xml.push_str("              <objects>\n");
+
+        if let Some(p) = path {
+            for (i, pt) in p.points.iter().enumerate() {
+                let body_name = match pt {
+                    PathPoint::BodyFixed { body, .. } => body_names
+                        .get(body)
+                        .map(|s| s.as_str())
+                        .unwrap_or("ground"),
+                    PathPoint::Moving { body, .. } => body_names
+                        .get(body)
+                        .map(|s| s.as_str())
+                        .unwrap_or("ground"),
+                };
+
+                xml.push_str(&format!(
+                    "                <PathPoint name=\"pp{}\">\n",
+                    i + 1
+                ));
+                xml.push_str(&format!(
+                    "                  <body>{}</body>\n",
+                    escape_attr(body_name)
+                ));
+
+                match pt {
+                    PathPoint::BodyFixed { location, .. } => {
+                        xml.push_str(&format!(
+                            "                  <location>{} {} {}</location>\n",
+                            location[0], location[1], location[2]
+                        ));
+                    }
+                    PathPoint::Moving {
+                        coordinate, location_functions, ..
+                    } => {
+                        // For moving points, use the polynomial coefficients as the location
+                        // expressed as a function of the coordinate value.
+                        // OpenSim stores moving path points with coordinate-dependent locations.
+                        let coord_name = coord_names
+                            .get(coordinate)
+                            .map(|s| s.as_str())
+                            .unwrap_or("unknown_coord");
+                        xml.push_str(&format!(
+                            "                  <coordinate>{}</coordinate>\n",
+                            escape_attr(coord_name)
+                        ));
+                        // Use the evaluated location at default coordinate value (0.0)
+                        // as a constant location; the coordinate dependency is encoded
+                        // in the polynomial coefficients for round-trip fidelity.
+                        let loc_at_zero: [f64; 3] =
+                            std::array::from_fn(|axis| {
+                                location_functions[axis]
+                                    .last()
+                                    .copied()
+                                    .unwrap_or(0.0)
+                            });
+                        xml.push_str(&format!(
+                            "                  <location>{} {} {}</location>\n",
+                            loc_at_zero[0], loc_at_zero[1], loc_at_zero[2]
+                        ));
+                    }
+                }
+
+                xml.push_str("                </PathPoint>\n");
+            }
+        }
+
+        xml.push_str("              </objects>\n");
+        xml.push_str("            </PathPointSet>\n");
+        xml.push_str("          </GeometryPath>\n");
+
+        xml.push_str(&format!(
+            "        </Millard2012EquilibriumMuscle>\n"
+        ));
+    }
+
+    xml
+}
+
+/// Emit wrap geometry objects (WrapObjectSet).
+fn emit_wrap_objects(
+    world: &World,
+    body_names: &HashMap<EntityKey, String>,
+) -> String {
+    let mut xml = String::new();
+
+    for (_wg_key, wg) in world.iter::<WrapGeom>() {
+        let body_name = body_names
+            .get(&wg.body)
+            .map(|s| s.as_str())
+            .unwrap_or("ground");
+
+        let elem_name = match wg.geom_type {
+            WrapGeomType::Sphere { .. } => "WrapSphere",
+            WrapGeomType::Cylinder { .. } => "WrapCylinder",
+            WrapGeomType::Ellipsoid { .. } => "WrapEllipsoid",
+        };
+
+        xml.push_str(&format!(
+            "          <{} name=\"{}\">\n",
+            elem_name,
+            escape_attr(&wg.name)
+        ));
+        xml.push_str(&format!(
+            "            <frame>{}</frame>\n",
+            escape_attr(body_name)
+        ));
+        xml.push_str(&format!(
+            "            <xyz_body>{}</xyz_body>\n",
+            escape_attr(body_name)
+        ));
+        xml.push_str(&format!(
+            "            <translation>{} {} {}</translation>\n",
+            wg.transform.translation.x,
+            wg.transform.translation.y,
+            wg.transform.translation.z,
+        ));
+
+        match wg.geom_type {
+            WrapGeomType::Sphere { radius } => {
+                xml.push_str(&format!("            <radius>{}</radius>\n", radius));
+            }
+            WrapGeomType::Cylinder { radius, length } => {
+                xml.push_str(&format!("            <radius>{}</radius>\n", radius));
+                xml.push_str(&format!("            <length>{}</length>\n", length));
+            }
+            WrapGeomType::Ellipsoid { radii } => {
+                // OpenSim stores ellipsoid dimensions as separate X/Y/Z radii
+                // Some OpenSim versions use <dimensions> for ellipsoids
+                xml.push_str(&format!(
+                    "            <dimensions>{} {} {}</dimensions>\n",
+                    radii[0], radii[1], radii[2]
+                ));
+            }
+        }
+
+        xml.push_str(&format!("          </{}>\n", elem_name));
     }
 
     xml

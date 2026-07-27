@@ -21,12 +21,14 @@
 
         # Python with OpenSim available via pip.
         # OpenSim PyPI wheel provides the native library on x86_64-linux.
-        pythonEnv = pkgs.python3.withPackages (ps: with ps; [
+        # Must pin to Python 3.13 — OpenSim wheels only support up to 3.13
+        # and PyO3 0.23 doesn't support 3.14 either.
+        pythonEnv = (pkgs.python313.withPackages (ps: with ps; [
           pip
           setuptools
           wheel
           numpy
-        ]);
+        ]));
       in {
         packages.default = rustToolchain;
 

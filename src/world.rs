@@ -143,6 +143,10 @@ impl World {
             coordinates: collect_dense::<JointCoordinate>(self, count),
             coordinate_effects: collect_dense::<CoordinateEffect>(self, count),
             spatial_transforms: collect_dense::<SpatialTransform>(self, count),
+            muscles: collect_dense::<Muscle>(self, count),
+            millard_params: collect_dense::<Millard2012Params>(self, count),
+            wraps: collect_dense::<WrapGeom>(self, count),
+            display_geoms: collect_dense::<DisplayGeometry>(self, count),
             extensions: AnyMap::new(),
             num_entities: self.next_id as u32,
         }
@@ -251,6 +255,10 @@ impl std::fmt::Debug for World {
             .field("spatial_transforms", &self.count::<SpatialTransform>())
             .field("sites", &self.count::<Site>())
             .field("materials", &self.count::<Material>())
+            .field("muscles", &self.count::<Muscle>())
+            .field("millard_params", &self.count::<Millard2012Params>())
+            .field("wraps", &self.count::<WrapGeom>())
+            .field("display_geoms", &self.count::<DisplayGeometry>())
             .field("muscle_params", &self.count::<HillTypeMuscleParams>());
         s.field("next_id", &self.next_id);
         s.finish()

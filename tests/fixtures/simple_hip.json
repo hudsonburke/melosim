@@ -71,5 +71,8 @@
       "body": "femur_r",
       "location": [0.02, -0.25, 0.01]
     }
-  ]
+  ],
+  "muscles": [],
+  "wrap_objects": [],
+  "display_geometries": []
 }

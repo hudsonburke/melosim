@@ -29,6 +29,10 @@ pub struct FlatWorld {
     pub coordinates: Vec<Option<JointCoordinate>>,
     pub coordinate_effects: Vec<Option<CoordinateEffect>>,
     pub spatial_transforms: Vec<Option<SpatialTransform>>,
+    pub muscles: Vec<Option<Muscle>>,
+    pub millard_params: Vec<Option<Millard2012Params>>,
+    pub wraps: Vec<Option<WrapGeom>>,
+    pub display_geoms: Vec<Option<DisplayGeometry>>,
 
     /// Custom types from downstream crates.
     /// Stored as Vec<Option<T>> indexed by the same EntityID.
@@ -95,6 +99,8 @@ impl std::fmt::Debug for FlatWorld {
             .field("coordinates", &self.coordinates.iter().filter_map(|x| x.as_ref()).count())
             .field("coordinate_effects", &self.coordinate_effects.iter().filter_map(|x| x.as_ref()).count())
             .field("spatial_transforms", &self.spatial_transforms.iter().filter_map(|x| x.as_ref()).count())
+            .field("muscles", &self.muscles.iter().filter_map(|x| x.as_ref()).count())
+            .field("wraps", &self.wraps.iter().filter_map(|x| x.as_ref()).count())
             .finish()
     }
 }

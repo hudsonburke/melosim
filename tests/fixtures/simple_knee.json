@@ -92,5 +92,8 @@
       "body": "tibia_r",
       "location": [0.01, -0.18, 0.01]
     }
-  ]
+  ],
+  "muscles": [],
+  "wrap_objects": [],
+  "display_geometries": []
 }
