@@ -1,0 +1,75 @@
+{
+  "name": "SimpleHip",
+  "bodies": [
+    {
+      "name": "ground",
+      "mass": 0.0,
+      "mass_center": [0.0, 0.0, 0.0],
+      "inertia": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+      "name": "pelvis",
+      "mass": 11.78,
+      "mass_center": [0.0, 0.0, 0.0],
+      "inertia": [0.18, 0.22, 0.20, 0.0, 0.0, 0.0]
+    },
+    {
+      "name": "femur_r",
+      "mass": 9.3,
+      "mass_center": [0.0, -0.17, 0.0],
+      "inertia": [0.12, 0.12, 0.02, 0.0, 0.0, 0.0]
+    }
+  ],
+  "joints": [
+    {
+      "name": "ground_pelvis",
+      "joint_type": "FreeJoint",
+      "parent_body": "ground",
+      "child_body": "pelvis",
+      "location_in_parent": [0.0, 0.0, 0.0],
+      "orientation_in_parent": [0.0, 0.0, 0.0],
+      "location_in_child": [0.0, 0.0, 0.0],
+      "orientation_in_child": [0.0, 0.0, 0.0],
+      "axis": null,
+      "coordinate": null,
+      "coordinates": null,
+      "spatial_transform": null
+    },
+    {
+      "name": "hip_r",
+      "joint_type": "PinJoint",
+      "parent_body": "pelvis",
+      "child_body": "femur_r",
+      "location_in_parent": [0.0, -0.1, 0.0],
+      "orientation_in_parent": [0.0, 0.0, 0.0],
+      "location_in_child": [0.0, 0.15, 0.0],
+      "orientation_in_child": [0.0, 0.0, 0.0],
+      "axis": [1.0, 0.0, 0.0],
+      "coordinate": {
+        "name": "hip_flexion_r",
+        "range_min": -2.0,
+        "range_max": 0.5,
+        "default_value": 0.0,
+        "stiffness": 0.0,
+        "damping": 0.0,
+        "clamped": true,
+        "locked": false,
+        "prescribed_function": null
+      },
+      "coordinates": null,
+      "spatial_transform": null
+    }
+  ],
+  "markers": [
+    {
+      "name": "RASI",
+      "body": "pelvis",
+      "location": [0.01, 0.02, 0.13]
+    },
+    {
+      "name": "RTHI",
+      "body": "femur_r",
+      "location": [0.02, -0.25, 0.01]
+    }
+  ]
+}

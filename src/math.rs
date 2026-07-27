@@ -23,6 +23,16 @@ impl Vec3 {
     }
 }
 
+impl From<[f64; 3]> for Vec3 {
+    fn from(v: [f64; 3]) -> Self {
+        Self {
+            x: v[0],
+            y: v[1],
+            z: v[2],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Quaternion {
     pub w: f64,

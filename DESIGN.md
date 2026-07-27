@@ -361,7 +361,61 @@ Import (MuJoCo → ECS): Y-up → Z-up: swap Y and Z axes
 Export (ECS → MuJoCo): Z-up → Y-up: swap Z and Y axes
 ```
 
-## Import/Export Strategy
+## Importer Architecture
+
+The OpenSim importer follows a two-stage architecture:
+
+1. **Python extraction** (runs on machine with OpenSim installed) — loads the .osim model via the OpenSim Python API, extracts raw data to JSON
+2. **Rust import** (runs anywhere) — reads JSON, creates ECS entities, resolves body name references, validates
+
+```
+Your machine (OpenSim) ──JSON──→ Any machine (Rust importer)
+```
+
+### Why not PyO3 directly?
+
+A two-stage pipeline avoids the OpenSim runtime dependency on every machine. The JSON intermediate format is portable and debuggable. The Python script is a simple translator — it doesn't need to understand melosim's data model.
+
+### Incremental development
+
+The importer is built incrementally, one joint type at a time:
+
+| Step | What | Test fixture | Status |
+|---|---|---|---|
+| 1 | Bodies + PinJoint | `simple_hip.json` (ground → pelvis → femur) | ✅ Done |
+| 2 | FreeJoint + CustomJoint | `simple_knee.json` (ground → femur → tibia) | ✅ Done |
+| 3 | UniversalJoint + BallJoint | TBD | ⬜ |
+| 4 | Muscles (identity + path + params) | TBD | ⬜ |
+| 5 | Markers + WrapGeoms + full Rajagopal | Rajagopal2015.osim | ⬜ |
+
+Each step adds import functions for one component type and a test fixture.
+
+### Module structure
+
+```
+src/importer/
+├── mod.rs          # Re-exports
+└── opensim.rs      # OpenSimModelData types + import functions
+
+tests/
+├── import_test.rs  # Tests for each fixture
+└── fixtures/
+    ├── simple_hip.json     # ground → pelvis → femur (PinJoint)
+    └── simple_knee.json    # ground → femur → tibia (CustomJoint)
+
+scripts/
+└── extract_opensim.py      # Python extraction script
+```
+
+### Adding a new joint type
+
+1. Define the joint's intermediate data in `OpenSimJointData` (optional fields)
+2. Add a `match` arm in `import_opensim_joint()` dispatching to the type
+3. Write the type-specific import function
+4. Create a test fixture JSON
+5. Add a test
+
+No changes to the World struct, component types, or existing import functions.
 
 ### Whole-model vs individual functions
 The importer operates at the whole-model level (resolves names to entity IDs). But internal functions that process individual components are separated for testing and composability.
@@ -385,9 +439,11 @@ The individual functions are pure — they take inputs and produce outputs witho
 
 ## What's Next
 
-1. Add missing components (Actuator, MuscleTendonUnit, EqualityConstraint)
-2. Write OpenSim importer (using Python API via PyO3)
-3. Write OpenSim exporter
-4. Write MuJoCo importer (using mujoco-rs)
-5. Write MuJoCo exporter
-6. Validate round-trip with Rajagopal 2015
+1. Add more joint importers (UniversalJoint, BallJoint)
+2. Add muscle importer (Muscle + MusclePath + Millard2012Params)
+3. Run Python extraction script on Rajagopal2015.osim
+4. Validate full round-trip
+5. Write MuJoCo importer (using mujoco-rs)
+6. Write MuJoCo exporter
+7. Write OpenSim exporter
+8. Validate round-trip with Rajagopal 2015

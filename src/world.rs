@@ -116,8 +116,15 @@ impl World {
     ///
     /// Custom types are NOT collected automatically. After freeze, add them:
     /// ```rust
+    /// # use melosim::world::World;
+    /// # let mut world = World::new();
+    /// # world.insert(melosim::components::InertialProperties {
+    /// #     mass: 1.0, com: [0.0; 3], inertia: [0.0; 6],
+    /// # });
     /// let mut flat = world.freeze();
-    /// flat.extensions.insert(my_custom_vec);
+    /// // Custom types go into extensions:
+    /// let custom_vec: Vec<Option<f64>> = vec![None, Some(3.14)];
+    /// flat.extensions.insert(custom_vec);
     /// ```
     pub fn freeze(&self) -> FlatWorld {
         let count = self.next_id as usize;

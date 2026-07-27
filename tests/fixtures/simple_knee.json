@@ -1,0 +1,96 @@
+{
+  "name": "SimpleKnee",
+  "bodies": [
+    {
+      "name": "ground",
+      "mass": 0.0,
+      "mass_center": [0.0, 0.0, 0.0],
+      "inertia": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+      "name": "femur_r",
+      "mass": 9.3,
+      "mass_center": [0.0, -0.17, 0.0],
+      "inertia": [0.12, 0.12, 0.02, 0.0, 0.0, 0.0]
+    },
+    {
+      "name": "tibia_r",
+      "mass": 3.7,
+      "mass_center": [0.0, -0.18, 0.0],
+      "inertia": [0.04, 0.04, 0.01, 0.0, 0.0, 0.0]
+    }
+  ],
+  "joints": [
+    {
+      "name": "ground_femur",
+      "joint_type": "FreeJoint",
+      "parent_body": "ground",
+      "child_body": "femur_r",
+      "location_in_parent": [0.0, 0.0, 0.0],
+      "orientation_in_parent": [0.0, 0.0, 0.0],
+      "location_in_child": [0.0, 0.0, 0.0],
+      "orientation_in_child": [0.0, 0.0, 0.0],
+      "axis": null,
+      "coordinate": null,
+      "coordinates": null,
+      "spatial_transform": null
+    },
+    {
+      "name": "knee_r",
+      "joint_type": "CustomJoint",
+      "parent_body": "femur_r",
+      "child_body": "tibia_r",
+      "location_in_parent": [0.0, -0.35, 0.0],
+      "orientation_in_parent": [0.0, 0.0, 0.0],
+      "location_in_child": [0.0, 0.18, 0.0],
+      "orientation_in_child": [0.0, 0.0, 0.0],
+      "axis": null,
+      "coordinate": null,
+      "coordinates": [
+        {
+          "name": "knee_flexion_r",
+          "range_min": -2.0,
+          "range_max": 0.0,
+          "default_value": 0.0,
+          "stiffness": 0.0,
+          "damping": 0.0,
+          "clamped": true,
+          "locked": false,
+          "prescribed_function": null
+        }
+      ],
+      "spatial_transform": {
+        "rotation_x": null,
+        "rotation_y": {
+          "coordinate_name": "knee_flexion_r",
+          "function_type": "Linear",
+          "coefficients": [-1.0, 0.0]
+        },
+        "rotation_z": null,
+        "translation_x": {
+          "coordinate_name": "knee_flexion_r",
+          "function_type": "Polynomial",
+          "coefficients": [0.002, -0.015, 0.01, 0.0]
+        },
+        "translation_y": null,
+        "translation_z": {
+          "coordinate_name": "knee_flexion_r",
+          "function_type": "Polynomial",
+          "coefficients": [-0.42, 0.01, 0.005, 0.0]
+        }
+      }
+    }
+  ],
+  "markers": [
+    {
+      "name": "RKNE",
+      "body": "femur_r",
+      "location": [0.02, -0.35, 0.01]
+    },
+    {
+      "name": "RTIB",
+      "body": "tibia_r",
+      "location": [0.01, -0.18, 0.01]
+    }
+  ]
+}

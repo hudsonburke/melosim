@@ -1,6 +1,7 @@
 pub mod components;
 pub mod flat;
 pub mod id;
+pub mod importer;
 pub mod math;
 pub mod system;
 pub mod validate;

@@ -1,0 +1,534 @@
+// ── OpenSim Importer ──────────────────────────────────
+// Intermediate data types and import functions for OpenSim models.
+//
+// Architecture:
+//   Python extraction script (on user's machine with OpenSim installed)
+//   → JSON file → Rust importer (via serde_json)
+//
+// Each OpenSim component type has a corresponding *Data struct that
+// carries only the fields needed for import. The import functions
+// create melosim ECS entities and components from these structs.
+//
+// The importer is designed to be built incrementally:
+//   1. Start with one joint type (PinJoint) + two bodies
+//   2. Verify round-trip (JSON → World → validate → freeze)
+//   3. Add more component types iteratively
+
+use serde::Deserialize;
+use std::collections::HashMap;
+
+use crate::components::*;
+use crate::id::EntityKey;
+use crate::math::Transform;
+use crate::world::World;
+
+// ── Intermediate Data Types ───────────────────────────
+// These mirror the OpenSim model structure and are deserialized
+// from JSON produced by the Python extraction script.
+
+/// Full OpenSim model representation.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimModelData {
+    pub name: String,
+    pub bodies: Vec<OpenSimBodyData>,
+    pub joints: Vec<OpenSimJointData>,
+    pub markers: Vec<OpenSimMarkerData>,
+}
+
+/// An OpenSim Body's essential properties.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimBodyData {
+    pub name: String,
+    pub mass: f64,
+    pub mass_center: [f64; 3],
+    /// Inertia tensor: [Ixx, Iyy, Izz, Ixy, Ixz, Iyz]
+    pub inertia: [f64; 6],
+}
+
+/// An OpenSim Joint, with type-specific data in optional fields.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimJointData {
+    pub name: String,
+    pub joint_type: String, // "PinJoint", "CustomJoint", "UniversalJoint", etc.
+    pub parent_body: String,
+    pub child_body: String,
+    /// Translation from parent frame to joint frame.
+    pub location_in_parent: [f64; 3],
+    /// Euler angles (radians) from parent frame to joint frame.
+    pub orientation_in_parent: [f64; 3],
+    /// Translation from child frame to joint frame.
+    pub location_in_child: [f64; 3],
+    /// Euler angles (radians) from child frame to joint frame.
+    pub orientation_in_child: [f64; 3],
+    // PinJoint / hinge-like joints
+    pub axis: Option<[f64; 3]>,
+    pub coordinate: Option<OpenSimCoordinateData>,
+    // CustomJoint
+    pub coordinates: Option<Vec<OpenSimCoordinateData>>,
+    pub spatial_transform: Option<OpenSimSpatialTransformData>,
+}
+
+/// An OpenSim Coordinate (generalized DOF).
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimCoordinateData {
+    pub name: String,
+    pub range_min: f64,
+    pub range_max: f64,
+    pub default_value: f64,
+    pub stiffness: f64,
+    pub damping: f64,
+    pub clamped: bool,
+    pub locked: bool,
+    /// Polynomial coefficients for prescribed function (optional).
+    pub prescribed_function: Option<Vec<f64>>,
+}
+
+/// SpatialTransform for CustomJoint — up to 6 CoordinateEffects.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimSpatialTransformData {
+    pub rotation_x: Option<OpenSimEffectData>,
+    pub rotation_y: Option<OpenSimEffectData>,
+    pub rotation_z: Option<OpenSimEffectData>,
+    pub translation_x: Option<OpenSimEffectData>,
+    pub translation_y: Option<OpenSimEffectData>,
+    pub translation_z: Option<OpenSimEffectData>,
+}
+
+/// A single CoordinateEffect within a SpatialTransform.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimEffectData {
+    pub coordinate_name: String,
+    pub function_type: String, // "Constant", "Linear", "Polynomial"
+    pub coefficients: Vec<f64>,
+}
+
+/// An OpenSim Marker (anatomical landmark on a body).
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimMarkerData {
+    pub name: String,
+    pub body: String,
+    pub location: [f64; 3],
+}
+
+// ── Import Functions ──────────────────────────────────
+
+/// Import a full OpenSim model from intermediate data into a World.
+///
+/// Returns Ok(()) on success, or Err with a list of error messages
+/// if any component failed to import (missing body references, etc.).
+pub fn import_opensim_model(
+    world: &mut World,
+    data: &OpenSimModelData,
+) -> Result<(), Vec<String>> {
+    let mut body_map: HashMap<String, EntityKey> = HashMap::new();
+    let mut errors = Vec::new();
+
+    // Phase 1: Import all bodies, build name → key map
+    for body_data in &data.bodies {
+        match import_opensim_body(world, body_data) {
+            Ok(key) => {
+                body_map.insert(body_data.name.clone(), key);
+            }
+            Err(e) => errors.push(e),
+        }
+    }
+
+    // Phase 2: Import all joints using resolved body keys
+    for joint_data in &data.joints {
+        let parent = body_map.get(&joint_data.parent_body).copied();
+        let child = body_map.get(&joint_data.child_body).copied();
+        match (parent, child) {
+            (Some(parent_key), Some(child_key)) => {
+                if let Err(e) =
+                    import_opensim_joint(world, joint_data, parent_key, child_key)
+                {
+                    errors.push(e);
+                }
+            }
+            (None, _) => errors.push(format!(
+                "Joint '{}': parent body '{}' not found",
+                joint_data.name, joint_data.parent_body
+            )),
+            (_, None) => errors.push(format!(
+                "Joint '{}': child body '{}' not found",
+                joint_data.name, joint_data.child_body
+            )),
+        }
+    }
+
+    // Phase 3: Import markers
+    for marker_data in &data.markers {
+        if let Some(&body_key) = body_map.get(&marker_data.body) {
+            import_opensim_marker(world, marker_data, body_key);
+        } else {
+            errors.push(format!(
+                "Marker '{}': body '{}' not found",
+                marker_data.name, marker_data.body
+            ));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Import a single OpenSim body: creates InertialProperties + Frame.
+pub fn import_opensim_body(
+    world: &mut World,
+    data: &OpenSimBodyData,
+) -> Result<EntityKey, String> {
+    let key = world.insert(InertialProperties {
+        mass: data.mass,
+        com: data.mass_center,
+        inertia: data.inertia,
+    });
+    // Default transform for now — joint transforms handle positioning.
+    world.insert(Frame {
+        parent: key,
+        transform: Transform::default(),
+    });
+    Ok(key)
+}
+
+/// Import a single OpenSim joint, dispatching by type.
+pub fn import_opensim_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    match data.joint_type.as_str() {
+        "PinJoint" => import_pin_joint(world, data, parent_key, child_key),
+        "WeldJoint" => import_weld_joint(world, data, parent_key, child_key),
+        "BallJoint" => import_ball_joint(world, data, parent_key, child_key),
+        "FreeJoint" => import_free_joint(world, data, parent_key, child_key),
+        "UniversalJoint" => import_universal_joint(world, data, parent_key, child_key),
+        "CustomJoint" => import_custom_joint(world, data, parent_key, child_key),
+        other => Err(format!(
+            "Joint '{}': unsupported type '{}'",
+            data.name, other
+        )),
+    }
+}
+
+/// Import a single OpenSim marker: creates Site + Landmark.
+pub fn import_opensim_marker(
+    world: &mut World,
+    data: &OpenSimMarkerData,
+    body_key: EntityKey,
+) -> EntityKey {
+    let site_key = world.insert(Site {
+        parent: body_key,
+        offset: data.location.into(),
+    });
+    world.insert(Landmark {
+        site: site_key,
+        name: data.name.clone(),
+    });
+    site_key
+}
+
+// ── Type-specific joint importers ─────────────────────
+
+fn import_pin_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    let axis = data
+        .axis
+        .ok_or_else(|| format!("PinJoint '{}' missing axis", data.name))?;
+
+    let joint_key = world.insert(HingeJoint {
+        body_a: parent_key,
+        body_b: child_key,
+        limits: data.coordinate.as_ref().map(|c| JointLimits {
+            lower: c.range_min,
+            upper: c.range_max,
+        }),
+        axis,
+    });
+
+    // Import coordinate as a separate entity
+    if let Some(coord) = &data.coordinate {
+        world.insert(JointCoordinate {
+            name: coord.name.clone(),
+            range_min: coord.range_min,
+            range_max: coord.range_max,
+            default_value: coord.default_value,
+            stiffness: coord.stiffness,
+            damping: coord.damping,
+            clamped: coord.clamped,
+            locked: coord.locked,
+            prescribed_function: coord.prescribed_function.as_ref().map(|c| {
+                JointFunction::Polynomial {
+                    coefficients: c.clone(),
+                }
+            }),
+        });
+    }
+
+    // Update the child body's frame to account for joint transform
+    update_child_frame(world, child_key, data);
+
+    Ok(joint_key)
+}
+
+fn import_weld_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    let joint_key = world.insert(FixedJoint {
+        body_a: parent_key,
+        body_b: child_key,
+        limits: None,
+    });
+
+    update_child_frame(world, child_key, data);
+    Ok(joint_key)
+}
+
+fn import_ball_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    let joint_key = world.insert(BallJoint {
+        body_a: parent_key,
+        body_b: child_key,
+        limits: data.coordinate.as_ref().map(|c| JointLimits {
+            lower: c.range_min,
+            upper: c.range_max,
+        }),
+    });
+
+    if let Some(coord) = &data.coordinate {
+        world.insert(JointCoordinate {
+            name: coord.name.clone(),
+            range_min: coord.range_min,
+            range_max: coord.range_max,
+            default_value: coord.default_value,
+            stiffness: coord.stiffness,
+            damping: coord.damping,
+            clamped: coord.clamped,
+            locked: coord.locked,
+            prescribed_function: None,
+        });
+    }
+
+    update_child_frame(world, child_key, data);
+    Ok(joint_key)
+}
+
+fn import_free_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    let joint_key = world.insert(FreeJoint {
+        body_a: parent_key,
+        body_b: child_key,
+        limits: None,
+    });
+
+    update_child_frame(world, child_key, data);
+    Ok(joint_key)
+}
+
+fn import_universal_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    // UniversalJoint uses two axes from its coordinates
+    let coords = data
+        .coordinates
+        .as_ref()
+        .ok_or_else(|| format!("UniversalJoint '{}' missing coordinates", data.name))?;
+
+    if coords.len() < 2 {
+        return Err(format!(
+            "UniversalJoint '{}' needs 2 coordinates, got {}",
+            data.name,
+            coords.len()
+        ));
+    }
+
+    // Default axes: axis1 around X, axis2 around Y if not specified by effects
+    // OpenSim UniversalJoint's axes come from the SpatialTransform's coordinate functions
+    let axis1 = [1.0, 0.0, 0.0];
+    let axis2 = [0.0, 1.0, 0.0];
+
+    let joint_key = world.insert(UniversalJoint {
+        body_a: parent_key,
+        body_b: child_key,
+        limits: None,
+        axis1,
+        axis2,
+    });
+
+    // Import coordinates
+    for coord in coords {
+        world.insert(JointCoordinate {
+            name: coord.name.clone(),
+            range_min: coord.range_min,
+            range_max: coord.range_max,
+            default_value: coord.default_value,
+            stiffness: coord.stiffness,
+            damping: coord.damping,
+            clamped: coord.clamped,
+            locked: coord.locked,
+            prescribed_function: None,
+        });
+    }
+
+    update_child_frame(world, child_key, data);
+    Ok(joint_key)
+}
+
+fn import_custom_joint(
+    world: &mut World,
+    data: &OpenSimJointData,
+    parent_key: EntityKey,
+    child_key: EntityKey,
+) -> Result<EntityKey, String> {
+    let coords = data
+        .coordinates
+        .as_ref()
+        .ok_or_else(|| format!("CustomJoint '{}' missing coordinates", data.name))?;
+
+    let st = data
+        .spatial_transform
+        .as_ref()
+        .ok_or_else(|| format!("CustomJoint '{}' missing spatial_transform", data.name))?;
+
+    // Phase 1: Import all coordinates
+    let mut coord_keys: HashMap<String, EntityKey> = HashMap::new();
+    for coord in coords {
+        let key = world.insert(JointCoordinate {
+            name: coord.name.clone(),
+            range_min: coord.range_min,
+            range_max: coord.range_max,
+            default_value: coord.default_value,
+            stiffness: coord.stiffness,
+            damping: coord.damping,
+            clamped: coord.clamped,
+            locked: coord.locked,
+            prescribed_function: coord.prescribed_function.as_ref().map(|c| {
+                JointFunction::Polynomial {
+                    coefficients: c.clone(),
+                }
+            }),
+        });
+        coord_keys.insert(coord.name.clone(), key);
+    }
+
+    // Phase 2: Create the joint
+    let coord_refs: Vec<EntityKey> = coords
+        .iter()
+        .map(|c| coord_keys[&c.name])
+        .collect();
+
+    let joint_key = world.insert(CustomJoint {
+        body_a: parent_key,
+        body_b: child_key,
+        limits: None,
+        coordinates: coord_refs,
+    });
+
+    // Phase 3: Import CoordinateEffects and SpatialTransform
+    let mut effect_keys: Vec<EntityKey> = Vec::new();
+
+    let effects = [
+        ("rotation_x", &st.rotation_x),
+        ("rotation_y", &st.rotation_y),
+        ("rotation_z", &st.rotation_z),
+        ("translation_x", &st.translation_x),
+        ("translation_y", &st.translation_y),
+        ("translation_z", &st.translation_z),
+    ];
+
+    for (slot_name, effect_opt) in &effects {
+        if let Some(effect) = effect_opt {
+            let coord_key = coord_keys.get(&effect.coordinate_name).ok_or_else(|| {
+                format!(
+                    "CustomJoint '{}': effect '{}' references unknown coordinate '{}'",
+                    data.name, slot_name, effect.coordinate_name
+                )
+            })?;
+
+            let component = match *slot_name {
+                "rotation_x" => TransformComponent::RotationX,
+                "rotation_y" => TransformComponent::RotationY,
+                "rotation_z" => TransformComponent::RotationZ,
+                "translation_x" => TransformComponent::TranslationX,
+                "translation_y" => TransformComponent::TranslationY,
+                "translation_z" => TransformComponent::TranslationZ,
+                _ => unreachable!(),
+            };
+
+            let function = match effect.function_type.as_str() {
+                "Constant" => JointFunction::Constant(effect.coefficients[0]),
+                "Linear" => JointFunction::Linear {
+                    slope: effect.coefficients[0],
+                    intercept: effect.coefficients.get(1).copied().unwrap_or(0.0),
+                },
+                "Polynomial" | _ => JointFunction::Polynomial {
+                    coefficients: effect.coefficients.clone(),
+                },
+            };
+
+            let effect_key = world.insert(CoordinateEffect {
+                coordinate: *coord_key,
+                joint: joint_key,
+                component,
+                function,
+            });
+            effect_keys.push(effect_key);
+        }
+    }
+
+    // Phase 4: SpatialTransform groups the effects
+    world.insert(SpatialTransform {
+        joint: joint_key,
+        effects: effect_keys,
+    });
+
+    update_child_frame(world, child_key, data);
+    Ok(joint_key)
+}
+
+// ── Frame helper ──────────────────────────────────────
+
+/// Update a body's Frame transform with the joint's parent-frame offset.
+/// In OpenSim, the joint's location_in_parent / orientation_in_parent defines
+/// where the child body attaches relative to the parent body's frame.
+/// For now we store this in the child's Frame component.
+fn update_child_frame(_world: &mut World, _child_key: EntityKey, _data: &OpenSimJointData) {
+    // TODO: Compose location_in_parent + orientation_in_parent into the
+    // child body's Frame transform. This requires computing a Transform from
+    // the Euler angles and translation, which needs quaternion math.
+    //
+    // For now, frames use default transforms. The joint parent/child offsets
+    // are captured by the joint's body_a/body_b fields. Adding full frame
+    // transform computation is the next step after basic import validation.
+}
+
+// ── JSON loading helper ───────────────────────────────
+
+/// Load OpenSim model data from a JSON file.
+pub fn load_opensim_json(path: &str) -> Result<OpenSimModelData, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read '{}': {}", path, e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse '{}': {}", path, e))
+}
