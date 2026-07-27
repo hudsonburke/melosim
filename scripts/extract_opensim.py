@@ -24,17 +24,15 @@ def vec3(v):
     return [v[i] for i in range(3)]
 
 
-def parse_vec3(s):
-    """Parse OpenSim Vec3 toString() format '(x y z)' to float list."""
-    return [float(x) for x in s.strip("()").split()]
-
-
-def get_vec3_from_prop(owner, prop_name):
-    """Get Vec3 from a PhysicalFrame property via toString()."""
+def get_frame_transform(frame):
+    """Get translation and orientation from a PhysicalOffsetFrame using transform."""
     try:
-        return parse_vec3(owner.getPropertyByName(prop_name).toString())
+        t = frame.findTransformInBaseFrame()
+        trans = [t.p()[i] for i in range(3)]
+        rot = [t.R().convertRotationToBodyFixedXYZ()[i] for i in range(3)]
+        return trans, rot
     except Exception:
-        return [0.0, 0.0, 0.0]
+        return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
 
 
 def get_f64(obj, method, default=0.0):
@@ -164,10 +162,8 @@ def extract_joint(joint):
         # PhysicalOffsetFrame names differ from body names — findBaseFrame() gives the actual body
         parent_name = pf.findBaseFrame().getName()
         child_name = cf.findBaseFrame().getName()
-        loc_in_parent = get_vec3_from_prop(pf, "translation")
-        ori_in_parent = get_vec3_from_prop(pf, "orientation")
-        loc_in_child = get_vec3_from_prop(cf, "translation")
-        ori_in_child = get_vec3_from_prop(cf, "orientation")
+        loc_in_parent, ori_in_parent = get_frame_transform(pf)
+        loc_in_child, ori_in_child = get_frame_transform(cf)
     except Exception:
         try:
             parent_name = pf.getName()
@@ -332,7 +328,7 @@ def extract_display_geometry(body):
             dg_obj = body.getPropertyByName("display_geometry").getValueAsObject(i)
             geoms.append({
                 "body_name": body.getName(),
-                "mesh_file": dg_obj.getPropertyByName("display_geometry_file").toString(),
+                "mesh_file": dg_obj.getPropertyByName("display_geometry_file").getValueAsObject(0).getName(),
                 "scale_factors": [1.0, 1.0, 1.0],
                 "color": [0.8, 0.8, 0.8],
                 "opacity": 1.0,
