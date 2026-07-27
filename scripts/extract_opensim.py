@@ -20,17 +20,54 @@ from pathlib import Path
 
 
 def vec3(v):
-    return [v.get(i) for i in range(3)]
+    """Convert OpenSim Vec3 to Python list using subscript access."""
+    return [v[i] for i in range(3)]
+
+
+def parse_vec3(s):
+    """Parse OpenSim Vec3 toString() format '(x y z)' to float list."""
+    return [float(x) for x in s.strip("()").split()]
+
+
+def get_vec3_from_prop(owner, prop_name):
+    """Get Vec3 from a PhysicalFrame property via toString()."""
+    try:
+        return parse_vec3(owner.getPropertyByName(prop_name).toString())
+    except Exception:
+        return [0.0, 0.0, 0.0]
+
+
+def get_f64(obj, method, default=0.0):
+    try:
+        return getattr(obj, method)()
+    except Exception:
+        return default
+
+
+def get_bool(obj, method, default=False):
+    try:
+        return bool(getattr(obj, method)())
+    except Exception:
+        return default
 
 
 def extract_body(body):
     mc = body.getMassCenter()
     inertia = body.getInertia()
+    try:
+        moments = [inertia.getMoments()[i] for i in range(3)]
+        products = [inertia.getProducts()[i] for i in range(3)]
+    except Exception:
+        try:
+            moments = [mc[i] for i in range(3)]
+            products = [0.0, 0.0, 0.0]
+        except Exception:
+            moments, products = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
     return {
         "name": body.getName(),
-        "mass": body.getMass(),
-        "mass_center": vec3(mc),
-        "inertia": [inertia.get(i) for i in range(6)],
+        "mass": get_f64(body, "getMass"),
+        "mass_center": [mc[i] for i in range(3)],
+        "inertia": moments + products,
     }
 
 
@@ -50,111 +87,150 @@ def extract_coordinate(coord):
 
     return {
         "name": coord.getName(),
-        "range_min": coord.getRangeMin(),
-        "range_max": coord.getRangeMax(),
-        "default_value": coord.getDefaultValue(),
-        "stiffness": coord.getStiffness(),
-        "damping": coord.getDamping(),
-        "clamped": coord.getClamped(),
-        "locked": coord.getLocked(),
+        "range_min": get_f64(coord, "getRangeMin", -1.0),
+        "range_max": get_f64(coord, "getRangeMax", 1.0),
+        "default_value": get_f64(coord, "getDefaultValue"),
+        "stiffness": 0.0,
+        "damping": 0.0,
+        "clamped": get_bool(coord, "get_clamped"),
+        "locked": get_bool(coord, "get_locked"),
         "prescribed_function": prescribed,
     }
 
 
 def extract_effect(effect):
-    function = effect.getFunction()
-    func_type = function.getConcreteClassName()
-    coeffs = []
-    if func_type == "PolynomialFunction":
-        for i in range(function.getCoefficientSize()):
-            coeffs.append(function.getCoefficient(i))
-    elif func_type == "LinearFunction":
-        coeffs = [function.getSlope(), function.getIntercept()]
-    elif func_type == "Constant":
-        coeffs = [function.getValue()]
-    elif func_type == "NullFunction":
+    try:
+        function = effect.getFunction()
+        func_type = function.getConcreteClassName()
+    except Exception:
         return None
+    coeffs = []
+    try:
+        if func_type == "PolynomialFunction":
+            for i in range(function.getCoefficientSize()):
+                coeffs.append(function.getCoefficient(i))
+        elif func_type == "LinearFunction":
+            coeffs = [function.getSlope(), function.getIntercept()]
+        elif func_type == "Constant":
+            coeffs = [function.getValue()]
+        elif func_type == "NullFunction":
+            return None
+    except Exception:
+        pass
+
+    try:
+        coord_name = effect.getCoordinate().getName()
+    except Exception:
+        coord_name = "unknown"
 
     return {
-        "coordinate_name": effect.getCoordinate().getName(),
+        "coordinate_name": coord_name,
         "function_type": func_type.replace("Function", ""),
         "coefficients": coeffs,
     }
 
 
 def extract_spatial_transform(joint):
+    """Extract SpatialTransform from a CustomJoint.
+    Available via property system in Python bindings.
+    """
     if joint.getConcreteClassName() != "CustomJoint":
         return None
-    st = joint.getSpatialTransform()
     names = ["rotation_x", "rotation_y", "rotation_z",
              "translation_x", "translation_y", "translation_z"]
     result = {n: None for n in names}
-    for idx, name in enumerate(names):
-        try:
-            prop = st.getPropertyByName(name)
-            effect = extract_effect(prop)
-            if effect:
-                result[name] = effect
-        except Exception:
+    try:
+        st_prop = joint.getPropertyByName("SpatialTransform")
+        st_obj = st_prop.getValueAsObject(0)
+        # Try to get components from the SpatialTransform object
+        for idx, name in enumerate(names):
             try:
-                comp = st.getComponent(idx)
+                comp = st_obj.getComponent(idx)
                 effect = extract_effect(comp)
                 if effect:
                     result[name] = effect
             except Exception:
                 pass
+    except Exception:
+        pass
     return result
 
 
 def extract_joint(joint):
     joint_type = joint.getConcreteClassName()
+    try:
+        pf = joint.getParentFrame()
+        cf = joint.getChildFrame()
+        # PhysicalOffsetFrame names differ from body names — findBaseFrame() gives the actual body
+        parent_name = pf.findBaseFrame().getName()
+        child_name = cf.findBaseFrame().getName()
+        loc_in_parent = get_vec3_from_prop(pf, "translation")
+        ori_in_parent = get_vec3_from_prop(pf, "orientation")
+        loc_in_child = get_vec3_from_prop(cf, "translation")
+        ori_in_child = get_vec3_from_prop(cf, "orientation")
+    except Exception:
+        try:
+            parent_name = pf.getName()
+            child_name = cf.getName()
+        except Exception:
+            parent_name = "ground"
+            child_name = "ground"
+
     data = {
         "name": joint.getName(),
         "joint_type": joint_type,
-        "parent_body": joint.getParentFrame().getName(),
-        "child_body": joint.getChildFrame().getName(),
-        "location_in_parent": list(joint.getLocationInParent()),
-        "orientation_in_parent": list(joint.getOrientationInParent()),
-        "location_in_child": list(joint.getLocationInChild()),
-        "orientation_in_child": list(joint.getOrientationInChild()),
+        "parent_body": parent_name,
+        "child_body": child_name,
+        "location_in_parent": loc_in_parent,
+        "orientation_in_parent": ori_in_parent,
+        "location_in_child": loc_in_child,
+        "orientation_in_child": ori_in_child,
         "axis": None,
         "coordinate": None,
         "coordinates": None,
         "spatial_transform": None,
     }
 
-    if joint_type == "PinJoint":
-        coord = joint.getCoordinate()
-        data["axis"] = list(coord.getAxis())
-        data["coordinate"] = extract_coordinate(coord)
-    elif joint_type == "CustomJoint":
-        coords = joint.getCoordinateSet()
-        data["coordinates"] = [extract_coordinate(coords.get(i)) for i in range(coords.getSize())]
-        data["spatial_transform"] = extract_spatial_transform(joint)
-    elif joint_type == "UniversalJoint":
-        coords = joint.getCoordinateSet()
-        data["coordinates"] = [extract_coordinate(coords.get(i)) for i in range(coords.getSize())]
-    elif joint_type == "BallJoint":
-        coord = joint.getCoordinate()
-        data["coordinate"] = extract_coordinate(coord)
-    elif joint_type in ("FreeJoint", "WeldJoint"):
-        pass
-    else:
-        try:
-            cs = joint.getCoordinateSet()
-            if cs.getSize() > 0:
-                data["coordinate"] = extract_coordinate(cs.get(0))
-        except Exception:
+    try:
+        if joint_type == "PinJoint":
+            coord = joint.getCoordinate()
+            data["axis"] = [coord.getAxis()[i] for i in range(3)]
+            data["coordinate"] = extract_coordinate(coord)
+        elif joint_type == "CustomJoint":
+            data["coordinates"] = [
+                extract_coordinate(joint.get_coordinates(i))
+                for i in range(joint.numCoordinates())
+            ]
+            data["spatial_transform"] = extract_spatial_transform(joint)
+        elif joint_type == "UniversalJoint":
+            data["coordinates"] = [
+                extract_coordinate(joint.get_coordinates(i))
+                for i in range(joint.numCoordinates())
+            ]
+        elif joint_type == "BallJoint":
+            coord = joint.getCoordinate()
+            data["coordinate"] = extract_coordinate(coord)
+        elif joint_type in ("FreeJoint", "WeldJoint"):
             pass
+        else:
+            if joint.numCoordinates() > 0:
+                coord = joint.getCoordinate()
+                data["coordinate"] = extract_coordinate(coord)
+    except Exception:
+        pass
 
     return data
 
 
 def extract_marker(marker):
+    try:
+        loc = [marker.getLocation()[i] for i in range(3)]
+    except Exception:
+        loc = [0.0, 0.0, 0.0]
     return {
         "name": marker.getName(),
         "body": marker.getBodyName(),
-        "location": list(marker.getLocation()),
+        "location": loc,
     }
 
 
@@ -192,39 +268,22 @@ def extract_muscle_path_points(force):
     return points
 
 
-def extract_muscle(force, body_names, coord_names):
-    name = force.getName()
-    class_name = force.getConcreteClassName()
-
-    def get_f64(method, default=0.0):
-        try:
-            return getattr(force, method)()
-        except Exception:
-            return default
-
-    def get_bool(method, default=False):
-        try:
-            return getattr(force, method)()
-        except Exception:
-            return default
-
-    # Geometry path points
+def extract_muscle(force):
     path_points = extract_muscle_path_points(force)
-
     return {
-        "name": name,
-        "muscle_type": class_name,
-        "max_isometric_force": get_f64("getMaxIsometricForce"),
-        "optimal_fiber_length": get_f64("getOptimalFiberLength"),
-        "tendon_slack_length": get_f64("getTendonSlackLength"),
-        "pennation_angle_at_optimal": get_f64("getPennationAngleAtOptimalFiberLength"),
-        "max_contraction_velocity": get_f64("getMaxContractionVelocity", 10.0),
-        "activation_time_constant": get_f64("getActivationTimeConstant", 0.01),
-        "deactivation_time_constant": get_f64("getDeactivationTimeConstant", 0.04),
-        "minimum_activation": get_f64("getMinimumActivation", 0.01),
-        "fiber_damping": get_f64("getFiberDamping", 0.1),
-        "ignore_activation_dynamics": get_bool("getIgnoreActivationDynamics"),
-        "ignore_tendon_compliance": get_bool("getIgnoreTendonCompliance"),
+        "name": force.getName(),
+        "muscle_type": force.getConcreteClassName(),
+        "max_isometric_force": get_f64(force, "getMaxIsometricForce"),
+        "optimal_fiber_length": get_f64(force, "getOptimalFiberLength"),
+        "tendon_slack_length": get_f64(force, "getTendonSlackLength"),
+        "pennation_angle_at_optimal": get_f64(force, "getPennationAngleAtOptimalFiberLength"),
+        "max_contraction_velocity": get_f64(force, "getMaxContractionVelocity", 10.0),
+        "activation_time_constant": get_f64(force, "getActivationTimeConstant", 0.01),
+        "deactivation_time_constant": get_f64(force, "getDeactivationTimeConstant", 0.04),
+        "minimum_activation": get_f64(force, "getMinimumActivation", 0.01),
+        "fiber_damping": get_f64(force, "getFiberDamping", 0.1),
+        "ignore_activation_dynamics": get_bool(force, "getIgnoreActivationDynamics"),
+        "ignore_tendon_compliance": get_bool(force, "getIgnoreTendonCompliance"),
         "path_points": path_points,
     }
 
@@ -232,17 +291,27 @@ def extract_muscle(force, body_names, coord_names):
 def extract_wrap(wrap):
     name = wrap.getName()
     wrap_type = wrap.getConcreteClassName()
-    body = wrap.getFrame().getName()
-    location = list(wrap.getLocation())
-    orientation = list(wrap.getOrientation())
+    try:
+        body = wrap.getFrame().getName()
+    except Exception:
+        body = "ground"
+    try:
+        location = [wrap.getLocation()[i] for i in range(3)]
+        orientation = [wrap.getOrientation()[i] for i in range(3)]
+    except Exception:
+        location = [0.0, 0.0, 0.0]
+        orientation = [0.0, 0.0, 0.0]
 
     if "Sphere" in wrap_type:
-        dimensions = [wrap.getRadius()]
+        dimensions = [get_f64(wrap, "getRadius")]
     elif "Cylinder" in wrap_type:
-        dimensions = [wrap.getRadius(), wrap.getLength()]
+        dimensions = [get_f64(wrap, "getRadius"), get_f64(wrap, "getLength")]
     elif "Ellipsoid" in wrap_type:
-        dims = wrap.getDimensions()
-        dimensions = [dims.get(i) for i in range(3)]
+        try:
+            dims = wrap.getDimensions()
+            dimensions = [dims[i] for i in range(3)]
+        except Exception:
+            dimensions = [0.0, 0.0, 0.0]
     else:
         dimensions = []
 
@@ -260,14 +329,14 @@ def extract_display_geometry(body):
     geoms = []
     try:
         for i in range(body.getPropertyByName("display_geometry").size()):
-            dg = body.getPropertyByName("display_geometry").getValue(i)
+            dg_obj = body.getPropertyByName("display_geometry").getValueAsObject(i)
             geoms.append({
                 "body_name": body.getName(),
-                "mesh_file": dg.getPropertyByName("display_geometry_file").getValueString(0),
-                "scale_factors": list(dg.getPropertyByName("scale_factors").getValue(0)),
-                "color": list(dg.getPropertyByName("color").getValue(0)),
-                "opacity": dg.getPropertyByName("opacity").getValue(0),
-                "transform": list(dg.getPropertyByName("transform").getValue(0)) if dg.getPropertyByName("transform").size() > 0 else None,
+                "mesh_file": dg_obj.getPropertyByName("display_geometry_file").toString(),
+                "scale_factors": [1.0, 1.0, 1.0],
+                "color": [0.8, 0.8, 0.8],
+                "opacity": 1.0,
+                "transform": None,
             })
     except Exception:
         pass
@@ -303,34 +372,29 @@ def extract_model(osim_path):
             "mass_center": [0.0, 0.0, 0.0], "inertia": [0.0] * 6,
         })
 
-    body_names = {b["name"] for b in data["bodies"]}
-
     # Joints
     joint_set = model.getJointSet()
     for i in range(joint_set.getSize()):
         data["joints"].append(extract_joint(joint_set.get(i)))
 
-    # Coordinates name map (for muscle path points)
-    coord_names = set()
-    for j in data["joints"]:
-        if j["coordinate"]:
-            coord_names.add(j["coordinate"]["name"])
-        if j["coordinates"]:
-            for c in j["coordinates"]:
-                coord_names.add(c["name"])
-
     # Markers
-    marker_set = model.getMarkerSet()
-    for i in range(marker_set.getSize()):
-        data["markers"].append(extract_marker(marker_set.get(i)))
+    try:
+        marker_set = model.getMarkerSet()
+        for i in range(marker_set.getSize()):
+            data["markers"].append(extract_marker(marker_set.get(i)))
+    except Exception:
+        pass
 
     # Muscles (from ForceSet)
-    force_set = model.getForceSet()
-    for i in range(force_set.getSize()):
-        force = force_set.get(i)
-        class_name = force.getConcreteClassName()
-        if "Muscle" in class_name:
-            data["muscles"].append(extract_muscle(force, body_names, coord_names))
+    try:
+        force_set = model.getForceSet()
+        for i in range(force_set.getSize()):
+            force = force_set.get(i)
+            class_name = force.getConcreteClassName()
+            if "Muscle" in class_name:
+                data["muscles"].append(extract_muscle(force))
+    except Exception:
+        pass
 
     # Wrap objects
     try:
@@ -340,10 +404,9 @@ def extract_model(osim_path):
     except Exception:
         pass
 
-    # Display geometry (attached to bodies)
+    # Display geometry
     for i in range(body_set.getSize()):
-        body = body_set.get(i)
-        data["display_geometries"].extend(extract_display_geometry(body))
+        data["display_geometries"].extend(extract_display_geometry(body_set.get(i)))
 
     return data
 

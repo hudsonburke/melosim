@@ -3,10 +3,12 @@
 //
 // Usage:
 //   cargo run --bin roundtrip -- Rajagopal2015.osim [output.osim]   (needs OpenSim)
-//   cargo run --bin roundtrip -- --json model.json [output.osim]    (from extracted JSON, no OpenSim)
+//   cargo run --bin roundtrip -- --from-json model.json [output.osim]    (from extracted JSON, no OpenSim)
 //   qemu-x86_64 roundtrip Rajagopal2015.osim output.osim            (on aarch64 with QEMU)
 
 use std::path::Path;
+#[cfg(feature = "pyo3")]
+use pyo3::types::PyAnyMethods;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -58,14 +60,23 @@ fn main() {
             }
         }
     } else {
-        println!("[1/3] Importing model via PyO3 (OpenSim)...");
-        match import_via_pyo3(input_arg) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("Import failed: {}", e);
-                eprintln!("Tip: On aarch64, use '--from-json' with a pre-extracted JSON file instead.");
-                std::process::exit(1);
+        #[cfg(feature = "pyo3")]
+        {
+            println!("[1/3] Importing model via PyO3 (OpenSim)...");
+            match import_via_pyo3(input_arg) {
+                Ok(w) => w,
+                Err(e) => {
+                    eprintln!("Import failed: {}", e);
+                    eprintln!("Tip: On aarch64, use '--from-json' with a pre-extracted JSON file instead.");
+                    std::process::exit(1);
+                }
             }
+        }
+        #[cfg(not(feature = "pyo3"))]
+        {
+            eprintln!("Error: PyO3 not available. Use '--from-json' mode instead.");
+            eprintln!("  cargo run --bin roundtrip -- --from-json <file.json> [output.osim]");
+            std::process::exit(1);
         }
     };
     println!("  Bodies: {}", world.count::<melosim::components::InertialProperties>());
@@ -108,6 +119,7 @@ fn main() {
 }
 
 /// Import an .osim file via PyO3 (calls Python OpenSim API).
+#[cfg(feature = "pyo3")]
 fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
     pyo3::prepare_freethreaded_python();
 

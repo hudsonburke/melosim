@@ -10,7 +10,11 @@ crate-type = ["cdylib"]
 name = "roundtrip"
 path = "src/bin/roundtrip.rs"
 
+[features]
+default = ["pyo3"]
+pyo3 = ["dep:pyo3"]
+
 [dependencies]
 melosim = { path = ".." }
-pyo3 = { version = "0.23", features = ["extension-module"] }
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
 serde_json = "1"

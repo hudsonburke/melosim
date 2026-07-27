@@ -89,14 +89,14 @@
                 local output="''${2:-roundtrip_output.osim}"
 
                 if [ "''${input#*.}" = "json" ]; then
-                  cargo run --bin roundtrip -- --from-json "$input" "$output"
+                  cargo run -p melosim-py --bin roundtrip -- --from-json "$input" "$output"
                 else
                   local json_tmp=$(mktemp /tmp/melosim-XXXXXX.json)
                   echo "[1/2] Extracting via QEMU..."
                   LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
                     $X86_QEMU $X86_PY scripts/extract_opensim.py "$input" "$json_tmp"
                   echo "[2/2] Importing + exporting (native)..."
-                  cargo run --bin roundtrip -- --from-json "$json_tmp" "$output"
+                  cargo run -p melosim-py --bin roundtrip -- --from-json "$json_tmp" "$output"
                   rm -f "$json_tmp"
                 fi
               }
@@ -113,7 +113,7 @@
               source .venv/bin/activate
 
               roundtrip() {
-                cargo run --bin roundtrip -- "$@"
+                cargo run -p melosim-py --bin roundtrip -- "$@"
               }
             fi
 
