@@ -4,6 +4,7 @@ mod geometry;
 mod joint;
 mod material;
 mod muscle;
+mod path;
 mod tendon;
 mod wrap;
 
@@ -13,5 +14,6 @@ pub use geometry::*;
 pub use joint::*;
 pub use material::*;
 pub use muscle::*;
+pub use path::*;
 pub use tendon::*;
 pub use wrap::*;

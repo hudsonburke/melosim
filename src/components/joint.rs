@@ -1,11 +1,15 @@
+use crate::components::body::BodyKey;
 use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use slotmap::new_key_type;
+
+new_key_type! {
+    pub struct JointKey;
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Joint {
-    pub entity: EntityID,
-    pub body_a: EntityID,
-    pub body_b: EntityID,
+    pub body_a: BodyKey,
+    pub body_b: BodyKey,
     pub joint_type: JointType,
     pub limits: Option<JointLimits>,
 }

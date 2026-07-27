@@ -1,9 +1,8 @@
-use serde::{Deserialize, Serialize};
 use crate::id::EntityID;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Actuator {
-    pub entity: EntityID,
     pub name: String,
     pub actuator_type: ActuatorType,
 }
