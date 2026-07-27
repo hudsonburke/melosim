@@ -2,39 +2,33 @@ use melosim::components::*;
 use melosim::id::EntityKey;
 use melosim::math::{Transform, Vec3};
 use melosim::system::SystemRegistry;
+use melosim::validate;
 use melosim::world::World;
+use slotmap::Key;
 
-// ── Example systems ───────────────────────────────────
-// Each system reads only the concrete types it needs.
-// Systems iterate a single component type — the join between
-// component types happens via EntityKey references in fields.
+// ── Example FK systems ────────────────────────────────
+// Each reads only the concrete types it needs.
 
 fn hinge_fk_system(world: &mut World) {
-    for (_key, hinge) in world.iter::<HingeJoint>() {
-        // In a real FK solver:
-        //   - read joint position from state (not shown)
-        //   - compute transform from hinge axis + angle
-        //   - look up body_b's Frame and apply the transform
-        let _ = hinge; // stub
+    for (_key, _hinge) in world.iter::<HingeJoint>() {
+        // stub
     }
 }
 
 fn ball_fk_system(world: &mut World) {
-    for (_key, ball) in world.iter::<BallJoint>() {
-        // Ball joint: rotation about any axis through the joint origin
-        let _ = ball; // stub
+    for (_key, _ball) in world.iter::<BallJoint>() {
+        // stub
     }
 }
 
 fn free_fk_system(world: &mut World) {
-    for (_key, free) in world.iter::<FreeJoint>() {
-        // Free joint: 6-DOF motion
-        let _ = free; // stub
+    for (_key, _free) in world.iter::<FreeJoint>() {
+        // stub
     }
 }
 
 // ── Example: custom joint from a downstream crate ─────
-// No changes to melosim core. Define the struct + system + register.
+// No changes to melosim core.
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct PrismaticJoint {
@@ -46,8 +40,25 @@ struct PrismaticJoint {
 
 fn prismatic_system(world: &mut World) {
     for (_key, _prismatic) in world.iter::<PrismaticJoint>() {
-        // Prismatic: translation along axis
+        // stub
     }
+}
+
+// Custom validation for the downstream crate's type.
+// Registered the same way — no core changes needed.
+fn validate_prismatic(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, prismatic) in world.iter::<PrismaticJoint>() {
+        if world.get::<InertialProperties>(prismatic.body_a).is_none() {
+            local_errors.push(format!(
+                "PrismaticJoint {:?}: missing body_a {:?}",
+                key.data().as_ffi(),
+                prismatic.body_a.data().as_ffi()
+            ));
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
 }
 
 // ── Main ──────────────────────────────────────────────
@@ -79,7 +90,6 @@ fn main() {
     });
 
     // ── Create joints ──
-    // Each joint is a single component referencing body_a and body_b.
     let _hip = world.insert(HingeJoint {
         body_a: pelvis,
         body_b: femur,
@@ -87,7 +97,7 @@ fn main() {
             lower: -2.0,
             upper: 2.0,
         }),
-        axis: [1.0, 0.0, 0.0], // flexion/extension
+        axis: [1.0, 0.0, 0.0],
     });
 
     let _pelvis_free = world.insert(FreeJoint {
@@ -104,26 +114,31 @@ fn main() {
 
     // ── Register systems ──
     let mut registry = SystemRegistry::new();
+
+    // Validation phase: run before FK
+    registry.add("validate_hinge", validate::validate_hinge);
+    registry.add("validate_ball", validate::validate_ball);
+    registry.add("validate_slide", validate::validate_slide);
+    registry.add("validate_free", validate::validate_free);
+    registry.add("validate_fixed", validate::validate_fixed);
+    registry.add("validate_frame", validate::validate_frame);
+    registry.add("validate_site", validate::validate_site);
+    // Downstream crate's validation — same registry, no core change
+    registry.add("validate_prismatic", validate_prismatic);
+
+    // FK phase
     registry.add("hinge_fk", hinge_fk_system);
     registry.add("ball_fk", ball_fk_system);
     registry.add("free_fk", free_fk_system);
-    // Custom joint from downstream crate — registered the same way:
     registry.add("prismatic_fk", prismatic_system);
 
-    println!("Registered systems: {:?}", registry);
+    // Print errors last
+    registry.add("print_errors", validate::print_errors);
 
-    // ── Run systems ──
+    println!("Registered {} systems:\n  {:?}", registry.len(), registry);
+
+    // ── Run systems in order ──
     registry.run(&mut world);
-
-    // ── Validate ──
-    let errors = world.validate();
-    if errors.is_empty() {
-        println!("World is valid");
-    } else {
-        for e in &errors {
-            println!("ERROR: {}", e);
-        }
-    }
 
     // ── Summary ──
     println!("{:?}", world);

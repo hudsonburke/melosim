@@ -7,20 +7,26 @@ use slotmap::{Key, SlotMap};
 /// Each component type T is stored in a SlotMap<EntityKey, T>.
 pub type ComponentMap<T> = SlotMap<EntityKey, T>;
 
-/// The World stores all components in an AnyMap.
+/// The World stores all components and resources in separate AnyMaps.
+/// - Components: per-entity data, keyed by EntityKey in SlotMaps
+/// - Resources: singleton data (sim config, error accumulators, etc.)
+///
 /// Adding a new component type does NOT require modifying this struct.
 pub struct World {
     pub components: AnyMap,
+    pub resources: AnyMap,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             components: AnyMap::new(),
+            resources: AnyMap::new(),
         }
     }
 
-    /// Ensure a ComponentMap<T> exists in the AnyMap, then return a mutable ref.
+    // ── Component access ──
+
     fn ensure_map<T: 'static>(&mut self) -> &mut ComponentMap<T> {
         self.components
             .entry::<ComponentMap<T>>()
@@ -74,12 +80,38 @@ impl World {
             .and_then(|map| map.remove(key))
     }
 
-    /// Validate cross-entity references and data integrity.
+    // ── Resource access ──
+    // Resources are singletons stored by type, not per-entity.
+    // Useful for configuration, error accumulators, solver parameters.
+
+    /// Get a reference to a resource by type.
+    pub fn get_resource<T: 'static>(&self) -> Option<&T> {
+        self.resources.get::<T>()
+    }
+
+    /// Get a mutable reference to a resource by type.
+    pub fn get_resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.resources.get_mut::<T>()
+    }
+
+    /// Insert a resource (replaces existing).
+    pub fn insert_resource<T: 'static>(&mut self, resource: T) {
+        self.resources.insert(resource);
+    }
+
+    /// Get or create a resource with Default::default().
+    pub fn get_resource_or_default<T: Default + 'static>(&mut self) -> &mut T {
+        self.resources.entry::<T>().or_insert_with(T::default)
+    }
+
+    // ── Validation (legacy wrapper) ──
+    // Runs the built-in validation and returns accumulated errors.
+    // Prefer calling validate systems through the SystemRegistry instead.
+
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
 
-        // ── Joint validation ──
-        // Check that joint body_a/body_b references exist
+        // Joint body reference checks
         let check_joint = |body_a: EntityKey, body_b: EntityKey| -> Vec<String> {
             let mut errs = Vec::new();
             if self.get::<InertialProperties>(body_a).is_none() {
@@ -113,7 +145,6 @@ impl World {
             errors.extend(check_joint(fixed.body_a, fixed.body_b));
         }
 
-        // ── Frame parent validation ──
         for (key, frame) in self.iter::<Frame>() {
             if self.get::<InertialProperties>(frame.parent).is_none() {
                 errors.push(format!(
@@ -124,7 +155,6 @@ impl World {
             }
         }
 
-        // ── Site parent validation ──
         for (key, site) in self.iter::<Site>() {
             if self.get::<InertialProperties>(site.parent).is_none() {
                 errors.push(format!(
