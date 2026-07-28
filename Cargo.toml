@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "python"]
+members = [".", "python", "server"]
 
 [package]
 name = "melosim"

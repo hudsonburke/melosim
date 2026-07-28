@@ -1,19 +1,8 @@
 // ── MuJoCo MJCF XML Exporter (trait-based) ───────────
 //
-// Walks the melosim World and produces a valid MJCF XML file.
-//
-// Component rendering is delegated to `ExportAs<Mjcf>` impls
+// Component rendering delegated to ExportAs<Mjcf> impls
 // in mjcf_components.rs. This file handles only format structure:
 // body hierarchy, section organization, and cross-cutting concerns.
-//
-// To add a new component type:
-//   1. Implement `ExportAs<Mjcf>` on the component (mjcf_components.rs)
-//   2. Add iteration logic here where the component belongs in MJCF
-//
-// To add a new format:
-//   1. Define a marker type (trait_export.rs already has OsIm)
-//   2. Implement `ExportAs<OsIm>` on each component (osim_components.rs)
-//   3. Write a coordinator function (world_to_osim) using those impls
 
 use std::collections::HashMap;
 
@@ -32,10 +21,7 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
     xml.push_str("\">\n");
     xml.push_str("  <compiler angle=\"radian\"/>\n");
 
-    // ── Build body hierarchy ──
     let children_map = build_children_map(world);
-
-    // ── Find root bodies ──
     let roots = find_root_bodies(world);
 
     // ── worldbody ──
@@ -54,10 +40,7 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
                 .name(muscle_key)
                 .map(|n| format!("{}_tendon", n))
                 .unwrap_or_else(|| format!("tendon_{}", muscle_key.0));
-            xml.push_str(&format!(
-                "    <spatial name=\"{}\">\n",
-                escape_attr(&tendon_name)
-            ));
+            xml.push_str(&format!("    <spatial name=\"{}\">\n", escape_attr(&tendon_name)));
             for point in &path.points {
                 match point {
                     PathPoint::BodyFixed { body, location } => {
@@ -68,9 +51,7 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
                             ));
                         }
                     }
-                    PathPoint::Moving { .. } => {
-                        // Moving path points need a different export strategy
-                    }
+                    PathPoint::Moving { .. } => {}
                 }
             }
             xml.push_str("    </spatial>\n");
@@ -83,8 +64,6 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
     let has_coord_actuators = world.iter::<CoordinateActuator>().next().is_some();
     if has_muscles || has_coord_actuators {
         xml.push_str("\n  <actuator>\n");
-
-        // Muscles — delegate to ExportAs<Mjcf> for Muscle
         for (muscle_key, muscle) in world.iter::<Muscle>() {
             if let Some(element) = muscle.export_as(muscle_key, &ctx) {
                 xml.push_str("    ");
@@ -92,8 +71,6 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
                 xml.push('\n');
             }
         }
-
-        // Coordinate actuators — delegate to ExportAs<Mjcf> for CoordinateActuator
         for (act_key, act) in world.iter::<CoordinateActuator>() {
             if let Some(element) = act.export_as(act_key, &ctx) {
                 xml.push_str("    ");
@@ -101,7 +78,6 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
                 xml.push('\n');
             }
         }
-
         xml.push_str("  </actuator>\n");
     }
 
@@ -115,7 +91,7 @@ pub fn write_mjcf(world: &World, path: &str, model_name: &str) -> Result<(), Str
     std::fs::write(path, &xml).map_err(|e| format!("Failed to write {}: {}", path, e))
 }
 
-// ── Body hierarchy (format-specific structure) ────────
+// ── Body hierarchy ────────────────────────────────────
 
 fn emit_body_recursive(
     world: &World,
@@ -130,14 +106,10 @@ fn emit_body_recursive(
 
     xml.push_str(&format!("{}<body name=\"{}\"", indent, escape_attr(name)));
 
-    // Position/orientation from Frame
     if let Some(frame) = world.get::<Frame>(entity) {
-        let t = &frame.transform;
-        if t.translation.x != 0.0 || t.translation.y != 0.0 || t.translation.z != 0.0 {
-            xml.push_str(&format!(
-                " pos=\"{} {} {}\"",
-                t.translation.x, t.translation.y, t.translation.z
-            ));
+        let t = &frame.transform.translation;
+        if t.x != 0.0 || t.y != 0.0 || t.z != 0.0 {
+            xml.push_str(&format!(" pos=\"{} {} {}\"", t.x, t.y, t.z));
         }
         let r = &frame.transform.rotation;
         if r.w != 1.0 || r.x != 0.0 || r.y != 0.0 || r.z != 0.0 {
@@ -146,15 +118,17 @@ fn emit_body_recursive(
     }
     xml.push_str(">\n");
 
-    // Inertial properties — delegate to trait
-    if let Some(element) = export_component_as::<InertialProperties, Mjcf>(world, entity, ctx) {
-        xml.push_str(&format!("{}  {}\n", indent, element));
+    // Inertial properties
+    if let Some(inertial) = world.get::<InertialProperties>(entity) {
+        if let Some(element) = inertial.export_as(entity, ctx) {
+            xml.push_str(&format!("{}  {}\n", indent, element));
+        }
     }
 
-    // Joints — delegate to trait (dispatches on concrete joint type)
+    // Joints
     emit_body_joints(world, ctx, xml, entity, &indent);
 
-    // Display geometries on this body
+    // Display geometries
     for (geom_key, geom) in world.iter::<DisplayGeometry>() {
         if geom.body == entity {
             if let Some(element) = geom.export_as(geom_key, ctx) {
@@ -163,7 +137,7 @@ fn emit_body_recursive(
         }
     }
 
-    // Sites on this body
+    // Sites
     for (site_key, site) in world.iter::<Site>() {
         if site.parent == entity {
             if let Some(element) = site.export_as(site_key, ctx) {
@@ -172,7 +146,7 @@ fn emit_body_recursive(
         }
     }
 
-    // Wrap geometries on this body
+    // Wrap geometries
     for (wrap_key, wrap) in world.iter::<WrapGeom>() {
         if wrap.body == entity {
             if let Some(element) = wrap.export_as(wrap_key, ctx) {
@@ -191,7 +165,6 @@ fn emit_body_recursive(
     xml.push_str(&format!("{}</body>\n", indent));
 }
 
-/// Emit joints attached to a body. Tries each joint type via the trait.
 fn emit_body_joints(
     world: &World,
     ctx: &ExportCtx,
@@ -199,62 +172,40 @@ fn emit_body_joints(
     body: EntityID,
     indent: &str,
 ) {
-    // Each joint type — the trait dispatches on concrete type.
-    // Order matters for round-trip fidelity (matches import order).
-    for (key, joint) in world.iter::<HingeJoint>() {
-        if joint.body_b == body {
-            if let Some(element) = joint.export_as(key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
-        }
-    }
-    for (key, joint) in world.iter::<SlideJoint>() {
-        if joint.body_b == body {
-            if let Some(element) = joint.export_as(key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
-        }
-    }
-    for (key, joint) in world.iter::<BallJoint>() {
-        if joint.body_b == body {
-            if let Some(element) = joint.export_as(key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
-        }
-    }
-    for (key, joint) in world.iter::<FreeJoint>() {
-        if joint.body_b == body {
-            if let Some(element) = joint.export_as(key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
-        }
-    }
-    for (key, joint) in world.iter::<UniversalJoint>() {
-        if joint.body_b == body {
-            if let Some(element) = joint.export_as(key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
-        }
-    }
-    for (key, joint) in world.iter::<CustomJoint>() {
-        if joint.body_b == body {
-            if let Some(element) = joint.export_as(key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
-        }
-    }
-    // FixedJoint → no-op (MuJoCo has no explicit fixed joint)
-}
+    let joints: Vec<(EntityID, String)> = world.iter::<HingeJoint>()
+        .filter(|(_, j)| j.body_b == body)
+        .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+        .chain(
+            world.iter::<SlideJoint>()
+                .filter(|(_, j)| j.body_b == body)
+                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+        )
+        .chain(
+            world.iter::<BallJoint>()
+                .filter(|(_, j)| j.body_b == body)
+                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+        )
+        .chain(
+            world.iter::<FreeJoint>()
+                .filter(|(_, j)| j.body_b == body)
+                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+        )
+        .chain(
+            world.iter::<UniversalJoint>()
+                .filter(|(_, j)| j.body_b == body)
+                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+        )
+        .chain(
+            world.iter::<CustomJoint>()
+                .filter(|(_, j)| j.body_b == body)
+                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+        )
+        .collect();
 
-/// Try to export a component of type C from an entity using format F.
-fn export_component_as<C, F>(world: &World, entity: EntityID, ctx: &ExportCtx) -> Option<String>
-where
-    C: ExportAs<F, Output = String>,
-{
-    world.get::<C>(entity).and_then(|c| c.export_as(entity, ctx))
+    for (_, element) in joints {
+        xml.push_str(&format!("{}  {}\n", indent, element));
+    }
 }
-
-// ── Hierarchy helpers (same as before) ────────────────
 
 fn build_children_map(world: &World) -> HashMap<EntityID, Vec<EntityID>> {
     let mut children: HashMap<EntityID, Vec<EntityID>> = HashMap::new();
