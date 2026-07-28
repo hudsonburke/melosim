@@ -32,11 +32,10 @@ export default function App() {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[melosim] fetchScene error: ${msg}`);
       setError(msg);
-      if (!scene) setScene(createDemoScene());
     } finally {
       setLoading(false);
     }
-  }, [scene]);
+  }, []);
 
   useEffect(() => {
     fetchScene();
