@@ -129,8 +129,9 @@
             esac
           done
 
-          export VITE_API_BASE="http://localhost:''${API_PORT}"
-          echo "Vite dev server on :$VITE_PORT (API: $VITE_API_BASE)"
+          # Vite proxy forwards /scene, /import, etc. to the API server
+          export VITE_API_BASE=""
+          echo "Vite dev server on :$VITE_PORT (API proxied to :$API_PORT)"
           exec npm run dev -- --port "$VITE_PORT"
         '';
 
