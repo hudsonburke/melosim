@@ -24,10 +24,10 @@ export default function App() {
       const data: SceneData = await res.json();
       const ms = Math.round(performance.now() - start);
       setFetchMs(ms);
-      console.log(`[melosim] /scene: ${ms}ms, ${JSON.stringify(data).length} bytes`);
-      console.log(`[melosim] counts: bodies=${data.bodies.length} meshes=${data.meshes.length} joints=${data.joints.length} muscles=${data.muscles.length} muscle_paths=${(data.muscle_paths ?? []).length} sites=${data.sites.length}`);
       // Backwards compat: old server doesn't return muscle_paths
       if (!data.muscle_paths) data.muscle_paths = [];
+      console.log(`[melosim] /scene: ${ms}ms, ${JSON.stringify(data).length} bytes`);
+      console.log(`[melosim] counts: bodies=${data.bodies.length} meshes=${data.meshes.length} joints=${data.joints.length} muscles=${data.muscles.length} muscle_paths=${data.muscle_paths.length} sites=${data.sites.length}`);
       setScene(data);
       setError(null);
     } catch (e) {
