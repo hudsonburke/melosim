@@ -317,14 +317,24 @@ def extract_muscle_path_points(force):
 
 
 def extract_coordinate_actuator(force):
-    coord_prop = force.getCoordinate()
-    coord_name = coord_prop.getName() if coord_prop else ""
+    import opensim
+    ca = opensim.CoordinateActuator.safeDownCast(force)
+    coord = ca.getCoordinate()
+    coord_name = coord.getName() if coord else ""
+    min_ctrl = ca.getMinControl()
+    max_ctrl = ca.getMaxControl()
+    # JSON doesn't support Infinity — clamp to OpenSim defaults
+    import math
+    if math.isinf(min_ctrl):
+        min_ctrl = -1.0
+    if math.isinf(max_ctrl):
+        max_ctrl = 1.0
     return {
         "name": force.getName(),
         "coordinate": coord_name,
-        "optimal_force": force.getOptimalForce(),
-        "min_control": force.getMinControl(),
-        "max_control": force.getMaxControl(),
+        "optimal_force": ca.getOptimalForce(),
+        "min_control": min_ctrl,
+        "max_control": max_ctrl,
     }
 
 
@@ -482,18 +492,24 @@ def extract_model(osim_path):
     except Exception:
         pass
 
-    # Muscles (from ForceSet)
+    # Muscles + Actuators (from ActuatorSet — includes ForceSet)
     try:
-        force_set = model.getForceSet()
-        for i in range(force_set.getSize()):
-            force = force_set.get(i)
-            class_name = force.getConcreteClassName()
+        act_set = model.getActuators()
+        for i in range(act_set.getSize()):
+            act = act_set.get(i)
+            class_name = act.getConcreteClassName()
             if "Muscle" in class_name:
-                data["muscles"].append(extract_muscle(force))
+                try:
+                    data["muscles"].append(extract_muscle(act))
+                except Exception:
+                    pass
             elif class_name == "CoordinateActuator":
-                data["coordinate_actuators"].append(
-                    extract_coordinate_actuator(force)
-                )
+                try:
+                    data["coordinate_actuators"].append(
+                        extract_coordinate_actuator(act)
+                    )
+                except Exception:
+                    pass
     except Exception:
         pass
 
