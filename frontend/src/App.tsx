@@ -14,16 +14,23 @@ export default function App() {
   const [showMuscles, setShowMuscles] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchMs, setFetchMs] = useState<number | null>(null);
 
   const fetchScene = useCallback(async () => {
     try {
+      const start = performance.now();
       const res = await fetch(`${API_BASE}/scene`);
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data: SceneData = await res.json();
+      const ms = Math.round(performance.now() - start);
+      setFetchMs(ms);
+      console.log(`[melosim] /scene: ${ms}ms, ${JSON.stringify(data).length} bytes`);
+      console.log(`[melosim] counts: bodies=${data.bodies.length} meshes=${data.meshes.length} joints=${data.joints.length} muscles=${data.muscles.length} muscle_paths=${data.muscle_paths.length} sites=${data.sites.length}`);
       setScene(data);
       setError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[melosim] fetchScene error: ${msg}`);
       setError(msg);
       if (!scene) setScene(createDemoScene());
     } finally {
@@ -33,7 +40,7 @@ export default function App() {
 
   useEffect(() => {
     fetchScene();
-    const interval = setInterval(fetchScene, 2000);
+    const interval = setInterval(fetchScene, 5000); // 5s instead of 2s
     return () => clearInterval(interval);
   }, [fetchScene]);
 
@@ -65,6 +72,11 @@ export default function App() {
         ) : (
           <>
             {error && <div className="error-banner">⚠ {error}</div>}
+            {fetchMs !== null && (
+              <div style={{ position: "absolute", top: 8, left: 8, color: "#888", fontSize: 12, zIndex: 10, fontFamily: "monospace" }}>
+                {scene?.bodies.length} bodies, {scene?.meshes.length} meshes | fetch: {fetchMs}ms
+              </div>
+            )}
             <Scene
               scene={scene}
               onSelect={setSelectedId}

@@ -1,8 +1,15 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid } from "@react-three/drei";
 import * as THREE from "three";
 import type { Scene as SceneData, BodyInfo, MeshInfo, MusclePathInfo } from "../types/schema";
+
+// ── Debug helper ──────────────────────────────────────────────────────────
+
+const DEBUG = true;
+function log(msg: string) {
+  if (DEBUG) console.log(`[melosim] ${msg}`);
+}
 
 // ── Scene ────────────────────────────────────────────────────────────────
 
@@ -15,6 +22,15 @@ interface SceneProps {
 }
 
 export default function Scene({ scene, onSelect, selected, showSites, showMuscles = false }: SceneProps) {
+  useEffect(() => {
+    if (scene) {
+      log(`Scene data: ${scene.bodies.length} bodies, ${scene.meshes.length} meshes, ${scene.joints.length} joints, ${scene.muscle_paths.length} muscle_paths, ${scene.sites.length} sites`);
+      // Estimate JSON size
+      const jsonSize = JSON.stringify(scene).length;
+      log(`Scene JSON size: ${(jsonSize / 1024).toFixed(1)} KB`);
+    }
+  }, [scene]);
+
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <Canvas camera={{ position: [2.5, 1.5, 3], fov: 45 }} style={{ background: "#1a1a1a" }}>
@@ -37,7 +53,7 @@ export default function Scene({ scene, onSelect, selected, showSites, showMuscle
   );
 }
 
-// ── Async STL mesh (non-blocking — shows nothing while loading) ──────────
+// ── Async STL mesh (non-blocking) ────────────────────────────────────────
 
 function AsyncSTLMesh({ mesh, color, onClick }: {
   mesh: MeshInfo;
@@ -45,24 +61,35 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
   onClick?: () => void;
 }) {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const startTime = useRef(Date.now());
 
   useEffect(() => {
     let cancelled = false;
+    log(`Loading mesh: ${mesh.url}`);
     import("three/examples/jsm/loaders/STLLoader.js").then(({ STLLoader }) => {
       const loader = new STLLoader();
-      loader.load(mesh.url, (geo) => {
-        if (cancelled) { geo.dispose(); return; }
-        geo.computeBoundingBox();
-        const center = new THREE.Vector3();
-        geo.boundingBox!.getCenter(center);
-        geo.translate(-center.x, -center.y, -center.z);
-        const size = new THREE.Vector3();
-        geo.boundingBox!.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 0.15 / maxDim;
-        geo.scale(scale, scale, scale);
-        setGeometry(geo);
-      });
+      loader.load(
+        mesh.url,
+        (geo) => {
+          if (cancelled) { geo.dispose(); return; }
+          const elapsed = Date.now() - startTime.current;
+          log(`Mesh loaded in ${elapsed}ms: ${mesh.url} (${(geo.attributes.position.count)} verts)`);
+          geo.computeBoundingBox();
+          const center = new THREE.Vector3();
+          geo.boundingBox!.getCenter(center);
+          geo.translate(-center.x, -center.y, -center.z);
+          const size = new THREE.Vector3();
+          geo.boundingBox!.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const scale = 0.15 / maxDim;
+          geo.scale(scale, scale, scale);
+          setGeometry(geo);
+        },
+        undefined,
+        (err) => {
+          log(`Mesh FAILED: ${mesh.url} — ${err}`);
+        },
+      );
     });
     return () => { cancelled = true; };
   }, [mesh.url]);
@@ -76,7 +103,7 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
   );
 }
 
-// ── Joint lines (single LineSegments object) ─────────────────────────────
+// ── Joint lines ──────────────────────────────────────────────────────────
 
 function JointLines({ scene, worldPoses }: {
   scene: SceneData;
@@ -109,55 +136,44 @@ function JointLines({ scene, worldPoses }: {
   );
 }
 
-// ── Muscle visualization (polylines through path points) ─────────────────
+// ── Muscle visualization ─────────────────────────────────────────────────
 
 function MuscleVisualization({ musclePaths, worldPoses }: {
   musclePaths: MusclePathInfo[];
   worldPoses: Map<number, THREE.Vector3>;
 }) {
-  const lines = useMemo(() => {
-    const result: { points: THREE.Vector3[]; name: string }[] = [];
+  const positions = useMemo(() => {
+    const segmentCount = musclePaths.reduce((sum, mp) => sum + Math.max(0, mp.points.length - 1), 0);
+    const pos = new Float32Array(segmentCount * 6);
+    let offset = 0;
     for (const mp of musclePaths) {
-      const points: THREE.Vector3[] = [];
+      const pts: THREE.Vector3[] = [];
       for (const pt of mp.points) {
         const bodyPos = worldPoses.get(pt.body);
         if (bodyPos) {
-          // Add body position + local offset
-          points.push(new THREE.Vector3(
+          pts.push(new THREE.Vector3(
             bodyPos.x + pt.location[0],
             bodyPos.y + pt.location[1],
             bodyPos.z + pt.location[2],
           ));
         }
       }
-      if (points.length >= 2) {
-        result.push({ points, name: mp.muscle_name });
+      for (let i = 0; i < pts.length - 1; i++) {
+        pos[offset++] = pts[i].x; pos[offset++] = pts[i].y; pos[offset++] = pts[i].z;
+        pos[offset++] = pts[i+1].x; pos[offset++] = pts[i+1].y; pos[offset++] = pts[i+1].z;
       }
     }
-    return result;
+    return pos;
   }, [musclePaths, worldPoses]);
 
-  if (lines.length === 0) return null;
-
-  // Merge all muscle lines into one LineSegments for performance
-  const segmentCount = lines.reduce((sum, l) => sum + l.points.length - 1, 0);
-  const positions = new Float32Array(segmentCount * 6);
-  let offset = 0;
-  for (const line of lines) {
-    for (let i = 0; i < line.points.length - 1; i++) {
-      const a = line.points[i];
-      const b = line.points[i + 1];
-      positions[offset++] = a.x; positions[offset++] = a.y; positions[offset++] = a.z;
-      positions[offset++] = b.x; positions[offset++] = b.y; positions[offset++] = b.z;
-    }
-  }
+  if (positions.length === 0) return null;
 
   return (
     <lineSegments>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <lineBasicMaterial color="#ff3366" linewidth={2} />
+      <lineBasicMaterial color="#ff3366" />
     </lineSegments>
   );
 }
@@ -188,13 +204,20 @@ function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
   }, [scene.bodies]);
 
   const worldPoses = useMemo(
-    () => computeWorldPositions(scene, bodyMap, childrenMap),
+    () => {
+      const start = Date.now();
+      const result = computeWorldPositions(scene, bodyMap, childrenMap);
+      log(`computeWorldPositions: ${Date.now() - start}ms (${result.size} bodies)`);
+      return result;
+    },
     [scene, bodyMap, childrenMap],
   );
 
+  log(`ModelRenderer render: ${scene.meshes.length} meshes, joints=${scene.joints.length}`);
+
   return (
     <group>
-      {/* Display geometry (meshes) — the default view */}
+      {/* Display geometry only */}
       {scene.meshes.map(mesh => {
         const pos = worldPoses.get(mesh.parent);
         if (!pos) return null;
@@ -209,21 +232,18 @@ function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
         );
       })}
 
-      {/* Sites */}
       {showSites && <SitePoints scene={scene} worldPoses={worldPoses} />}
 
-      {/* Muscles */}
       {showMuscles && (
         <MuscleVisualization musclePaths={scene.muscle_paths} worldPoses={worldPoses} />
       )}
 
-      {/* Joint lines — always visible for structure */}
       <JointLines scene={scene} worldPoses={worldPoses} />
     </group>
   );
 }
 
-// ── Site points (single draw call) ───────────────────────────────────────
+// ── Site points ──────────────────────────────────────────────────────────
 
 function SitePoints({ scene, worldPoses }: {
   scene: SceneData;
