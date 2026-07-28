@@ -16,12 +16,21 @@ else
   echo "Run 'nix develop' first to download MuJoCo."
 fi
 
+# Check for myo_sim test fixtures
+MYO_SIM_DIR="$SCRIPT_DIR/tests/fixtures/myo_sim"
+if [ ! -d "$MYO_SIM_DIR" ]; then
+  echo "Test fixtures not found. Cloning MyoSuite models..."
+  cd "$SCRIPT_DIR/tests/fixtures"
+  git clone https://github.com/MyoHub/myo_sim.git
+  cd "$SCRIPT_DIR"
+fi
+
 # Default port
 PORT="${1:-3000}"
 export PORT
 
 # Default mesh directory
-MESH_DIR="${2:-meshes}"
+MESH_DIR="${2:-tests/fixtures/myo_sim/meshes}"
 export MESH_DIR
 
 echo "Starting melosim-server on port $PORT"
