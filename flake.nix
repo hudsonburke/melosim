@@ -61,7 +61,6 @@
         # ── Flake apps ──
 
         serverScript = mkAppScript "melosim-server" ''
-          export PATH="${rustToolchain}/bin:${pkgs.nodejs_22}/bin:$PATH"
           ${setupPrefix}
 
           PORT="''${1:-3000}"
@@ -104,14 +103,12 @@
         '';
 
         cargoBuildScript = mkAppScript "melosim-build" ''
-          export PATH="${rustToolchain}/bin:$PATH"
           ${setupPrefix}
           echo "Building melosim workspace..."
           exec cargo build "''${@}"
         '';
 
         cargoTestScript = mkAppScript "melosim-test" ''
-          export PATH="${rustToolchain}/bin:$PATH"
           ${setupPrefix}
           echo "Running tests..."
           exec cargo test "''${@}"
@@ -119,17 +116,10 @@
       in {
         packages.default = rustToolchain;
 
-        # ── Apps: `nix run .#<name>` ──
-        apps = {
-          server = flake-utils.lib.mkApp { drv = serverScript; };
-          frontend-dev = flake-utils.lib.mkApp { drv = frontendDevScript; };
-          build-frontend = flake-utils.lib.mkApp { drv = buildFrontendScript; };
-          build = flake-utils.lib.mkApp { drv = cargoBuildScript; };
-          test = flake-utils.lib.mkApp { drv = cargoTestScript; };
-        };
-
-        # Default: `nix run` starts the server
-        apps.default = flake-utils.lib.mkApp { drv = serverScript; };
+        # ── Apps: `nix develop --command melosim-server` etc. ──
+        # These are shell scripts that rely on the dev shell's PATH.
+        # They're added to buildInputs below so they're available
+        # inside `nix develop`.
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
@@ -237,13 +227,16 @@
             fi
 
             echo ""
-            echo "  Commands:"
-            echo "    nix run .#server            Start the server + frontend"
-            echo "    nix run .#frontend-dev      Start Vite dev server"
-            echo "    nix run .#build-frontend    Build frontend to dist/"
-            echo "    nix run .#build             cargo build"
-            echo "    nix run .#test              cargo test"
+            echo "  Commands (inside nix develop):"
+            echo "    melosim-server              Start the server + frontend"
+            echo "    melosim-frontend-dev        Start Vite dev server"
+            echo "    melosim-build-frontend      Build frontend to dist/"
+            echo "    melosim-build               cargo build"
+            echo "    melosim-test                cargo test"
             echo "    roundtrip <input.osim>      Roundtrip via OpenSim"
+            echo ""
+            echo "  Or via nix develop --command:"
+            echo "    nix develop --command melosim-server"
             echo ""
             echo "  python: $(python --version 2>/dev/null || echo 'n/a')"
             echo "  node: $(node --version 2>/dev/null || echo 'n/a')"
