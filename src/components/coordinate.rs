@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 
 /// A single degree of freedom (generalized coordinate).
 ///
@@ -35,9 +35,9 @@ pub struct JointCoordinate {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CoordinateEffect {
     /// The coordinate this effect reads from.
-    pub coordinate: EntityKey,
+    pub coordinate: EntityID,
     /// The joint this effect belongs to.
-    pub joint: EntityKey,
+    pub joint: EntityID,
     /// Which spatial transform component this effect drives.
     pub component: TransformComponent,
     /// The function mapping coordinate value → transform value.
@@ -82,7 +82,7 @@ pub enum JointFunction {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpatialTransform {
     /// The joint this transform belongs to.
-    pub joint: EntityKey,
-    /// EntityKeys of the CoordinateEffect components making up this transform.
-    pub effects: Vec<EntityKey>,
+    pub joint: EntityID,
+    /// EntityIDs of the CoordinateEffect components making up this transform.
+    pub effects: Vec<EntityID>,
 }

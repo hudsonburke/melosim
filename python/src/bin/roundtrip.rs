@@ -139,7 +139,7 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
             .map_err(|e| format!("Failed to initSystem: {}", e))?;
 
         let mut world = melosim::world::World::new();
-        let mut body_map: std::collections::HashMap<String, melosim::id::EntityKey> =
+        let mut body_map: std::collections::HashMap<String, melosim::id::EntityID> =
             std::collections::HashMap::new();
 
         // ── Bodies ──
@@ -165,7 +165,9 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
             let com = body.call_method0("getMassCenter").map_err(|e| format!("getMassCenter failed: {e}"))?;
             let inertia = body.call_method0("getInertia").map_err(|e| format!("getInertia failed: {e}"))?;
 
-            let key = world.insert(melosim::components::InertialProperties {
+            let body_entity = world.spawn();
+            world.attach(body_entity, melosim::components::InertialProperties {
+                name: name.clone(),
                 mass,
                 com: [
                     com.get_item(0).map_err(|e| format!("com[0] failed: {e}"))?.extract().map_err(|e| format!("extract com[0] failed: {e}"))?,
@@ -181,25 +183,30 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                     inertia.get_item(5).map_err(|e| format!("inertia[5] failed: {e}"))?.extract().map_err(|e| format!("extract inertia[5] failed: {e}"))?,
                 ],
             });
-            world.insert(melosim::components::Frame {
-                parent: key,
+            // Frame is a separate entity referencing the body
+            let frame_entity = world.spawn();
+            world.attach(frame_entity, melosim::components::Frame {
+                parent: body_entity,
                 transform: melosim::math::Transform::default(),
             });
-            body_map.insert(name, key);
+            body_map.insert(name, body_entity);
         }
 
         // Add ground if not present
         if !body_map.contains_key("ground") {
-            let ground_key = world.insert(melosim::components::InertialProperties {
+            let ground_entity = world.spawn();
+            world.attach(ground_entity, melosim::components::InertialProperties {
+                name: "ground".to_string(),
                 mass: 0.0,
                 com: [0.0; 3],
                 inertia: [0.0; 6],
             });
-            world.insert(melosim::components::Frame {
-                parent: ground_key,
+            let ground_frame = world.spawn();
+            world.attach(ground_frame, melosim::components::Frame {
+                parent: ground_entity,
                 transform: melosim::math::Transform::default(),
             });
-            body_map.insert("ground".to_string(), ground_key);
+            body_map.insert("ground".to_string(), ground_entity);
         }
 
         // ── Joints ──
@@ -253,7 +260,8 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                         axis_vec.get_item(1).map_err(|e| format!("axis[1] failed: {e}"))?.extract().map_err(|e| format!("extract axis[1] failed: {e}"))?,
                         axis_vec.get_item(2).map_err(|e| format!("axis[2] failed: {e}"))?.extract().map_err(|e| format!("extract axis[2] failed: {e}"))?,
                     ];
-                    world.insert(melosim::components::HingeJoint {
+                    let joint_entity = world.spawn();
+                    world.attach(joint_entity, melosim::components::HingeJoint {
                         body_a: parent_key,
                         body_b: child_key,
                         limits: None,
@@ -261,28 +269,32 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                     });
                 }
                 "FreeJoint" => {
-                    world.insert(melosim::components::FreeJoint {
+                    let joint_entity = world.spawn();
+                    world.attach(joint_entity, melosim::components::FreeJoint {
                         body_a: parent_key,
                         body_b: child_key,
                         limits: None,
                     });
                 }
                 "WeldJoint" => {
-                    world.insert(melosim::components::FixedJoint {
+                    let joint_entity = world.spawn();
+                    world.attach(joint_entity, melosim::components::FixedJoint {
                         body_a: parent_key,
                         body_b: child_key,
                         limits: None,
                     });
                 }
                 "BallJoint" => {
-                    world.insert(melosim::components::BallJoint {
+                    let joint_entity = world.spawn();
+                    world.attach(joint_entity, melosim::components::BallJoint {
                         body_a: parent_key,
                         body_b: child_key,
                         limits: None,
                     });
                 }
                 "UniversalJoint" => {
-                    world.insert(melosim::components::UniversalJoint {
+                    let joint_entity = world.spawn();
+                    world.attach(joint_entity, melosim::components::UniversalJoint {
                         body_a: parent_key,
                         body_b: child_key,
                         limits: None,
@@ -302,7 +314,8 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                         let clamped: bool = c.call_method0("getClamped").map_err(|e| format!("getClamped failed: {e}"))?.extract().map_err(|e| format!("extract failed: {e}"))?;
                         let locked: bool = c.call_method0("getLocked").map_err(|e| format!("getLocked failed: {e}"))?.extract().map_err(|e| format!("extract failed: {e}"))?;
 
-                        let ck = world.insert(melosim::components::JointCoordinate {
+                        let ck = world.spawn();
+                        world.attach(ck, melosim::components::JointCoordinate {
                             name: cname,
                             range_min,
                             range_max,
@@ -316,7 +329,8 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                         coord_keys.push(ck);
                     }
 
-                    world.insert(melosim::components::CustomJoint {
+                    let joint_entity = world.spawn();
+                    world.attach(joint_entity, melosim::components::CustomJoint {
                         body_a: parent_key,
                         body_b: child_key,
                         limits: None,
@@ -346,7 +360,8 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
             let loc = marker.call_method0("getLocation").map_err(|e| format!("getLocation failed: {e}"))?;
 
             if let Some(&body_key) = body_map.get(&body_name) {
-                let site_key = world.insert(melosim::components::Site {
+                let site_entity = world.spawn();
+                world.attach(site_entity, melosim::components::Site {
                     parent: body_key,
                     offset: melosim::math::Vec3::new(
                         loc.get_item(0).map_err(|e| format!("loc[0] failed: {e}"))?.extract().map_err(|e| format!("extract loc[0] failed: {e}"))?,
@@ -354,8 +369,9 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                         loc.get_item(2).map_err(|e| format!("loc[2] failed: {e}"))?.extract().map_err(|e| format!("extract loc[2] failed: {e}"))?,
                     ),
                 });
-                world.insert(melosim::components::Landmark {
-                    site: site_key,
+                let landmark_entity = world.spawn();
+                world.attach(landmark_entity, melosim::components::Landmark {
+                    site: site_entity,
                     name,
                 });
             }

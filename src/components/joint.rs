@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 
 /// Common fields shared by all joint types.
 /// Inlined into each type-specific joint component.
@@ -11,45 +11,45 @@ pub struct JointLimits {
 
 // ── Type-specific joint components ────────────────────
 // Each joint type is a standalone component that carries its own
-// base fields (body_a, body_b, limits). This keeps each entity
-// mapped to exactly one component, which is the slotmap pattern.
+// base fields (body_a, body_b, limits). A joint is an entity with
+// exactly one joint component.
 //
 // A new joint type = a new struct + a system. No other code changes.
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HingeJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
     pub axis: [f64; 3],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SlideJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
     pub axis: [f64; 3],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BallJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FreeJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FixedJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
 }
 
@@ -62,8 +62,8 @@ pub struct FixedJoint {
 /// Corresponds to OpenSim's `UniversalJoint`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UniversalJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
     /// First rotation axis (in parent frame).
     pub axis1: [f64; 3],
@@ -81,10 +81,10 @@ pub struct UniversalJoint {
 /// Corresponds to OpenSim's `CustomJoint`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CustomJoint {
-    pub body_a: EntityKey,
-    pub body_b: EntityKey,
+    pub body_a: EntityID,
+    pub body_b: EntityID,
     pub limits: Option<JointLimits>,
     /// The coordinates (DOFs) of this joint, in order.
-    /// Each is an EntityKey referencing a JointCoordinate component.
-    pub coordinates: Vec<EntityKey>,
+    /// Each is an EntityID referencing a JointCoordinate component.
+    pub coordinates: Vec<EntityID>,
 }

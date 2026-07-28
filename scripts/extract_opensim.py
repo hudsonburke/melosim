@@ -70,16 +70,12 @@ def extract_body(body):
 
 
 def extract_coordinate(coord):
-    prescribed = None
+    prescribed_coeffs = None
     try:
         pf = coord.getPrescribedFunction()
         if pf and pf.getConcreteClassName() != "NullFunction":
             func_type = pf.getConcreteClassName()
-            coeffs = []
-            if func_type == "PolynomialFunction":
-                for i in range(pf.getCoefficientSize()):
-                    coeffs.append(pf.getCoefficient(i))
-            prescribed = {"function_type": func_type, "coefficients": coeffs}
+            prescribed_coeffs = extract_coefficients_from_function(pf, func_type)
     except Exception:
         pass
 
@@ -92,8 +88,39 @@ def extract_coordinate(coord):
         "damping": 0.0,
         "clamped": get_bool(coord, "get_clamped"),
         "locked": get_bool(coord, "get_locked"),
-        "prescribed_function": prescribed,
+        "prescribed_function": prescribed_coeffs,
     }
+
+
+def extract_coefficients_from_function(func_obj, func_type):
+    """Get flat coefficient array from a function object using safeDownCast."""
+    import opensim as osim
+    coeffs = []
+    if "Linear" in func_type:
+        lf = osim.LinearFunction.safeDownCast(func_obj)
+        if lf:
+            coeffs = [lf.getSlope(), lf.getIntercept()]
+    elif "Polynomial" in func_type:
+        pf = osim.PolynomialFunction.safeDownCast(func_obj)
+        if pf:
+            coeffs = [pf.getCoefficient(k) for k in range(pf.getCoefficientSize())]
+    elif "SimmSpline" in func_type:
+        ss = osim.SimmSpline.safeDownCast(func_obj)
+        if ss:
+            nx = ss.getNumberOfPoints()
+            xs = ss.getX()
+            ys = ss.getY()
+            for i in range(nx):
+                coeffs.append(xs.get(i))
+                coeffs.append(ys.get(i))
+    elif "Constant" in func_type:
+        val_prop = func_obj.getPropertyByName("value")
+        val_str = val_prop.toString().strip("()")
+        try:
+            coeffs = [float(val_str)]
+        except ValueError:
+            coeffs = []
+    return coeffs
 
 
 def extract_effect(effect):
@@ -129,24 +156,40 @@ def extract_effect(effect):
 
 
 def extract_spatial_transform(joint):
-    """Extract SpatialTransform from a CustomJoint.
-    Available via property system in Python bindings.
-    """
+    """Extract SpatialTransform from a CustomJoint using property system."""
     if joint.getConcreteClassName() != "CustomJoint":
         return None
+    import opensim as osim
     names = ["rotation_x", "rotation_y", "rotation_z",
              "translation_x", "translation_y", "translation_z"]
+    prop_names = ["rotation1", "rotation2", "rotation3",
+                  "translation1", "translation2", "translation3"]
     result = {n: None for n in names}
     try:
         st_prop = joint.getPropertyByName("SpatialTransform")
         st_obj = st_prop.getValueAsObject(0)
-        # Try to get components from the SpatialTransform object
         for idx, name in enumerate(names):
             try:
-                comp = st_obj.getComponent(idx)
-                effect = extract_effect(comp)
-                if effect:
-                    result[name] = effect
+                pn = prop_names[idx]
+                axis_obj = st_obj.getPropertyByName(pn).getValueAsObject(0)
+                # Coordinate name via toString — yields "(coord_name)"
+                coord_str = axis_obj.getPropertyByName("coordinates").toString()
+                coord_name = coord_str.strip("()")
+                # Skip axes with empty coordinate name (NullFunction / no coupling)
+                if not coord_name:
+                    continue
+                # Function — safeDownCast to typed class
+                func_prop = axis_obj.getPropertyByName("function")
+                func_type = func_prop.toString()
+                coeffs = []
+                if func_prop.size() > 0:
+                    func_obj = func_prop.getValueAsObject(0)
+                    coeffs = extract_coefficients_from_function(func_obj, func_type)
+                result[name] = {
+                    "coordinate_name": coord_name,
+                    "function_type": func_type.replace("Function", ""),
+                    "coefficients": coeffs,
+                }
             except Exception:
                 pass
     except Exception:
@@ -190,7 +233,9 @@ def extract_joint(joint):
     try:
         if joint_type == "PinJoint":
             coord = joint.getCoordinate()
-            data["axis"] = [coord.getAxis()[i] for i in range(3)]
+            # PinJoint in OpenSim 4.x always rotates about the joint frame's z-axis.
+            # The actual 3D direction is encoded in orientation_in_parent.
+            data["axis"] = [0.0, 0.0, 1.0]
             data["coordinate"] = extract_coordinate(coord)
         elif joint_type == "CustomJoint":
             data["coordinates"] = [
@@ -223,9 +268,16 @@ def extract_marker(marker):
         loc = [marker.getLocation()[i] for i in range(3)]
     except Exception:
         loc = [0.0, 0.0, 0.0]
+    # In OpenSim 4.x Markers have no getBodyName() — resolve via parent frame
+    body_name = "ground"
+    try:
+        parent = marker.getParentFrame()
+        body_name = parent.findBaseFrame().getName()
+    except Exception:
+        pass
     return {
         "name": marker.getName(),
-        "body": marker.getBodyName(),
+        "body": body_name,
         "location": loc,
     }
 
@@ -314,7 +366,7 @@ def extract_wrap(wrap):
     return {
         "name": name,
         "body": body,
-        "wrap_type": wrap_type,
+        "wrap_type": wrap_type.replace("Wrap", ""),
         "dimensions": dimensions,
         "location": location,
         "orientation": orientation,
@@ -322,20 +374,62 @@ def extract_wrap(wrap):
 
 
 def extract_display_geometry(body):
+    """Extract display geometry using OpenSim 4.x frame_geometry / attached_geometry API."""
     geoms = []
+    body_name = body.getName()
+    # Helper: extract mesh info from a geometry object
+    def extract_geom(g):
+        mesh_file = None
+        scale = [1.0, 1.0, 1.0]
+        location = [0.0, 0.0, 0.0]
+        orientation = [0.0, 0.0, 0.0]
+        try:
+            dg_prop = g.getPropertyByName("display_geometry_file")
+            if dg_prop.size() > 0:
+                mesh_file = dg_prop.getValueAsObject(0).getName()
+        except Exception:
+            pass
+        try:
+            sf_prop = g.getPropertyByName("scale_factors")
+            sf_str = sf_prop.toString().strip("()")
+            parts = sf_str.split()
+            if len(parts) == 3:
+                scale = [float(p) for p in parts]
+        except Exception:
+            pass
+        # Location/orientation from the geometry's socket frame transform
+        try:
+            frame = g.getFrame()
+            t = frame.findTransformInBaseFrame()
+            location = [t.p()[i] for i in range(3)]
+            orientation = [t.R().convertRotationToBodyFixedXYZ()[i] for i in range(3)]
+        except Exception:
+            pass
+        return {
+            "body": body_name,
+            "mesh_file": mesh_file,
+            "scale": scale,
+            "color": [0.8, 0.8, 0.8],
+            "opacity": 1.0,
+            "location": location,
+            "orientation": orientation,
+        }
+
+    # Frame geometry (singular)
     try:
-        for i in range(body.getPropertyByName("display_geometry").size()):
-            dg_obj = body.getPropertyByName("display_geometry").getValueAsObject(i)
-            geoms.append({
-                "body_name": body.getName(),
-                "mesh_file": dg_obj.getPropertyByName("display_geometry_file").getValueAsObject(0).getName(),
-                "scale_factors": [1.0, 1.0, 1.0],
-                "color": [0.8, 0.8, 0.8],
-                "opacity": 1.0,
-                "transform": None,
-            })
+        fg = body.get_frame_geometry()
+        geoms.append(extract_geom(fg))
     except Exception:
         pass
+
+    # Attached geometries (indexed)
+    for idx in range(100):
+        try:
+            ag = body.get_attached_geometry(idx)
+            geoms.append(extract_geom(ag))
+        except Exception:
+            break
+
     return geoms
 
 
@@ -392,13 +486,15 @@ def extract_model(osim_path):
     except Exception:
         pass
 
-    # Wrap objects
-    try:
-        wrap_set = model.getWrapObjectSet()
-        for i in range(wrap_set.getSize()):
-            data["wrap_objects"].append(extract_wrap(wrap_set.get(i)))
-    except Exception:
-        pass
+    # Wrap objects — stored per-body in OpenSim 4.x
+    for i in range(body_set.getSize()):
+        body = body_set.get(i)
+        try:
+            wrap_set = body.getWrapObjectSet()
+            for j in range(wrap_set.getSize()):
+                data["wrap_objects"].append(extract_wrap(wrap_set.get(j)))
+        except Exception:
+            pass
 
     # Display geometry
     for i in range(body_set.getSize()):

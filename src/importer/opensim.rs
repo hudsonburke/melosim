@@ -18,7 +18,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::components::*;
-use crate::id::EntityKey;
+use crate::id::EntityID;
 use crate::math::Transform;
 use crate::world::World;
 
@@ -175,8 +175,8 @@ pub fn import_opensim_model(
     world: &mut World,
     data: &OpenSimModelData,
 ) -> Result<(), Vec<String>> {
-    let mut body_map: HashMap<String, EntityKey> = HashMap::new();
-    let mut coord_map: HashMap<String, EntityKey> = HashMap::new();
+    let mut body_map: HashMap<String, EntityID> = HashMap::new();
+    let mut coord_map: HashMap<String, EntityID> = HashMap::new();
     let mut errors = Vec::new();
 
     // Phase 1: Import all bodies, build name → key map
@@ -259,31 +259,34 @@ pub fn import_opensim_model(
     }
 }
 
-/// Import a single OpenSim body: creates InertialProperties + Frame.
+/// Import a single OpenSim body: creates InertialProperties + Frame entities.
 pub fn import_opensim_body(
     world: &mut World,
     data: &OpenSimBodyData,
-) -> Result<EntityKey, String> {
-    let key = world.insert(InertialProperties {
+) -> Result<EntityID, String> {
+    let body_entity = world.spawn();
+    world.attach(body_entity, InertialProperties {
+        name: data.name.clone(),
         mass: data.mass,
         com: data.mass_center,
         inertia: data.inertia,
     });
-    // Default transform for now — joint transforms handle positioning.
-    world.insert(Frame {
-        parent: key,
+    // Frame is a separate entity referencing the body
+    let frame_entity = world.spawn();
+    world.attach(frame_entity, Frame {
+        parent: body_entity,
         transform: Transform::default(),
     });
-    Ok(key)
+    Ok(body_entity)
 }
 
 /// Import a single OpenSim joint, dispatching by type.
 pub fn import_opensim_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
     match data.joint_type.as_str() {
         "PinJoint" => import_pin_joint(world, data, parent_key, child_key),
         "WeldJoint" => import_weld_joint(world, data, parent_key, child_key),
@@ -298,38 +301,42 @@ pub fn import_opensim_joint(
     }
 }
 
-/// Import a single OpenSim marker: creates Site + Landmark.
+/// Import a single OpenSim marker: creates Site + Landmark entities.
 pub fn import_opensim_marker(
     world: &mut World,
     data: &OpenSimMarkerData,
-    body_key: EntityKey,
-) -> EntityKey {
-    let site_key = world.insert(Site {
+    body_key: EntityID,
+) -> EntityID {
+    let site_entity = world.spawn();
+    world.attach(site_entity, Site {
         parent: body_key,
         offset: data.location.into(),
     });
-    world.insert(Landmark {
-        site: site_key,
+    let landmark_entity = world.spawn();
+    world.attach(landmark_entity, Landmark {
+        site: site_entity,
         name: data.name.clone(),
     });
-    site_key
+    site_entity
 }
 
 /// Import a single OpenSim muscle: creates Muscle + MusclePath + Millard2012Params.
 pub fn import_opensim_muscle(
     world: &mut World,
     data: &OpenSimMuscleData,
-    body_map: &HashMap<String, EntityKey>,
-    coord_map: &HashMap<String, EntityKey>,
-) -> Result<EntityKey, String> {
-    // Step 1: Create the Muscle identity component
-    let muscle_key = world.insert(Muscle {
+    body_map: &HashMap<String, EntityID>,
+    coord_map: &HashMap<String, EntityID>,
+) -> Result<EntityID, String> {
+    // Step 1: Create the Muscle entity
+    let muscle_entity = world.spawn();
+    world.attach(muscle_entity, Muscle {
         name: data.name.clone(),
     });
 
-    // Step 2: Create Millard2012Params
-    world.insert(Millard2012Params {
-        muscle: muscle_key,
+    // Step 2: Create Millard2012Params entity referencing the muscle
+    let params_entity = world.spawn();
+    world.attach(params_entity, Millard2012Params {
+        muscle: muscle_entity,
         max_isometric_force: data.max_isometric_force,
         optimal_fiber_length: data.optimal_fiber_length,
         tendon_slack_length: data.tendon_slack_length,
@@ -366,9 +373,6 @@ pub fn import_opensim_muscle(
                     )
                 })?;
 
-                // The function maps coordinate value to 3D offset.
-                // If function is provided, use it for all 3 axes (same polynomial).
-                // Otherwise use empty vectors (identity offset).
                 let empty_fn: Vec<f64> = Vec::new();
                 let fn_coeffs = pt.function.as_ref().unwrap_or(&empty_fn);
                 let location_functions = [
@@ -393,21 +397,22 @@ pub fn import_opensim_muscle(
         path_points.push(path_point);
     }
 
-    // Step 4: Create MusclePath
-    world.insert(MusclePath {
-        muscle: muscle_key,
+    // Step 4: Create MusclePath entity
+    let path_entity = world.spawn();
+    world.attach(path_entity, MusclePath {
+        muscle: muscle_entity,
         points: path_points,
     });
 
-    Ok(muscle_key)
+    Ok(muscle_entity)
 }
 
-/// Import a single OpenSim wrap object: creates WrapGeom.
+/// Import a single OpenSim wrap object: creates WrapGeom entity.
 pub fn import_opensim_wrap(
     world: &mut World,
     data: &OpenSimWrapData,
-    body_map: &HashMap<String, EntityKey>,
-) -> Result<EntityKey, String> {
+    body_map: &HashMap<String, EntityID>,
+) -> Result<EntityID, String> {
     let body_key = body_map.get(&data.body).copied().ok_or_else(|| {
         format!(
             "Wrap '{}': references unknown body '{}'",
@@ -446,21 +451,22 @@ pub fn import_opensim_wrap(
         }
     };
 
-    let key = world.insert(WrapGeom {
+    let entity = world.spawn();
+    world.attach(entity, WrapGeom {
         name: data.name.clone(),
         body: body_key,
         transform,
         geom_type,
     });
 
-    Ok(key)
+    Ok(entity)
 }
 
-/// Import a single OpenSim display geometry: creates DisplayGeometry.
+/// Import a single OpenSim display geometry: creates DisplayGeometry entity.
 pub fn import_opensim_display_geometry(
     world: &mut World,
     data: &OpenSimDisplayGeometryData,
-    body_map: &HashMap<String, EntityKey>,
+    body_map: &HashMap<String, EntityID>,
 ) -> Result<(), String> {
     let body_key = body_map.get(&data.body).copied().ok_or_else(|| {
         format!(
@@ -474,7 +480,8 @@ pub fn import_opensim_display_geometry(
         rotation: euler_to_quaternion(data.orientation),
     };
 
-    world.insert(DisplayGeometry {
+    let entity = world.spawn();
+    world.attach(entity, DisplayGeometry {
         body: body_key,
         mesh_file: data.mesh_file.clone(),
         scale: data.scale,
@@ -486,7 +493,7 @@ pub fn import_opensim_display_geometry(
     Ok(())
 }
 
-// ── Helper: Euler angles → Quaternion ─────────────────
+// ── Helpers ───────────────────────────────────────────
 
 /// Convert XYZ Euler angles (in radians) to a Quaternion.
 fn euler_to_quaternion(euler: [f64; 3]) -> crate::math::Quaternion {
@@ -511,14 +518,15 @@ fn euler_to_quaternion(euler: [f64; 3]) -> crate::math::Quaternion {
 fn import_pin_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
     let axis = data
         .axis
         .ok_or_else(|| format!("PinJoint '{}' missing axis", data.name))?;
 
-    let joint_key = world.insert(HingeJoint {
+    let joint_entity = world.spawn();
+    world.attach(joint_entity, HingeJoint {
         body_a: parent_key,
         body_b: child_key,
         limits: data.coordinate.as_ref().map(|c| JointLimits {
@@ -530,7 +538,8 @@ fn import_pin_joint(
 
     // Import coordinate as a separate entity
     if let Some(coord) = &data.coordinate {
-        world.insert(JointCoordinate {
+        let coord_entity = world.spawn();
+        world.attach(coord_entity, JointCoordinate {
             name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
@@ -550,32 +559,34 @@ fn import_pin_joint(
     // Update the child body's frame to account for joint transform
     update_child_frame(world, child_key, data);
 
-    Ok(joint_key)
+    Ok(joint_entity)
 }
 
 fn import_weld_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
-    let joint_key = world.insert(FixedJoint {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
+    let joint_entity = world.spawn();
+    world.attach(joint_entity, FixedJoint {
         body_a: parent_key,
         body_b: child_key,
         limits: None,
     });
 
     update_child_frame(world, child_key, data);
-    Ok(joint_key)
+    Ok(joint_entity)
 }
 
 fn import_ball_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
-    let joint_key = world.insert(BallJoint {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
+    let joint_entity = world.spawn();
+    world.attach(joint_entity, BallJoint {
         body_a: parent_key,
         body_b: child_key,
         limits: data.coordinate.as_ref().map(|c| JointLimits {
@@ -585,7 +596,8 @@ fn import_ball_joint(
     });
 
     if let Some(coord) = &data.coordinate {
-        world.insert(JointCoordinate {
+        let coord_entity = world.spawn();
+        world.attach(coord_entity, JointCoordinate {
             name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
@@ -599,31 +611,32 @@ fn import_ball_joint(
     }
 
     update_child_frame(world, child_key, data);
-    Ok(joint_key)
+    Ok(joint_entity)
 }
 
 fn import_free_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
-    let joint_key = world.insert(FreeJoint {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
+    let joint_entity = world.spawn();
+    world.attach(joint_entity, FreeJoint {
         body_a: parent_key,
         body_b: child_key,
         limits: None,
     });
 
     update_child_frame(world, child_key, data);
-    Ok(joint_key)
+    Ok(joint_entity)
 }
 
 fn import_universal_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
     // UniversalJoint uses two axes from its coordinates
     let coords = data
         .coordinates
@@ -639,11 +652,11 @@ fn import_universal_joint(
     }
 
     // Default axes: axis1 around X, axis2 around Y if not specified by effects
-    // OpenSim UniversalJoint's axes come from the SpatialTransform's coordinate functions
     let axis1 = [1.0, 0.0, 0.0];
     let axis2 = [0.0, 1.0, 0.0];
 
-    let joint_key = world.insert(UniversalJoint {
+    let joint_entity = world.spawn();
+    world.attach(joint_entity, UniversalJoint {
         body_a: parent_key,
         body_b: child_key,
         limits: None,
@@ -653,7 +666,8 @@ fn import_universal_joint(
 
     // Import coordinates
     for coord in coords {
-        world.insert(JointCoordinate {
+        let coord_entity = world.spawn();
+        world.attach(coord_entity, JointCoordinate {
             name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
@@ -667,15 +681,15 @@ fn import_universal_joint(
     }
 
     update_child_frame(world, child_key, data);
-    Ok(joint_key)
+    Ok(joint_entity)
 }
 
 fn import_custom_joint(
     world: &mut World,
     data: &OpenSimJointData,
-    parent_key: EntityKey,
-    child_key: EntityKey,
-) -> Result<EntityKey, String> {
+    parent_key: EntityID,
+    child_key: EntityID,
+) -> Result<EntityID, String> {
     let coords = data
         .coordinates
         .as_ref()
@@ -687,9 +701,10 @@ fn import_custom_joint(
         .ok_or_else(|| format!("CustomJoint '{}' missing spatial_transform", data.name))?;
 
     // Phase 1: Import all coordinates
-    let mut coord_keys: HashMap<String, EntityKey> = HashMap::new();
+    let mut coord_ids: HashMap<String, EntityID> = HashMap::new();
     for coord in coords {
-        let key = world.insert(JointCoordinate {
+        let coord_entity = world.spawn();
+        world.attach(coord_entity, JointCoordinate {
             name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
@@ -704,16 +719,17 @@ fn import_custom_joint(
                 }
             }),
         });
-        coord_keys.insert(coord.name.clone(), key);
+        coord_ids.insert(coord.name.clone(), coord_entity);
     }
 
     // Phase 2: Create the joint
-    let coord_refs: Vec<EntityKey> = coords
+    let coord_refs: Vec<EntityID> = coords
         .iter()
-        .map(|c| coord_keys[&c.name])
+        .map(|c| coord_ids[&c.name])
         .collect();
 
-    let joint_key = world.insert(CustomJoint {
+    let joint_entity = world.spawn();
+    world.attach(joint_entity, CustomJoint {
         body_a: parent_key,
         body_b: child_key,
         limits: None,
@@ -721,7 +737,7 @@ fn import_custom_joint(
     });
 
     // Phase 3: Import CoordinateEffects and SpatialTransform
-    let mut effect_keys: Vec<EntityKey> = Vec::new();
+    let mut effect_ids: Vec<EntityID> = Vec::new();
 
     let effects = [
         ("rotation_x", &st.rotation_x),
@@ -734,7 +750,7 @@ fn import_custom_joint(
 
     for (slot_name, effect_opt) in &effects {
         if let Some(effect) = effect_opt {
-            let coord_key = coord_keys.get(&effect.coordinate_name).ok_or_else(|| {
+            let coord_id = coord_ids.get(&effect.coordinate_name).ok_or_else(|| {
                 format!(
                     "CustomJoint '{}': effect '{}' references unknown coordinate '{}'",
                     data.name, slot_name, effect.coordinate_name
@@ -762,24 +778,26 @@ fn import_custom_joint(
                 },
             };
 
-            let effect_key = world.insert(CoordinateEffect {
-                coordinate: *coord_key,
-                joint: joint_key,
+            let effect_entity = world.spawn();
+            world.attach(effect_entity, CoordinateEffect {
+                coordinate: *coord_id,
+                joint: joint_entity,
                 component,
                 function,
             });
-            effect_keys.push(effect_key);
+            effect_ids.push(effect_entity);
         }
     }
 
     // Phase 4: SpatialTransform groups the effects
-    world.insert(SpatialTransform {
-        joint: joint_key,
-        effects: effect_keys,
+    let st_entity = world.spawn();
+    world.attach(st_entity, SpatialTransform {
+        joint: joint_entity,
+        effects: effect_ids,
     });
 
     update_child_frame(world, child_key, data);
-    Ok(joint_key)
+    Ok(joint_entity)
 }
 
 // ── Frame helper ──────────────────────────────────────
@@ -788,7 +806,7 @@ fn import_custom_joint(
 /// In OpenSim, the joint's location_in_parent / orientation_in_parent defines
 /// where the child body attaches relative to the parent body's frame.
 /// For now we store this in the child's Frame component.
-fn update_child_frame(_world: &mut World, _child_key: EntityKey, _data: &OpenSimJointData) {
+fn update_child_frame(_world: &mut World, _child_key: EntityID, _data: &OpenSimJointData) {
     // TODO: Compose location_in_parent + orientation_in_parent into the
     // child body's Frame transform. This requires computing a Transform from
     // the Euler angles and translation, which needs quaternion math.

@@ -43,15 +43,15 @@ fn test_export_simple_hip() {
     check_xml_structure(&xml);
     assert!(xml.contains("SimpleHipTest"), "Model name should be in output");
 
-    // Check bodies (ground is implicit, slot indices start at 1)
-    assert!(xml.contains("<Body name=\"body_2\""), "Should contain body_2 (pelvis)");
-    assert!(xml.contains("<Body name=\"body_3\""), "Should contain body_3 (femur)");
+    // Check bodies have real names from fixture (not auto-generated body_N)
+    assert!(xml.contains("<Body name=\"pelvis\""), "Should contain body pelvis");
+    assert!(xml.contains("<Body name=\"femur_r\""), "Should contain body femur_r");
 
     // Check joints
     assert!(xml.contains("<FreeJoint"), "Should contain FreeJoint");
     assert!(xml.contains("<PinJoint"), "Should contain PinJoint");
 
-    // Check markers
+    // Check markers have correct names from Landmark component
     assert!(xml.contains("<Marker name=\"RASI\""), "Should contain RASI marker");
     assert!(xml.contains("<Marker name=\"RTHI\""), "Should contain RTHI marker");
 

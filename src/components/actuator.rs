@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Actuator {
@@ -10,22 +10,22 @@ pub struct Actuator {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ActuatorType {
     JointMotor {
-        joint: EntityKey,
+        joint: EntityID,
         gear: f64,
         max_torque: f64,
     },
     PositionMotor {
-        joint: EntityKey,
+        joint: EntityID,
         kp: f64,
     },
     CableMotor {
-        cable: EntityKey,
+        cable: EntityID,
         gear: f64,
         max_force: f64,
         speed: f64,
     },
     MuscleActuator {
-        muscle: EntityKey,
+        muscle: EntityID,
         model: MuscleModelType,
     },
 }

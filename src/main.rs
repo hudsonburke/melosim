@@ -1,5 +1,5 @@
 use melosim::components::*;
-use melosim::id::EntityKey;
+use melosim::id::EntityID;
 use melosim::math::{Transform, Vec3};
 use melosim::system::SystemRegistry;
 use melosim::validate;
@@ -9,8 +9,8 @@ use melosim::world::World;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct PrismaticJoint {
-    body_a: EntityKey,
-    body_b: EntityKey,
+    body_a: EntityID,
+    body_b: EntityID,
     limits: Option<JointLimits>,
     axis: [f64; 3],
 }
@@ -25,44 +25,55 @@ fn main() {
     let mut world = World::new();
 
     // ── Bodies ──
-    let ground = world.insert(InertialProperties {
+    let ground = world.spawn();
+    world.attach(ground, InertialProperties {
+        name: "ground".into(),
         mass: 0.0,
         com: [0.0, 0.0, 0.0],
         inertia: [0.0; 6],
     });
-    world.insert(Frame {
+    let ground_frame = world.spawn();
+    world.attach(ground_frame, Frame {
         parent: ground,
         transform: Transform::default(),
     });
 
-    let pelvis = world.insert(InertialProperties {
+    let pelvis = world.spawn();
+    world.attach(pelvis, InertialProperties {
+        name: "pelvis".into(),
         mass: 11.78,
         com: [0.0, 0.0, 0.0],
         inertia: [0.18, 0.22, 0.20, 0.0, 0.0, 0.0],
     });
-    world.insert(Frame {
+    let pelvis_frame = world.spawn();
+    world.attach(pelvis_frame, Frame {
         parent: ground,
         transform: Transform::default(),
     });
 
-    let femur = world.insert(InertialProperties {
+    let femur = world.spawn();
+    world.attach(femur, InertialProperties {
+        name: "femur".into(),
         mass: 9.3,
         com: [0.0, -0.17, 0.0],
         inertia: [0.12, 0.12, 0.02, 0.0, 0.0, 0.0],
     });
-    world.insert(Frame {
+    let femur_frame = world.spawn();
+    world.attach(femur_frame, Frame {
         parent: pelvis,
         transform: Transform::default(),
     });
 
     // ── Simple joints ──
-    let _pelvis_free = world.insert(FreeJoint {
+    let pelvis_free = world.spawn();
+    world.attach(pelvis_free, FreeJoint {
         body_a: ground,
         body_b: pelvis,
         limits: None,
     });
 
-    let _hip = world.insert(HingeJoint {
+    let hip = world.spawn();
+    world.attach(hip, HingeJoint {
         body_a: pelvis,
         body_b: femur,
         limits: Some(JointLimits { lower: -2.0, upper: 0.5 }),
@@ -70,7 +81,8 @@ fn main() {
     });
 
     // ── UniversalJoint (e.g., lumbar spine) ──
-    let _lumbar = world.insert(UniversalJoint {
+    let lumbar = world.spawn();
+    world.attach(lumbar, UniversalJoint {
         body_a: pelvis,
         body_b: femur,
         limits: Some(JointLimits { lower: -0.5, upper: 0.5 }),
@@ -80,7 +92,8 @@ fn main() {
 
     // ── CustomJoint (e.g., knee with coupled motion) ──
     // 1. Create coordinate entities
-    let knee_flexion = world.insert(JointCoordinate {
+    let knee_flexion = world.spawn();
+    world.attach(knee_flexion, JointCoordinate {
         name: "knee_flexion".into(),
         range_min: -2.0,
         range_max: 0.0,
@@ -93,7 +106,8 @@ fn main() {
     });
 
     // 2. Create the CustomJoint referencing those coordinates
-    let knee = world.insert(CustomJoint {
+    let knee = world.spawn();
+    world.attach(knee, CustomJoint {
         body_a: femur,
         body_b: pelvis,
         limits: None,
@@ -101,7 +115,8 @@ fn main() {
     });
 
     // 3. Create CoordinateEffects mapping coordinates to transform components
-    let flex_effect = world.insert(CoordinateEffect {
+    let flex_effect = world.spawn();
+    world.attach(flex_effect, CoordinateEffect {
         coordinate: knee_flexion,
         joint: knee,
         component: TransformComponent::RotationY,
@@ -111,7 +126,8 @@ fn main() {
         },
     });
 
-    let ap_translate = world.insert(CoordinateEffect {
+    let ap_translate = world.spawn();
+    world.attach(ap_translate, CoordinateEffect {
         coordinate: knee_flexion,
         joint: knee,
         component: TransformComponent::TranslationX,
@@ -121,13 +137,15 @@ fn main() {
     });
 
     // 4. Create SpatialTransform grouping the effects
-    let _knee_transform = world.insert(SpatialTransform {
+    let knee_transform = world.spawn();
+    world.attach(knee_transform, SpatialTransform {
         joint: knee,
         effects: vec![flex_effect, ap_translate],
     });
 
     // ── Site (muscle attachment point) ──
-    let _asis = world.insert(Site {
+    let asis = world.spawn();
+    world.attach(asis, Site {
         parent: pelvis,
         offset: Vec3::new(0.01, 0.02, 0.13),
     });
@@ -159,19 +177,20 @@ fn main() {
     println!("  {:?}", flat);
 
     // Demonstrate dense indexing on new types
-    if let Some(knee_cj) = &flat.custom_joints[0] {
-        println!("\nCustomJoint at index 0:");
-        println!("  body_a={:?}, coordinates: {} DOFs", knee_cj.body_a, knee_cj.coordinates.len());
+    if let Some(knee_cj) = &flat.custom_joints[knee.0 as usize] {
+        println!("\nCustomJoint at index {}:", knee.0);
+        println!("  body_a={:?}, coordinates: {} DOFs", knee_cj.body_a.0, knee_cj.coordinates.len());
     }
-    if let Some(coord) = &flat.coordinates[0] {
+    if let Some(coord) = &flat.coordinates[knee_flexion.0 as usize] {
         println!("  Coordinate '{}' range [{}, {}]", coord.name, coord.range_min, coord.range_max);
     }
-    if let Some(effect) = &flat.coordinate_effects[0] {
+    if let Some(effect) = &flat.coordinate_effects[flex_effect.0 as usize] {
         println!("  Effect: {:?} via {:?}", effect.component, effect.function);
     }
 
     // ── Custom type example (downstream) ──
-    world.insert(PrismaticJoint {
+    let prismatic = world.spawn();
+    world.attach(prismatic, PrismaticJoint {
         body_a: pelvis,
         body_b: femur,
         limits: None,

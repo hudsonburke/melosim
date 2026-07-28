@@ -1,7 +1,7 @@
 // ── FlatWorld: frozen simulation snapshot ─────────────
 // Produced by World::freeze() after model construction and validation.
 // Dense Vec<Option<T>> storage indexed by EntityID(u32).
-// Zero hash lookups — get<T>(id) is a single Vec index.
+// Zero hash lookups — named fields provide O(1) access.
 //
 // Custom types from downstream crates live in `extensions: AnyMap<Vec<Option<T>>>`.
 // Their solvers access them via the same get() API — no core changes.
@@ -11,7 +11,7 @@ use crate::id::EntityID;
 use anymap2::AnyMap;
 
 /// The frozen simulation snapshot. Immutable after freeze.
-/// `inertials[id]` — single load, no hash lookup, no generational check.
+/// `inertials[id]` — single load, no hash lookup.
 /// `&inertials` — `&[InertialProperties]` for cudaMemcpy to GPU.
 pub struct FlatWorld {
     /// Dense component arrays. Indexed by EntityID.
@@ -45,7 +45,7 @@ pub struct FlatWorld {
 
 impl FlatWorld {
     /// Get a component by EntityID.
-    /// Built-in types dispatch through their specific Vecs.
+    /// Built-in types are accessed directly via named fields.
     /// Custom types dispatch through `extensions`.
     pub fn get<T: 'static>(&self, id: EntityID) -> Option<&T> {
         let i = id.0 as usize;

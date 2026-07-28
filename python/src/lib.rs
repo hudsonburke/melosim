@@ -2,7 +2,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use melosim::components::*;
-use melosim::id::EntityKey;
+use melosim::id::EntityID;
 use melosim::importer::opensim::{
     import_opensim_body, import_opensim_joint, import_opensim_marker,
     import_opensim_muscle, import_opensim_wrap,
@@ -16,7 +16,7 @@ use melosim::world::World;
 fn extract_body(
     world: &mut World,
     body: &Bound<'_, PyAny>,
-) -> PyResult<(String, EntityKey)> {
+) -> PyResult<(String, EntityID)> {
     let name = body.call_method0("getName")?.extract::<String>()?;
     let mass = body.call_method0("getMass")?.extract::<f64>()?;
 
@@ -115,7 +115,7 @@ fn vec3_from_py(obj: &Bound<'_, PyAny>) -> PyResult<[f64; 3]> {
 /// Extract a joint from an OpenSim Joint PyObject.
 fn extract_joint(
     joint: &Bound<'_, PyAny>,
-    _body_map: &std::collections::HashMap<String, EntityKey>,
+    _body_map: &std::collections::HashMap<String, EntityID>,
 ) -> PyResult<OpenSimJointData> {
     let name = joint.call_method0("getName")?.extract::<String>()?;
     let joint_type = joint
@@ -335,8 +335,8 @@ fn extract_marker(marker: &Bound<'_, PyAny>) -> PyResult<OpenSimMarkerData> {
 /// Extract a muscle from an OpenSim muscle force object.
 fn extract_muscle(
     force: &Bound<'_, PyAny>,
-    body_map: &std::collections::HashMap<String, EntityKey>,
-    _coord_map: &std::collections::HashMap<String, EntityKey>,
+    body_map: &std::collections::HashMap<String, EntityID>,
+    _coord_map: &std::collections::HashMap<String, EntityID>,
 ) -> PyResult<OpenSimMuscleData> {
     let name = force.call_method0("getName")?.extract::<String>()?;
     let class_name = force
@@ -505,7 +505,7 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to initSystem: {}", e)))?;
 
     let mut world = World::new();
-    let mut body_map: std::collections::HashMap<String, EntityKey> =
+    let mut body_map: std::collections::HashMap<String, EntityID> =
         std::collections::HashMap::new();
 
     // Extract bodies
@@ -556,8 +556,8 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
             .map_err(|e| PyRuntimeError::new_err(e))?;
     }
 
-    // Build coordinate name → EntityKey map from imported coordinate entities
-    let mut coord_name_map: std::collections::HashMap<String, EntityKey> =
+    // Build coordinate name → EntityID map from imported coordinate entities
+    let mut coord_name_map: std::collections::HashMap<String, EntityID> =
         std::collections::HashMap::new();
     for (key, coord) in world.iter::<JointCoordinate>() {
         coord_name_map.insert(coord.name.clone(), key);

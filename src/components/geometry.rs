@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 use crate::math::Transform;
 
 /// A display/mesh geometry attached to a body for visualization.
@@ -8,7 +8,7 @@ use crate::math::Transform;
 /// They're purely visual — not used in simulation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DisplayGeometry {
-    pub body: EntityKey,
+    pub body: EntityID,
     pub mesh_file: Option<String>,
     pub scale: [f64; 3],
     pub color: [f64; 3],

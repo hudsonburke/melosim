@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 use crate::math::Transform;
 
 /// A wrapping surface that a muscle-tendon path can wrap over.
@@ -14,7 +14,7 @@ use crate::math::Transform;
 pub struct WrapGeom {
     pub name: String,
     /// The body this wrap surface is rigidly attached to.
-    pub body: EntityKey,
+    pub body: EntityID,
     /// Transform from body frame to wrap surface frame.
     pub transform: Transform,
     /// The shape of the wrapping surface.

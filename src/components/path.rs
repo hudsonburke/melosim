@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 
 /// A muscle's geometric path through the body.
 ///
@@ -9,7 +9,7 @@ use crate::id::EntityKey;
 /// (e.g., a point that shifts with knee flexion to model wrapping).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MusclePath {
-    pub muscle: EntityKey,
+    pub muscle: EntityID,
     pub points: Vec<PathPoint>,
 }
 
@@ -22,14 +22,14 @@ pub struct MusclePath {
 pub enum PathPoint {
     /// A point fixed on a body, specified in the body's local frame.
     BodyFixed {
-        body: EntityKey,
+        body: EntityID,
         location: [f64; 3],
     },
     /// A point whose location depends on a coordinate value.
     /// The function maps coordinate value → location offset in body frame.
     Moving {
-        body: EntityKey,
-        coordinate: EntityKey,
+        body: EntityID,
+        coordinate: EntityID,
         /// Map from coordinate value to the 3D location offset.
         /// Stored as 3 Polynomial functions, one per axis (X, Y, Z).
         location_functions: [Vec<f64>; 3],

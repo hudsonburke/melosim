@@ -7,23 +7,20 @@
 // and registering it — no changes to melosim core.
 
 use crate::components::*;
-use crate::id::EntityKey;
+use crate::id::EntityID;
 use crate::world::World;
-use slotmap::Key;
 
 /// Check that a body reference exists. Returns an error string if missing.
 fn check_body(
     world: &World,
-    entity: EntityKey,
+    entity: EntityID,
     label: &str,
-    body: EntityKey,
+    body: EntityID,
 ) -> Option<String> {
     if world.get::<InertialProperties>(body).is_none() {
         Some(format!(
             "{:?} {} references missing body {:?}",
-            entity.data().as_ffi(),
-            label,
-            body.data().as_ffi()
+            entity.0, label, body.0
         ))
     } else {
         None
@@ -133,9 +130,7 @@ pub fn validate_custom(world: &mut World) {
             if world.get::<JointCoordinate>(*coord_key).is_none() {
                 local_errors.push(format!(
                     "{:?} CustomJoint coordinate[{}] {:?} references missing JointCoordinate",
-                    key.data().as_ffi(),
-                    i,
-                    coord_key.data().as_ffi()
+                    key.0, i, coord_key.0
                 ));
             }
         }
@@ -152,10 +147,7 @@ pub fn validate_coordinate(world: &mut World) {
         if coord.clamped && coord.range_min > coord.range_max {
             local_errors.push(format!(
                 "{:?} JointCoordinate '{}' has invalid range [{}, {}]",
-                key.data().as_ffi(),
-                coord.name,
-                coord.range_min,
-                coord.range_max
+                key.0, coord.name, coord.range_min, coord.range_max
             ));
         }
     }
@@ -171,8 +163,7 @@ pub fn validate_coordinate_effect(world: &mut World) {
         if world.get::<JointCoordinate>(effect.coordinate).is_none() {
             local_errors.push(format!(
                 "{:?} CoordinateEffect references missing coordinate {:?}",
-                key.data().as_ffi(),
-                effect.coordinate.data().as_ffi()
+                key.0, effect.coordinate.0
             ));
         }
         if world.get::<CustomJoint>(effect.joint).is_none()
@@ -181,8 +172,7 @@ pub fn validate_coordinate_effect(world: &mut World) {
         {
             local_errors.push(format!(
                 "{:?} CoordinateEffect references missing joint {:?}",
-                key.data().as_ffi(),
-                effect.joint.data().as_ffi()
+                key.0, effect.joint.0
             ));
         }
     }
@@ -198,17 +188,14 @@ pub fn validate_spatial_transform(world: &mut World) {
         if world.get::<CustomJoint>(st.joint).is_none() {
             local_errors.push(format!(
                 "{:?} SpatialTransform references missing CustomJoint {:?}",
-                key.data().as_ffi(),
-                st.joint.data().as_ffi()
+                key.0, st.joint.0
             ));
         }
         for (i, effect_key) in st.effects.iter().enumerate() {
             if world.get::<CoordinateEffect>(*effect_key).is_none() {
                 local_errors.push(format!(
                     "{:?} SpatialTransform effect[{}] {:?} references missing CoordinateEffect",
-                    key.data().as_ffi(),
-                    i,
-                    effect_key.data().as_ffi()
+                    key.0, i, effect_key.0
                 ));
             }
         }
@@ -225,8 +212,7 @@ pub fn validate_frame(world: &mut World) {
         if world.get::<InertialProperties>(frame.parent).is_none() {
             local_errors.push(format!(
                 "Frame {:?} references missing parent {:?}",
-                key.data().as_ffi(),
-                frame.parent.data().as_ffi()
+                key.0, frame.parent.0
             ));
         }
     }
@@ -242,8 +228,7 @@ pub fn validate_site(world: &mut World) {
         if world.get::<InertialProperties>(site.parent).is_none() {
             local_errors.push(format!(
                 "Site {:?} references missing parent {:?}",
-                key.data().as_ffi(),
-                site.parent.data().as_ffi()
+                key.0, site.parent.0
             ));
         }
     }

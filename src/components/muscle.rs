@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::id::EntityKey;
+use crate::id::EntityID;
 
 /// A muscle entity — the identity component.
 ///
@@ -21,7 +21,7 @@ pub struct Muscle {
 /// explicitly set in the `.osim` file.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Millard2012Params {
-    pub muscle: EntityKey,
+    pub muscle: EntityID,
     pub max_isometric_force: f64,
     pub optimal_fiber_length: f64,
     pub tendon_slack_length: f64,
