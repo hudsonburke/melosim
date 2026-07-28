@@ -374,7 +374,7 @@ def extract_wrap(wrap):
 
 
 def extract_display_geometry(body):
-    """Extract display geometry using OpenSim 4.x frame_geometry / attached_geometry API."""
+    """Extract display geometry using OpenSim 4.x attached_geometry API."""
     geoms = []
     body_name = body.getName()
     # Helper: extract mesh info from a geometry object
@@ -415,14 +415,8 @@ def extract_display_geometry(body):
             "orientation": orientation,
         }
 
-    # Frame geometry (singular)
-    try:
-        fg = body.get_frame_geometry()
-        geoms.append(extract_geom(fg))
-    except Exception:
-        pass
-
-    # Attached geometries (indexed)
+    # Only extract attached geometries (skip get_frame_geometry which is
+    # a coordinate frame visualization, not a body display mesh)
     for idx in range(100):
         try:
             ag = body.get_attached_geometry(idx)
