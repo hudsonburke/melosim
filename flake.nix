@@ -63,10 +63,27 @@
         serverScript = mkAppScript "melosim-server" ''
           ${setupPrefix}
 
-          PORT="''${1:-3000}"
-          MESH_DIR="''${2:-tests/fixtures/myo_sim/meshes}"
-          STATIC_DIR="frontend/dist"
+          # Parse args
+          PORT="''${MELSIM_PORT:-3000}"
+          MESH_DIR="''${MELSIM_MESH_DIR:-tests/fixtures/myo_sim/meshes}"
+          while [[ $# -gt 0 ]]; do
+            case "$1" in
+              --port|-p) PORT="$2"; shift 2 ;;
+              --mesh-dir|-m) MESH_DIR="$2"; shift 2 ;;
+              --help|-h)
+                echo "Usage: melosim-server [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  -p, --port PORT        Server port (default: 3000 or \$MELSIM_PORT)"
+                echo "  -m, --mesh-dir DIR     Mesh directory (default: tests/fixtures/myo_sim/meshes or \$MELSIM_MESH_DIR)"
+                echo "  -h, --help             Show this help"
+                exit 0
+                ;;
+              *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
+            esac
+          done
 
+          STATIC_DIR="frontend/dist"
           export PORT MESH_DIR STATIC_DIR
 
           # Build frontend if stale
@@ -91,7 +108,7 @@
           if [ ! -d "node_modules" ]; then
             npm install
           fi
-          exec npm run dev "''${@}"
+          exec npm run dev -- --port "''${1:-5173}" "''${@:2}"
         '';
 
         buildFrontendScript = mkAppScript "melosim-build-frontend" ''
@@ -228,15 +245,15 @@
 
             echo ""
             echo "  Commands (inside nix develop):"
-            echo "    melosim-server              Start the server + frontend"
-            echo "    melosim-frontend-dev        Start Vite dev server"
-            echo "    melosim-build-frontend      Build frontend to dist/"
-            echo "    melosim-build               cargo build"
-            echo "    melosim-test                cargo test"
-            echo "    roundtrip <input.osim>      Roundtrip via OpenSim"
+            echo "    melosim-server [-p PORT] [-m MESH_DIR]  Start the server + frontend"
+            echo "    melosim-frontend-dev [PORT]             Start Vite dev server"
+            echo "    melosim-build-frontend                  Build frontend to dist/"
+            echo "    melosim-build                           cargo build"
+            echo "    melosim-test                            cargo test"
+            echo "    roundtrip <input.osim>                  Roundtrip via OpenSim"
             echo ""
             echo "  Or via nix develop --command:"
-            echo "    nix develop --command melosim-server"
+            echo "    nix develop --command melosim-server -- -p 4000"
             echo ""
             echo "  python: $(python --version 2>/dev/null || echo 'n/a')"
             echo "  node: $(node --version 2>/dev/null || echo 'n/a')"
