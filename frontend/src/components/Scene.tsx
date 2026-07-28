@@ -1,8 +1,7 @@
-import { useMemo, Suspense } from "react";
-import { Canvas, useLoader } from "@react-three/fiber";
-import { OrbitControls, Grid, Line } from "@react-three/drei";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, Grid } from "@react-three/drei";
 import * as THREE from "three";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import type { Scene as SceneData, BodyInfo, MeshInfo } from "../types/schema";
 
 // ── Scene ────────────────────────────────────────────────────────────────
@@ -23,49 +22,87 @@ export default function Scene({ scene, onSelect, selected, showSites }: ScenePro
         <directionalLight position={[-3, -2, -5]} intensity={0.3} />
         <Grid infiniteGrid />
         <OrbitControls makeDefault />
-        <Suspense fallback={null}>
-          {scene && (
-            <ModelRenderer scene={scene} selected={selected} onSelect={onSelect} showSites={showSites} />
-          )}
-        </Suspense>
+        {scene && (
+          <ModelRenderer scene={scene} selected={selected} onSelect={onSelect} showSites={showSites} />
+        )}
       </Canvas>
     </div>
   );
 }
 
-// ── STL Mesh loader ──────────────────────────────────────────────────────
+// ── Async STL mesh (non-blocking — shows nothing while loading) ──────────
 
-function STLMesh({ mesh, color, onClick }: {
+function AsyncSTLMesh({ mesh, color, onClick }: {
   mesh: MeshInfo;
   color: string;
   onClick?: () => void;
 }) {
-  const geometry = useLoader(STLLoader, mesh.url);
-  
-  const processedGeometry = useMemo(() => {
-    if (!geometry) return null;
-    const geo = geometry.clone();
-    geo.computeBoundingBox();
-    const center = new THREE.Vector3();
-    geo.boundingBox?.getCenter(center);
-    geo.translate(-center.x, -center.y, -center.z);
-    
-    const size = new THREE.Vector3();
-    geo.boundingBox?.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const targetSize = 0.15;
-    const scaleFactor = targetSize / maxDim;
-    geo.scale(scaleFactor, scaleFactor, scaleFactor);
-    
-    return geo;
-  }, [geometry]);
+  const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
 
-  if (!processedGeometry) return null;
+  useEffect(() => {
+    let cancelled = false;
+    // Dynamic import to avoid blocking the main bundle
+    import("three/examples/jsm/loaders/STLLoader.js").then(({ STLLoader }) => {
+      const loader = new STLLoader();
+      loader.load(mesh.url, (geo) => {
+        if (cancelled) { geo.dispose(); return; }
+        geo.computeBoundingBox();
+        const center = new THREE.Vector3();
+        geo.boundingBox!.getCenter(center);
+        geo.translate(-center.x, -center.y, -center.z);
+        const size = new THREE.Vector3();
+        geo.boundingBox!.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 0.15 / maxDim;
+        geo.scale(scale, scale, scale);
+        setGeometry(geo);
+      });
+    });
+    return () => { cancelled = true; };
+  }, [mesh.url]);
+
+  if (!geometry) return null; // render nothing while loading
 
   return (
-    <mesh geometry={processedGeometry} onClick={onClick}>
+    <mesh geometry={geometry} onClick={onClick}>
       <meshStandardMaterial color={color} transparent opacity={0.85} />
     </mesh>
+  );
+}
+
+// ── Joint lines (single LineSegments object) ─────────────────────────────
+
+function JointLines({ scene, worldPoses }: {
+  scene: SceneData;
+  worldPoses: Map<number, THREE.Vector3>;
+}) {
+  const ref = useRef<THREE.LineSegments>(null);
+
+  const { positions } = useMemo(() => {
+    const count = scene.joints.length;
+    const pos = new Float32Array(count * 6); // 2 verts per joint
+    let i = 0;
+    for (const j of scene.joints) {
+      const a = worldPoses.get(j.body_a);
+      const b = worldPoses.get(j.body_b);
+      if (a && b) {
+        pos[i++] = a.x; pos[i++] = a.y; pos[i++] = a.z;
+        pos[i++] = b.x; pos[i++] = b.y; pos[i++] = b.z;
+      }
+    }
+    return { positions: pos };
+  }, [scene.joints, worldPoses]);
+
+  return (
+    <lineSegments ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          args={[positions, 3]}
+        />
+      </bufferGeometry>
+      <lineBasicMaterial color="#666" />
+    </lineSegments>
   );
 }
 
@@ -102,7 +139,6 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
     return m;
   }, [scene.meshes]);
 
-  // Pre-compute world positions with O(n) BFS
   const worldPoses = useMemo(
     () => computeWorldPositions(scene, bodyMap, childrenMap),
     [scene, bodyMap, childrenMap],
@@ -134,20 +170,9 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
     return { buffer, count, ids };
   }, [scene.bodies, worldPoses, meshesByBody]);
 
-  // Joint lines
-  const jointLines = useMemo(() => {
-    const points: [THREE.Vector3, THREE.Vector3][] = [];
-    for (const j of scene.joints) {
-      const p = worldPoses.get(j.body_a);
-      const c = worldPoses.get(j.body_b);
-      if (p && c) points.push([p, c]);
-    }
-    return points;
-  }, [scene.joints, worldPoses]);
-
   return (
     <group>
-      {/* Instanced bodies (no mesh) */}
+      {/* Instanced bodies (no mesh) — single draw call */}
       {instancedBodies.count > 0 && (
         <instancedMesh args={[undefined, undefined, instancedBodies.count]} frustumCulled={false}>
           <boxGeometry args={[1, 1, 1]} />
@@ -156,13 +181,13 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
         </instancedMesh>
       )}
 
-      {/* STL meshes */}
+      {/* STL meshes — each loads independently, no Suspense blocking */}
       {scene.meshes.map(mesh => {
         const pos = worldPoses.get(mesh.parent);
         if (!pos) return null;
         return (
           <group key={mesh.id} position={pos}>
-            <STLMesh
+            <AsyncSTLMesh
               mesh={mesh}
               color={selected === mesh.parent ? "#ff6600" : "#3399ff"}
               onClick={() => onSelect(selected === mesh.parent ? null : mesh.parent)}
@@ -171,23 +196,42 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
         );
       })}
 
-      {/* Sites */}
-      {showSites && scene.sites.map(site => {
-        const pos = worldPoses.get(site.parent);
-        if (!pos) return null;
-        return (
-          <mesh key={site.id} position={pos}>
-            <sphereGeometry args={[0.005, 6, 6]} />
-            <meshStandardMaterial color="#ff4444" emissive="#ff4444" emissiveIntensity={0.3} />
-          </mesh>
-        );
-      })}
+      {/* Sites — single instanced draw call */}
+      {showSites && <SitePoints scene={scene} worldPoses={worldPoses} />}
 
-      {/* Joint lines */}
-      {jointLines.map(([a, b], i) => (
-        <Line key={i} points={[a, b]} color="#666" lineWidth={1} />
-      ))}
+      {/* Joint lines — single LineSegments draw call */}
+      <JointLines scene={scene} worldPoses={worldPoses} />
     </group>
+  );
+}
+
+// ── Site points (instanced) ──────────────────────────────────────────────
+
+function SitePoints({ scene, worldPoses }: {
+  scene: SceneData;
+  worldPoses: Map<number, THREE.Vector3>;
+}) {
+  const ref = useRef<THREE.Points>(null);
+
+  const { positions } = useMemo(() => {
+    const pos = new Float32Array(scene.sites.length * 3);
+    let i = 0;
+    for (const s of scene.sites) {
+      const p = worldPoses.get(s.parent);
+      if (p) {
+        pos[i++] = p.x; pos[i++] = p.y; pos[i++] = p.z;
+      }
+    }
+    return { positions: pos };
+  }, [scene.sites, worldPoses]);
+
+  return (
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial size={0.005} color="#ff4444" sizeAttenuation />
+    </points>
   );
 }
 
@@ -201,7 +245,6 @@ function computeWorldPositions(
   const m = new Map<number, THREE.Vector3>();
   const queue: number[] = [];
 
-  // Find roots
   for (const b of scene.bodies) {
     if (b.parent_id === null) {
       const t = b.transform.translation;
@@ -210,7 +253,6 @@ function computeWorldPositions(
     }
   }
 
-  // BFS using childrenMap — O(n) total
   while (queue.length > 0) {
     const id = queue.shift()!;
     const parentPos = m.get(id)!;

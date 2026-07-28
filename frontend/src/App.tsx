@@ -10,7 +10,7 @@ export default function App() {
   const [scene, setScene] = useState<SceneData | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [transformMode, setTransformMode] = useState<"translate" | "rotate">("translate");
-  const [showSites, setShowSites] = useState(true);
+  const [showSites, setShowSites] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
