@@ -21,49 +21,75 @@
 ## ECS Architecture
 
 ### Entity IDs
-- `u32` dense integers (not UUIDs)
-- Created by `World::spawn()`
-- Used as foreign keys in component fields
 
-| Storage (AnyMap of SlotMaps)
-|Each component type is stored in its own `SlotMap` inside an `AnyMap`:
-|```rust
-|pub struct World {
-|    pub components: AnyMap,  // stores SlotMap<EntityKey, T> for each T
-|}
-|```
-|This is the Catherine West pattern (RustConf 2018): type-erased storage with typed access.
-|Adding a new component type does NOT require modifying the World struct — just insert
-|a new SlotMap into the AnyMap at runtime.
-|
-|### Systems
-|Systems are standalone functions that read/write specific component types:
-|- MJCF parser: XML → World (populates components)
-|- MJCF compiler: World → XML (reads components, emits MJCF)
-|- OpenSim importer: Python API → World (populates components)
-|- OpenSim exporter: World → Python API (reads components, emits .osim)
-|- Rigid body solver: reads Frame, InertialProperties → writes ForceOutput
-|- Muscle force solver: reads MusclePath, HillTypeParams → writes ForceOutput
-|- Wrapping solver: reads MusclePath, WrapGeom → updates MusclePath points
-|
-|### System Registry
-|Systems are registered in a `SystemRegistry` at startup:
-|```rust
-|pub struct SystemRegistry {
-|    systems: Vec<Box<dyn Fn(&mut World)>>,
-|}
-|```
-|```rust
-|let mut registry = SystemRegistry::new();
-|registry.add("hinge_joints", hinge_system);
-|registry.add("ball_joints", ball_system);
-|// Custom joint type — no existing code changed
-|registry.add("prismatic_joint", prismatic_system);
-|registry.run(&mut world);
-|```
-|Each system reads ONLY the concrete types it needs. The registry iterates systems in
-|order. Adding a new component type = add a struct + write a system + register it.
-|No changes to World, no changes to existing systems, no trait objects.
+- `EntityID(pub u32)` — dense integer, direct index into `Vec<Option<T>>` storage
+- Created by `World::spawn()` (monotonic counter)
+- Used as foreign keys in component fields (e.g., `HingeJoint.body_a: EntityID`)
+- No generational safety — entities are never deleted during the build phase. Validation catches stale references before freeze.
+
+### Storage
+
+Component storage uses `AnyMap<Vec<Option<T>>>` — each component type T lives in its own `Vec<Option<T>>` indexed by EntityID, type-erased behind AnyMap:
+
+```rust
+pub struct World {
+    pub components: AnyMap,  // stores Vec<Option<T>> for each T
+    pub resources: AnyMap,
+    pub next_id: u32,
+}
+```
+
+This is a variant of the Catherine West pattern (RustConf 2018): type-erased storage with typed access. Adding a new component type does NOT require modifying the World struct — downstream crates just call `world.attach::<MyType>(entity, val)`.
+
+**Why Vec<Option<T>> instead of SlotMap:** SlotMap gave opaque keys with generation counters, but every freeze had to extract slot indices into dense Vecs anyway — the `collect_dense` translation pass. Dense Vecs eliminate that pass entirely. The cost is no generational safety, but entities are never deleted during the build phase.
+
+### Spawn vs Attach
+
+**Entities and components are separate operations.** `spawn()` allocates an EntityID. `attach()` places a component on that entity.
+
+```rust
+let body = world.spawn();  // returns EntityID
+world.attach(body, InertialProperties { name: "pelvis".into(), mass: 11.78, ... });
+
+let joint = world.spawn();
+world.attach(joint, HingeJoint { body_a: body, body_b: other_body, axis: [1.0, 0.0, 0.0] });
+```
+
+This differs from `world.insert::<T>(component)` which both allocates and stores in one call, returning a key. The two-step pattern makes it explicit that the entity exists before any component is attached, and multiple components can be attached to the same entity.
+
+Component references between entities use explicit EntityID fields (HingeJoint.body_a, Frame.parent, etc.). Unlike shared-key-insertion ECS patterns, each entity has exactly one spawn and components are attached by reference — not by index alignment.
+
+### Systems
+
+Systems are standalone functions that read/write specific component types:
+- MJCF parser: XML → World (populates components)
+- MJCF compiler: World → XML (reads components, emits MJCF)
+- OpenSim importer: Python API → World (populates components)
+- OpenSim exporter: World → Python API (reads components, emits .osim)
+- Rigid body solver: reads Frame, InertialProperties → writes ForceOutput
+- Muscle force solver: reads MusclePath, HillTypeParams → writes ForceOutput
+- Wrapping solver: reads MusclePath, WrapGeom → updates MusclePath points
+
+### System Registry
+
+Systems are registered in a `SystemRegistry` at startup:
+
+```rust
+pub struct SystemRegistry {
+    systems: Vec<Box<dyn Fn(&mut World)>>,
+}
+```
+
+```rust
+let mut registry = SystemRegistry::new();
+registry.add("hinge_joints", hinge_system);
+registry.add("ball_joints", ball_system);
+// Custom joint type — no existing code changed
+registry.add("prismatic_joint", prismatic_system);
+registry.run(&mut world);
+```
+
+Each system reads ONLY the concrete types it needs. The registry iterates systems in order. Adding a new component type = add a struct + write a system + register it. No changes to World, no changes to existing systems, no trait objects.
 
 ## Two-Phase Architecture: Build → Freeze → Simulate
 
@@ -71,65 +97,62 @@ melosim operates in two distinct phases that solve opposite requirements:
 
 ### Phase 1: Build World (extensible, dynamic)
 
-The Build World is the authoring environment. Importers, validators, editors, and downstream plugins
-all operate here. New component types can be added at any time without modifying melosim core.
+The Build World is the authoring environment. Importers, validators, editors, and downstream plugins all operate here. New component types can be added at any time without modifying melosim core.
 
 ```rust
 let mut world = World::new();
-world.insert::<HingeJoint>(...);
+let entity = world.spawn();
+world.attach(entity, HingeJoint { ... });
 // Downstream crate adds a custom model:
-world.insert::<MyCustomNeuron>(...);
+let neuron = world.spawn();
+world.attach(neuron, MyCustomNeuron { ... });
 ```
 
-- Storage: AnyMap of SlotMaps (Catherine West pattern)
-- Entity IDs: `EntityKey` (opaque slotmap key with generational safety)
+- Storage: AnyMap of `Vec<Option<T>>` (dense arrays, type-erased)
+- Entity IDs: `EntityID(u32)` — direct index into Vecs
 - Extensibility: any `'static` type, zero World changes
-- Mutation: full (insert, remove, update)
+- Mutation: full (spawn, attach, remove, update)
 - Systems: validation, import, export, editing
 
 ### Phase 2: FlatWorld (dense, GPU-ready)
 
-The FlatWorld is the simulation snapshot. After building and validating the model, `freeze()`
-produces a dense, indexable copy optimized for solver iteration and GPU extraction.
+The FlatWorld is the simulation snapshot. After building and validating the model, `freeze()` copies each known component type's Vec from the World's AnyMap into named fields for zero-hash access during simulation.
 
 ```rust
-let flat = world.freeze::<SolverComponents>();
-// flat.inertials[id] — single load, zero hash lookups
-// &flat.muscle_force — &[f64] for cudaMemcpy
+let flat = world.freeze();
+// flat.inertials[id.0 as usize] — single load, zero hash lookups
+// &flat.custom_joints — direct slice, no indirection
 ```
 
-- Storage: `Vec<Option<T>>` indexed by dense `EntityID(u32)`
+- Storage: Named `Vec<Option<T>>` fields on FlatWorld struct
 - Entity IDs: `EntityID(u32)` — direct index into parallel arrays
 - Extensibility: custom types in `extensions: AnyMap<Vec<Option<T>>>`
-- Cross-type join: `flat.frames[hinge.body_a]` — single load, no indirection
-- GPU extraction: `&flat.inertials` is `&[InertialProperties]`
+- Cross-type join: `flat.frames[hinge.body_a.0 as usize]` — single load
+- GPU extraction: `&flat.inertials` is `&[Option<InertialProperties>]`
 - Mutation: immutable after freeze (copy-on-write for state updates)
 
 ### Freeze contract
 
-The `freeze()` method iterates every registered component SlotMap and copies each entity's
-data into the corresponding dense-indexed Vec. The mapping from SlotMap key → dense ID is
-determined by the key's internal index, which is stable because entities are never deleted
-during the build phase (validation catches stale references before freeze).
+The `freeze()` method clones each known component type's `Vec<Option<T>>` from the World's AnyMap into FlatWorld's named fields. Because the World already stores at dense EntityID indices, no index translation is needed (no more `collect_dense` slot-index extraction).
+
+Known component types are extracted explicitly by freeze. Custom types are not collected automatically — add them to `flat.extensions.insert::<Vec<Option<MyType>>>(...)` after freeze if needed.
 
 ```rust
-fn collect_dense<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
-    let count = world.next_id() as usize;
-    let mut vec = vec![None; count];
-    if let Some(slotmap) = world.components.get::<ComponentMap<T>>() {
-        for (key, component) in slotmap.iter() {
-            let id = key.data().as_ffi() as usize;
-            if id < count {
-                vec[id] = Some(component.clone());
-            }
-        }
+pub fn freeze(&self) -> FlatWorld {
+    FlatWorld {
+        inertials: extract::<InertialProperties>(self),
+        frames: extract::<Frame>(self),
+        hinge_joints: extract::<HingeJoint>(self),
+        // ... one per known type
+        num_entities: self.next_id,
     }
-    vec
+}
+
+fn extract<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
+    world.components.get::<ComponentStorage<T>>()
+        .cloned().unwrap_or_default()
 }
 ```
-
-Custom types from downstream crates are collected into `extensions: AnyMap<Vec<Option<T>>>`.
-Their solvers access them via the extension API — no core changes needed.
 
 ### When to use which
 
@@ -145,250 +168,159 @@ Their solvers access them via the extension API — no core changes needed.
 | Export to OpenSim/MJCF | Build World |
 
 ### Core Components
+
 | Component | Fields | Read by |
 |---|---|---|
-| `InertialProperties` | entity, mass, com, inertia | Rigid body solver |
-| `Frame` | entity, body, transform | All systems (parent-relative transforms) |
-| `Joint` | entity, body_a, body_b, joint_type, limits | Rigid body solver |
-| `Site` | entity, body, offset | Cable routing, landmarks, muscle paths |
-| `Material` | entity, body, density, youngs_modulus, poissons_ratio | FEM solver |
-| `MeshGeometry` | entity, body, mesh | Visualization, export |
-| `PrimitiveGeometry` | entity, body, shape (Sphere/Cylinder/etc.) | Collision, wrapping |
+| `InertialProperties` | name, mass, com, inertia | Rigid body solver |
+| `Frame` | parent, transform | All systems (parent-relative transforms) |
+| `Site` | parent, offset | Cable routing, landmarks, muscle paths |
+| `Material` | density, youngs_modulus, poissons_ratio | FEM solver |
+| `MeshGeometry` | mesh | Visualization, export |
+| `DisplayGeometry` | body, mesh_file, scale, color, opacity, transform | Visualization, export |
+| `Landmark` | site, name | Marker export |
 
 ### Muscle Decomposition
 A muscle is an entity that can have multiple components:
 
 | Component | Fields | Read by |
 |---|---|---|
-| `Muscle` | entity, name | Identity only |
-| `MusclePath` | muscle, points, wrap_geoms | Wrapping solver, visualization, export |
-| `HillTypeParams` | muscle, max_force, fiber_length, pcsa, pennation, curves | Hill-type force solver |
-| `FEMMuscleMesh` | muscle, mesh, material, fiber_directions | FEM force solver |
-| `MuscleActivation` | muscle, activation, time_constant | Control system |
+| `Muscle` | name | Identity only |
+| `MusclePath` | muscle, points | Wrapping solver, visualization, export |
+| `Millard2012Params` | muscle, max_isometric_force, optimal_fiber_length, tendon_slack_length, pennation_angle_at_optimal, ... | Millard force solver |
+| `HillTypeMuscleParams` | max_force, optimal_fiber_length, tendon_slack_length, pcsa, pennation_angle | Hill-type force solver |
+| `MuscleState` | fiber_length, fiber_velocity, activation | Runtime state |
 
-**Why decompose:** The Hill-type solver reads physiology params. The FEM solver reads mesh + material. The wrapping solver reads the path. Different systems, different components. The muscle entity doesn't know which solver is used.
+**Why decompose:** The Hill-type solver reads physiology params. The FEM solver reads mesh + material. The wrapping solver reads the path. Different systems, different components.
 
-### Cable Routing
-| Component | Fields | Read by |
+### Joint Types
+
+Each joint type is a standalone component carrying both the common fields (body_a, body_b, limits) and type-specific data. Every component is its own entity — joints are not inlined into bodies.
+
+| Component | Fields | FK Solver |
 |---|---|---|
-| `CableGuide` | entity, site, diameter | Cable routing solver |
-| `Cable` | entity, name, path, tendon | Cable routing solver |
-| `CableSegment` | ViaPoint / Port / Wrap (enum) | Cable routing solver |
-| `CablePort` | entity, port_type, offset | Cable routing solver |
-| `Tendon` | entity, name, spring_length, width, via_points | Tendon force solver |
-
-### Wrapping
-| Component | Fields | Read by |
-|---|---|---|
-| `WrapGeom` | entity, body, geom_type (Sphere/Cylinder) | Wrapping solver |
-| `WrapPoint` | site, wrap_geom | Wrapping solver |
-
-Wrapping is defined by path points referencing geometry entities. The geometry entity has a `PrimitiveGeometry` component. The wrapping solver reads path points that reference wrap geometries and computes the wrapping behavior.
-
-### Actuators
-| Component | Fields | Read by |
-|---|---|---|
-| `Actuator` | entity, name, actuator_type (Motor/Position/CableMotor/MuscleActuator) | Control system |
-
-|### Joint Types
-|Each joint type is a standalone component carrying both the common fields
-|(body_a, body_b, limits) and type-specific data. Every component is its own
-|entity — there is no secondary join needed.
-|
-|| Component | Fields | FK Solver |
-||---|---|---|
-|| `HingeJoint` | body_a, body_b, limits, axis | Hinge system |
-|| `SlideJoint` | body_a, body_b, limits, axis | Slide system |
-|| `BallJoint` | body_a, body_b, limits | Ball system |
-|| `FreeJoint` | body_a, body_b, limits | Free system |
-|| `FixedJoint` | body_a, body_b, limits | Fixed system |
+| `HingeJoint` | body_a, body_b, limits, axis | Hinge system |
+| `SlideJoint` | body_a, body_b, limits, axis | Slide system |
+| `BallJoint` | body_a, body_b, limits | Ball system |
+| `FreeJoint` | body_a, body_b, limits | Free system |
+| `FixedJoint` | body_a, body_b, limits | Fixed system |
 | `UniversalJoint` | body_a, body_b, limits, axis1, axis2 | Universal system |
-| `CustomJoint` | body_a, body_b, limits, coordinates: Vec<EntityKey> | Custom system |
-|
-|Adding a new joint type: define the component struct, write a FK system
-|function, register the system. No changes to any existing code.
-|
-||**Why separate components instead of an enum?** An enum is a closed set —
-||adding a variant requires modifying the enum definition and every match
-||statement. Separate component types are an open set — a downstream crate
-||can define a `PrismaticJoint` without touching melosim's source code.
-||The system registry handles iteration. Each joint type lives in its own
-||SlotMap in the AnyMap, so there's no wasted space for unused variants.
+| `CustomJoint` | body_a, body_b, limits, coordinates: Vec<EntityID> | Custom system |
 
-|## Coordinate System
+Adding a new joint type: define the component struct, write a FK system function, register the system. No changes to any existing code.
 
-|The coordinate system is a family of components that model generalized
-|coordinates and their effect on joint transforms. This is the core of
-|OpenSim's `CustomJoint` — without it, coupled joint motion (like knee
-|flexion driving tibial translation) cannot be represented.
+**Why separate components instead of an enum?** An enum is a closed set — adding a variant requires modifying the enum definition and every match statement. Separate component types are an open set — a downstream crate can define a `PrismaticJoint` without touching melosim's source code. The system registry handles iteration. Each joint type lives in its own Vec in the AnyMap, so there's no wasted space for unused variants.
 
-|Coordinates are **separate entities** (not inlined into joints). This
-|allows independent iteration — a system can find all locked coordinates
-|without touching every joint — and avoids duplicating coordinate data
-|when multiple effects reference the same coordinate.
+### Coordinate System
 
-|### Components
+The coordinate system models generalized coordinates and their effect on joint transforms. This is the core of OpenSim's `CustomJoint` — without it, coupled joint motion (like knee flexion driving tibial translation) cannot be represented.
 
-|| Component | Fields | Purpose |
-||---|---|---|
-|| `JointCoordinate` | name, range_min, range_max, default_value, stiffness, damping, clamped, locked, prescribed_function | A single DOF definition |
-|| `CoordinateEffect` | coordinate, joint, component (TransformComponent), function (JointFunction) | Maps one coordinate → one spatial transform axis |
-|| `SpatialTransform` | joint, effects: Vec<EntityKey> | Groups all CoordinateEffects for a CustomJoint |
+Coordinates are **separate entities** (not inlined into joints). This allows independent iteration — a system can find all locked coordinates without touching every joint — and avoids duplicating coordinate data when multiple effects reference the same coordinate.
 
-|### TransformComponent enum
+#### Components
 
-|Identifies which of the 6 spatial DOFs a CoordinateEffect drives:
+| Component | Fields | Purpose |
+|---|---|---|
+| `JointCoordinate` | name, range_min, range_max, default_value, stiffness, damping, clamped, locked, prescribed_function | A single DOF definition |
+| `CoordinateEffect` | coordinate, joint, component (TransformComponent), function (JointFunction) | Maps one coordinate → one spatial transform axis |
+| `SpatialTransform` | joint, effects: Vec<EntityID> | Groups all CoordinateEffects for a CustomJoint |
 
-|\```
-|enum TransformComponent { RotationX, RotationY, RotationZ, TranslationX, TranslationY, TranslationZ }
-|\```
+#### TransformComponent enum
 
-|### JointFunction enum
+Identifies which of the 6 spatial DOFs a CoordinateEffect drives:
 
-|Functions that map coordinate values (q) to transform components:
+```rust
+enum TransformComponent { RotationX, RotationY, RotationZ, TranslationX, TranslationY, TranslationZ }
+```
 
-|\```
-|enum JointFunction {
-|    Constant(f64),                       // f(q) = c
-|    Linear { slope, intercept },         // f(q) = slope * q + intercept
-|    Polynomial { coefficients: Vec<f64> }, // f(q) = c0 + c1*q + c2*q^2 + ...
-|}
-|\```
+#### JointFunction enum
 
-|OpenSim's CustomJoint uses PolynomialFunction extensively for coupled
-|motion. A knee joint might have:
-|- Coordinate `knee_flexion` drives `RotationY` via `Linear(-1.0, 0.0)`
-|- Same coordinate drives `TranslationX` via `Polynomial([0.002, -0.015, 0.0])`
-|- Same coordinate drives `TranslationZ` via `Polynomial([-0.42, 0.01, 0.0])`
+Functions that map coordinate values (q) to transform components:
 
-|Each of these is a separate `CoordinateEffect` entity referencing the same
-|`JointCoordinate` entity.
+```rust
+enum JointFunction {
+    Constant(f64),                       // f(q) = c
+    Linear { slope, intercept },         // f(q) = slope * q + intercept
+    Polynomial { coefficients: Vec<f64> }, // f(q) = c0 + c1*q + c2*q^2 + ...
+}
+```
 
-|### Entity relationship diagram
+OpenSim's CustomJoint uses PolynomialFunction extensively for coupled motion. A knee joint might have:
+- Coordinate `knee_flexion` drives `RotationY` via `Linear(-1.0, 0.0)`
+- Same coordinate drives `TranslationX` via `Polynomial([0.002, -0.015, 0.0])`
+- Same coordinate drives `TranslationZ` via `Polynomial([-0.42, 0.01, 0.0])`
 
-|\```
-|CustomJoint ──coordinates──→ [JointCoordinate, JointCoordinate, ...]
-|                │
-|                └──→ SpatialTransform
-|                          ├── CoordinateEffect ──→ JointCoordinate (drives RotationY)
-|                          ├── CoordinateEffect ──→ JointCoordinate (drives TranslationX)
-|                          └── CoordinateEffect ──→ JointCoordinate (drives TranslationZ)
-|\```
+Each of these is a separate `CoordinateEffect` entity referencing the same `JointCoordinate` entity.
 
-|This is a pure ECS pattern — components reference other entities by
-|EntityKey, and systems iterate the components they need independently.
+#### Entity relationship diagram
+
+```
+CustomJoint ──coordinates──→ [JointCoordinate, JointCoordinate, ...]
+                │
+                └──→ SpatialTransform
+                          ├── CoordinateEffect ──→ JointCoordinate (drives RotationY)
+                          ├── CoordinateEffect ──→ JointCoordinate (drives TranslationX)
+                          └── CoordinateEffect ──→ JointCoordinate (drives TranslationZ)
+```
+
+Components reference other entities by EntityID, and systems iterate the components they need independently.
+
+---
 
 ## Round-Trip Plan: OpenSim (Rajagopal 2015)
 
 ### What's in the model
-- 22 bodies (pelvis, femur_r/l, tibia_r/l, talus_r/l, etc.)
+- 23 bodies (pelvis, femur_r/l, tibia_r/l, talus_r/l, etc.)
 - 22 joints (hip, knee, ankle, etc.)
-- 80+ muscles (with wrapping surfaces, via points)
-- Markers (anatomical landmarks)
-- Tendons
-- Actuators
+- 80 muscles (Millard2012EquilibriumMuscle with wrapping surfaces)
+- 66 markers
+- 40 wrap objects
+- 103 display geometries
 
 ### Import pipeline
 1. Load model via OpenSim Python API: `model = osim.Model('Rajagopal2015.osim')`
-2. Walk `model.getBodySet()` → create InertialProperties + Frame entities
-3. Walk `model.getJointSet()` → create Joint entities (detect type via `getConcreteClassName()`)
-4. Walk `model.getMuscleSet()` → create Muscle + MusclePath + HillTypeParams entities
-5. Walk `model.getMarkerSet()` → create Site + Landmark entities
-6. Walk `model.getWrapObjectSet()` → create WrapGeom entities
-7. Walk `model.getTendonSet()` → create Tendon entities
+2. Walk `model.getBodySet()` → spawn + attach InertialProperties + Frame entities
+3. Walk `model.getJointSet()` → spawn + attach Joint entities (detect type via `getConcreteClassName()`)
+4. Walk `model.getMuscleSet()` → spawn + attach Muscle + MusclePath + Millard2012Params entities
+5. Walk `model.getMarkerSet()` → spawn + attach Site + Landmark entities
+6. Walk `model.getWrapObjectSet()` → spawn + attach WrapGeom entities
+7. Walk body frames for display geometries → spawn + attach DisplayGeometry entities
 8. Validate all references (bodies exist, muscles reference valid bodies, etc.)
 
 ### Export pipeline
-1. Walk all inertials → emit `<Body>` elements
+1. Walk all InertialProperties → emit `<Body>` elements with real names
 2. Walk all joints → emit `<Joint>` elements (detect type, emit appropriate XML)
-3. Walk all muscles → emit `<Muscle>` elements with `<GeometryPath>` and `<PathPoint>` elements
-4. Walk all markers → emit `<Marker>` elements
-5. Walk all wrap objects → emit `<WrapObject>` elements
-6. Walk all tendons → emit `<Tendon>` elements
+3. Walk all muscles → emit `<Millard2012EquilibriumMuscle>` elements with GeometryPath
+4. Walk all Landmarks → emit `<Marker>` elements
+5. Walk all WrapGeom → emit `<WrapObject>` elements
+6. Walk all DisplayGeometry → emit <DisplayGeometry> elements
 7. Write the .osim XML file
 
+### Current status (2026-07-28)
+
+✅ Full round-trip of Rajagopal 2015 model: 23 bodies, 22 joints (CustomJoint + PinJoint), 80 muscles, 66 markers, 40 wrap objects, 103 display geometries. ~149K structurally valid .osim XML output.
+
 ### Key challenges
-- OpenSim's inheritance hierarchy (Body → BodySet → Model) — Python API flattens this
-- Muscle wrapping surfaces — multiple algorithms (ball, ellipsoid, cylinder, spindle)
+- OpenSim's inheritance hierarchy — Python API flattens this
+- Muscle wrapping surfaces — multiple algorithms (sphere, cylinder, ellipsoid)
 - Custom joints — SpatialTransform with polynomial functions
-- Coordinate systems — OpenSim uses Z-up, right-handed
+- OpenSim 4.x API differences: markers use ComponentList/Landmark API, wrap objects use per-body getWrapObjectSet, display geometry uses frame/geometry API
 
 ### Validation
 - Parse Rajagopal 2015 → ECS World
 - Export ECS World → .osim file
-- Parse the exported .osim file → compare with original
 - Verify body count, joint count, muscle count, marker count match
 - Verify muscle paths, joint axes, body masses match
-
-## Round-Trip Plan: MuJoCo
-
-### What's in a MuJoCo model
-- Bodies (mass, inertia, position, geometry)
-- Joints (hinge, slide, ball, free, fixed)
-- Geoms (mesh, sphere, cylinder, capsule, plane)
-- Sites (attachment points)
-- Actuators (motor, position, muscle)
-- Tendons (spatial routing through sites/wraps)
-- Equality constraints (weld, connect, joint, tendon)
-- Contact settings
-
-### Import pipeline
-1. Load via MuJoCo C API: `mj_loadXML()` (handles includes, compiler directives)
-2. Walk `mjModel.body_*` → create InertialProperties + Frame entities
-3. Walk `mjModel.joint_*` → create Joint entities
-4. Walk `mjModel.geom_*` → create MeshGeometry or PrimitiveGeometry entities
-5. Walk `mjModel.site_*` → create Site entities
-6. Walk `mjModel.actuator_*` → create Actuator entities
-7. Walk `mjModel.tendon_*` → create Tendon entities
-8. Validate all references
-
-### Export pipeline
-1. Walk all inertials → emit `<body>` elements with `<inertial>`, `<joint>`, `<geom>`, `<site>`
-2. Walk all actuators → emit `<actuator>` elements
-3. Walk all tendons → emit `<tendon><spatial>` elements
-4. Walk all equality constraints → emit `<equality>` elements
-5. Write the MJCF XML file
-
-### Key differences from OpenSim
-- MuJoCo uses Y-up (vs OpenSim Z-up) — convert at adapter boundary
-- Muscle model is built-in Hill-type (vs OpenSim's multiple implementations)
-- Sites are first-class (vs OpenSim's markers)
-- Tendons route through sites and wrap geoms
-
-### Coordinate system conversion
-```
-Import (MuJoCo → ECS): Y-up → Z-up: swap Y and Z axes
-Export (ECS → MuJoCo): Z-up → Y-up: swap Z and Y axes
-```
 
 ## Importer Architecture
 
 The OpenSim importer follows a two-stage architecture:
 
 1. **Python extraction** (runs on machine with OpenSim installed) — loads the .osim model via the OpenSim Python API, extracts raw data to JSON
-2. **Rust import** (runs anywhere) — reads JSON, creates ECS entities, resolves body name references, validates
+2. **Rust import** (runs anywhere) — reads JSON, spawns entities, attaches components, resolves body name references, validates
 
-```
-Your machine (OpenSim) ──JSON──→ Any machine (Rust importer)
-```
+### Round-trip binary
 
-### Why not PyO3 directly?
-
-A two-stage pipeline avoids the OpenSim runtime dependency on every machine. The JSON intermediate format is portable and debuggable. The Python script is a simple translator — it doesn't need to understand melosim's data model.
-
-### Incremental development
-
-The importer is built incrementally, one joint type at a time:
-
-| Step | What | Test fixture | Status |
-|---|---|---|---|
-| 1 | Bodies + PinJoint | `simple_hip.json` (ground → pelvis → femur) | ✅ Done |
-| 2 | FreeJoint + CustomJoint | `simple_knee.json` (ground → femur → tibia) | ✅ Done |
-| 3 | UniversalJoint + BallJoint | TBD | ⬜ |
-| 4 | Muscles (identity + path + params) | TBD | ⬜ |
-| 5 | Markers + WrapGeoms + full Rajagopal | Rajagopal2015.osim | ⬜ |
-
-Each step adds import functions for one component type and a test fixture.
+`cargo run --bin roundtrip -- Rajagopal2015.osim [output.osim]` — imports via PyO3, validates, exports. The `--from-json` flag skips PyO3 and reads a pre-extracted JSON fixture (used on architectures without OpenSim).
 
 ### Module structure
 
@@ -399,51 +331,33 @@ src/importer/
 
 tests/
 ├── import_test.rs  # Tests for each fixture
+├── export_test.rs  # Tests for export XML
 └── fixtures/
-    ├── simple_hip.json     # ground → pelvis → femur (PinJoint)
-    └── simple_knee.json    # ground → femur → tibia (CustomJoint)
+    ├── simple_hip.json      # ground → pelvis → femur (PinJoint)
+    ├── simple_knee.json     # ground → femur → tibia (CustomJoint)
+    └── simple_muscle.json   # Includes muscle, wrap, display geometry
 
 scripts/
 └── extract_opensim.py      # Python extraction script
 ```
 
-### Adding a new joint type
-
-1. Define the joint's intermediate data in `OpenSimJointData` (optional fields)
-2. Add a `match` arm in `import_opensim_joint()` dispatching to the type
-3. Write the type-specific import function
-4. Create a test fixture JSON
-5. Add a test
-
-No changes to the World struct, component types, or existing import functions.
-
 ### Whole-model vs individual functions
-The importer operates at the whole-model level (resolves names to entity IDs). But internal functions that process individual components are separated for testing and composability.
+
+The importer operates at the whole-model level (resolves names to entity IDs). Internal functions that process individual components are separated for testing and composability:
 
 ```
 Import pipeline:
-├── import_model()          ← whole-model: resolves names, creates entities
-│   ├── import_body()       ← individual: creates InertialProperties + Frame entities
-│   ├── import_joint()      ← individual: creates Joint entity, resolves body refs
-│   ├── import_muscle()     ← individual: creates Muscle entity, resolves body refs
-│   └── import_wrap()       ← individual: creates WrapGeom entity
-
-Export pipeline:
-├── export_model()          ← whole-model: walks World, emits XML
-│   ├── export_body()       ← individual: emits <body> element
-│   ├── export_joint()      ← individual: emits <joint> element
-│   └── export_muscle()     ← individual: emits <muscle> element
+├── import_opensim_model()    ← whole-model: resolves names, spawns entities
+│   ├── import_opensim_body()       ← individual: spawns InertialProperties + Frame entities
+│   ├── import_opensim_joint()      ← individual: spawns Joint entity, resolves body refs
+│   ├── import_opensim_muscle()     ← individual: spawns Muscle entity, resolves body refs
+│   ├── import_opensim_marker()     ← individual: spawns Site + Landmark entities
+│   └── import_opensim_wrap()       ← individual: spawns WrapGeom entity
 ```
-
-The individual functions are pure — they take inputs and produce outputs without side effects. The whole-model functions handle name resolution and entity ID mapping.
 
 ## What's Next
 
-1. Add more joint importers (UniversalJoint, BallJoint)
-2. Add muscle importer (Muscle + MusclePath + Millard2012Params)
-3. Run Python extraction script on Rajagopal2015.osim
-4. Validate full round-trip
-5. Write MuJoCo importer (using mujoco-rs)
-6. Write MuJoCo exporter
-7. Write OpenSim exporter
-8. Validate round-trip with Rajagopal 2015
+1. Write FK solver on FlatWorld
+2. Write MuJoCo importer (using mujoco-rs)
+3. Write MuJoCo exporter
+4. Write OpenSim exporter (in progress — structural output works, dead code cleanup pending)
