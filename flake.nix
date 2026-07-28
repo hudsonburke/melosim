@@ -108,10 +108,30 @@
           if [ ! -d "node_modules" ]; then
             npm install
           fi
-          # When running vite dev separately, point to the API server
-          export VITE_API_BASE="''${VITE_API_BASE:-http://localhost:3000}"
-          echo "Vite dev server (API: $VITE_API_BASE)"
-          exec npm run dev -- --port "''${1:-5173}" "''${@:2}"
+
+          # Parse args
+          VITE_PORT="5173"
+          API_PORT="3000"
+          while [[ $# -gt 0 ]]; do
+            case "$1" in
+              --port|-p) VITE_PORT="$2"; shift 2 ;;
+              --api-port|-a) API_PORT="$2"; shift 2 ;;
+              --help|-h)
+                echo "Usage: melosim-frontend-dev [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  -p, --port PORT       Vite dev server port (default: 5173)"
+                echo "  -a, --api-port PORT   API server port (default: 3000)"
+                echo "  -h, --help            Show this help"
+                exit 0
+                ;;
+              *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
+            esac
+          done
+
+          export VITE_API_BASE="http://localhost:''${API_PORT}"
+          echo "Vite dev server on :$VITE_PORT (API: $VITE_API_BASE)"
+          exec npm run dev -- --port "$VITE_PORT"
         '';
 
         buildFrontendScript = mkAppScript "melosim-build-frontend" ''
