@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 
 use axum::{
-    extract::State,
+    extract::{State, Path},
     http::StatusCode,
     response::Json,
     routing::{get, post},
@@ -15,10 +16,10 @@ use tower_http::cors::{Any, CorsLayer};
 
 // ── Shared state ──────────────────────────────────────
 
-// AnyMap doesn't impl Send+Sync, but all our component types are Send+Sync.
-// This wrapper is sound because Mutex provides synchronization and our
-// component types are all plain data structs (Clone + Serialize).
-struct SharedWorld(Mutex<World>);
+struct SharedWorld {
+    world: Mutex<World>,
+    mesh_dir: PathBuf,
+}
 unsafe impl Send for SharedWorld {}
 unsafe impl Sync for SharedWorld {}
 
@@ -49,7 +50,7 @@ struct BodyInfo {
 #[derive(Serialize)]
 struct TransformInfo {
     translation: [f64; 3],
-    rotation: [f64; 4], // w, x, y, z
+    rotation: [f64; 4],
 }
 
 #[derive(Serialize)]
@@ -93,9 +94,11 @@ struct MeshInfo {
     parent: u32,
     path: String,
     offset: [f64; 3],
+    /// URL to fetch the mesh file from the server
+    url: String,
 }
 
-fn world_to_scene(world: &World) -> Scene {
+fn world_to_scene(world: &World, mesh_base_url: &str) -> Scene {
     let mut bodies = Vec::new();
     let mut joints = Vec::new();
     let mut muscles = Vec::new();
@@ -172,7 +175,7 @@ fn world_to_scene(world: &World) -> Scene {
     }
 
     // Muscles
-    for (eid, muscle) in world.iter::<Muscle>() {
+    for (eid, _muscle) in world.iter::<Muscle>() {
         let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
         let params = world.get::<Millard2012Params>(eid);
         muscles.push(MuscleInfo {
@@ -199,13 +202,19 @@ fn world_to_scene(world: &World) -> Scene {
     for (eid, mesh) in world.iter::<MeshGeometry>() {
         let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
         let frame = world.get::<Frame>(eid);
+        let mesh_path = &mesh.mesh;
+        
+        // Build URL for mesh file serving
+        let url = format!("{}/{}", mesh_base_url, mesh_path);
+        
         meshes.push(MeshInfo {
             id: eid.0,
             name,
             parent: frame.map(|f| f.parent.0).unwrap_or(0),
-            path: mesh.mesh.clone(),
+            path: mesh_path.clone(),
             offset: frame.map(|f| [f.transform.translation.x, f.transform.translation.y, f.transform.translation.z])
                 .unwrap_or([0.0; 3]),
+            url,
         });
     }
 
@@ -278,15 +287,16 @@ struct ErrorResponse {
 // ── Handlers ──────────────────────────────────────────
 
 async fn get_scene(State(state): State<AppState>) -> Json<Scene> {
-    let world = state.0.lock().unwrap();
-    Json(world_to_scene(&world))
+    let world = state.world.lock().unwrap();
+    let mesh_base_url = "/meshes";
+    Json(world_to_scene(&world, mesh_base_url))
 }
 
 async fn post_attach_mesh(
     State(state): State<AppState>,
     Json(req): Json<AttachMeshRequest>,
 ) -> Result<Json<EntityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.0.lock().unwrap();
+    let mut world = state.world.lock().unwrap();
     let parent = melosim::id::EntityID(req.parent_id);
     let offset = Vec3::from(req.offset);
     let eid = world.attach_mesh(parent, &req.mesh_path, &req.name, offset);
@@ -297,7 +307,7 @@ async fn post_attach_body(
     State(state): State<AppState>,
     Json(req): Json<AttachBodyRequest>,
 ) -> Result<Json<EntityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.0.lock().unwrap();
+    let mut world = state.world.lock().unwrap();
     let parent = melosim::id::EntityID(req.parent_id);
     let offset = Vec3::from(req.offset);
     let eid = world.attach_body(parent, &req.name, req.mass, offset);
@@ -308,7 +318,7 @@ async fn post_body_builder(
     State(state): State<AppState>,
     Json(req): Json<BodyBuilderRequest>,
 ) -> Result<Json<EntityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.0.lock().unwrap();
+    let mut world = state.world.lock().unwrap();
     let mut builder = world.body_builder(&req.parent_name)
         .name(&req.name)
         .mass(req.mass)
@@ -339,18 +349,17 @@ async fn post_body_builder(
     }
 }
 
-/// POST /import — import a model file (osim or mjcf).
 #[derive(Deserialize)]
 struct ImportRequest {
     path: String,
-    format: String, // "osim" or "mjcf"
+    format: String,
 }
 
 async fn post_import(
     State(state): State<AppState>,
     Json(req): Json<ImportRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.0.lock().unwrap();
+    let mut world = state.world.lock().unwrap();
     
     match req.format.as_str() {
         "mjcf" => {
@@ -371,12 +380,39 @@ async fn post_import(
     }
 }
 
+// ── Mesh file serving ─────────────────────────────────
+
+async fn serve_mesh(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    let mesh_dir = &state.mesh_dir;
+    let file_path = mesh_dir.join(&path);
+    
+    // Security: prevent directory traversal
+    if path.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
+    }
+    
+    match std::fs::read(&file_path) {
+        Ok(data) => Ok(data),
+        Err(e) => Err((StatusCode::NOT_FOUND, format!("Mesh not found: {}", e))),
+    }
+}
+
 // ── Main ──────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
+    let mesh_dir = std::env::var("MESH_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("meshes"));
+    
     let world = World::new();
-    let state: AppState = Arc::new(SharedWorld(Mutex::new(world)));
+    let state: AppState = Arc::new(SharedWorld {
+        world: Mutex::new(world),
+        mesh_dir,
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -391,6 +427,7 @@ async fn main() {
         .route("/attach_body", post(post_attach_body))
         .route("/body_builder", post(post_body_builder))
         .route("/import", post(post_import))
+        .route("/meshes/{*path}", get(serve_mesh))
         .fallback_service(tower_http::services::ServeDir::new(&static_dir))
         .layer(cors)
         .with_state(state);
@@ -398,6 +435,7 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("0.0.0.0:{port}");
     println!("melosim-server listening on {addr}");
+    println!("Mesh directory: {:?}", std::env::var("MESH_DIR").unwrap_or_else(|_| "meshes".into()));
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
