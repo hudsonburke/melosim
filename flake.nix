@@ -131,6 +131,7 @@
 
           # Vite proxy forwards /scene, /import, etc. to the API server
           export VITE_API_BASE=""
+          export MELSIM_API_PORT="$API_PORT"
           echo "Vite dev server on :$VITE_PORT (API proxied to :$API_PORT)"
           exec npm run dev -- --port "$VITE_PORT"
         '';

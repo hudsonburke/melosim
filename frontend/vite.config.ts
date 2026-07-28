@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const API_PORT = process.env.VITE_API_BASE?.match(/:(\d+)$/)?.[1] || '3000';
+const API_PORT = process.env.MELSIM_API_PORT || '3000';
 
 export default defineConfig({
   plugins: [react()],
