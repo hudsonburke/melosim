@@ -13,6 +13,11 @@ pub struct DisplayGeometry {
     pub scale: [f64; 3],
     pub color: [f64; 3],
     pub opacity: f64,
+    /// Maps raw mesh-file vertex coordinates into the body frame:
+    ///   v_body = translation + rotation * (scale ⊙ v_file)
+    /// Importers must bake any source-format mesh-frame quirks (e.g.
+    /// MuJoCo's compile-time re-centering to CoM/principal axes) into
+    /// this transform, so consumers never handle format-specific frames.
     pub transform: Transform,
 }
 

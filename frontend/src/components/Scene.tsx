@@ -55,9 +55,9 @@ export default function Scene({ scene, onSelect, selected, showSites, showMuscle
 
 // ── Async STL mesh (non-blocking) ────────────────────────────────────────
 
-function AsyncSTLMesh({ mesh, color, onClick }: {
+function AsyncSTLMesh({ mesh, highlight, onClick }: {
   mesh: MeshInfo;
-  color: string;
+  highlight: boolean;
   onClick?: () => void;
 }) {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
@@ -74,15 +74,7 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
           if (cancelled) { geo.dispose(); return; }
           const elapsed = Date.now() - startTime.current;
           log(`Mesh loaded in ${elapsed}ms: ${mesh.url} (${(geo.attributes.position.count)} verts)`);
-          geo.computeBoundingBox();
-          const center = new THREE.Vector3();
-          geo.boundingBox!.getCenter(center);
-          geo.translate(-center.x, -center.y, -center.z);
-          const size = new THREE.Vector3();
-          geo.boundingBox!.getSize(size);
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const scale = 0.15 / maxDim;
-          geo.scale(scale, scale, scale);
+          // STL vertices are already in body-local model coordinates — use as-is.
           setGeometry(geo);
         },
         undefined,
@@ -96,9 +88,18 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
 
   if (!geometry) return null;
 
+  const r = mesh.rotation ?? [1, 0, 0, 0];
+  const c = mesh.color ?? [0.2, 0.6, 1.0];
+  const color = highlight ? "#ff6600" : new THREE.Color(c[0], c[1], c[2]);
   return (
-    <mesh geometry={geometry} onClick={onClick}>
-      <meshStandardMaterial color={color} transparent opacity={0.85} />
+    <mesh
+      geometry={geometry}
+      onClick={onClick}
+      position={mesh.offset}
+      quaternion={new THREE.Quaternion(r[1], r[2], r[3], r[0])}
+      scale={mesh.scale ?? [1, 1, 1]}
+    >
+      <meshStandardMaterial color={color} transparent opacity={mesh.opacity ?? 0.85} />
     </mesh>
   );
 }
@@ -107,15 +108,15 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
 
 function JointLines({ scene, worldPoses }: {
   scene: SceneData;
-  worldPoses: Map<number, THREE.Vector3>;
+  worldPoses: Map<number, WorldPose>;
 }) {
   const positions = useMemo(() => {
     const count = scene.joints.length;
     const pos = new Float32Array(count * 6);
     let i = 0;
     for (const j of scene.joints) {
-      const a = worldPoses.get(j.body_a);
-      const b = worldPoses.get(j.body_b);
+      const a = worldPoses.get(j.body_a)?.pos;
+      const b = worldPoses.get(j.body_b)?.pos;
       if (a && b) {
         pos[i++] = a.x; pos[i++] = a.y; pos[i++] = a.z;
         pos[i++] = b.x; pos[i++] = b.y; pos[i++] = b.z;
@@ -140,7 +141,7 @@ function JointLines({ scene, worldPoses }: {
 
 function MuscleVisualization({ musclePaths, worldPoses }: {
   musclePaths: MusclePathInfo[];
-  worldPoses: Map<number, THREE.Vector3>;
+  worldPoses: Map<number, WorldPose>;
 }) {
   const positions = useMemo(() => {
     const segmentCount = musclePaths.reduce((sum, mp) => sum + Math.max(0, mp.points.length - 1), 0);
@@ -149,13 +150,13 @@ function MuscleVisualization({ musclePaths, worldPoses }: {
     for (const mp of musclePaths) {
       const pts: THREE.Vector3[] = [];
       for (const pt of mp.points) {
-        const bodyPos = worldPoses.get(pt.body);
-        if (bodyPos) {
-          pts.push(new THREE.Vector3(
-            bodyPos.x + pt.location[0],
-            bodyPos.y + pt.location[1],
-            bodyPos.z + pt.location[2],
-          ));
+        const pose = worldPoses.get(pt.body);
+        if (pose) {
+          pts.push(
+            new THREE.Vector3(pt.location[0], pt.location[1], pt.location[2])
+              .applyQuaternion(pose.quat)
+              .add(pose.pos),
+          );
         }
       }
       for (let i = 0; i < pts.length - 1; i++) {
@@ -206,8 +207,8 @@ function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
   const worldPoses = useMemo(
     () => {
       const start = Date.now();
-      const result = computeWorldPositions(scene, bodyMap, childrenMap);
-      log(`computeWorldPositions: ${Date.now() - start}ms (${result.size} bodies)`);
+      const result = computeWorldPoses(scene, bodyMap, childrenMap);
+      log(`computeWorldPoses: ${Date.now() - start}ms (${result.size} bodies)`);
       return result;
     },
     [scene, bodyMap, childrenMap],
@@ -219,13 +220,13 @@ function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
     <group>
       {/* Display geometry only */}
       {scene.meshes.map(mesh => {
-        const pos = worldPoses.get(mesh.parent);
-        if (!pos) return null;
+        const pose = worldPoses.get(mesh.parent);
+        if (!pose) return null;
         return (
-          <group key={mesh.id} position={pos}>
+          <group key={mesh.id} position={pose.pos} quaternion={pose.quat}>
             <AsyncSTLMesh
               mesh={mesh}
-              color={selected === mesh.parent ? "#ff6600" : "#3399ff"}
+              highlight={selected === mesh.parent}
               onClick={() => onSelect(selected === mesh.parent ? null : mesh.parent)}
             />
           </group>
@@ -247,14 +248,17 @@ function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
 
 function SitePoints({ scene, worldPoses }: {
   scene: SceneData;
-  worldPoses: Map<number, THREE.Vector3>;
+  worldPoses: Map<number, WorldPose>;
 }) {
   const positions = useMemo(() => {
     const pos = new Float32Array(scene.sites.length * 3);
     let i = 0;
     for (const s of scene.sites) {
-      const p = worldPoses.get(s.parent);
-      if (p) {
+      const pose = worldPoses.get(s.parent);
+      if (pose) {
+        const p = new THREE.Vector3(s.offset[0], s.offset[1], s.offset[2])
+          .applyQuaternion(pose.quat)
+          .add(pose.pos);
         pos[i++] = p.x; pos[i++] = p.y; pos[i++] = p.z;
       }
     }
@@ -273,38 +277,52 @@ function SitePoints({ scene, worldPoses }: {
   );
 }
 
-// ── World positions (O(n) BFS) ──────────────────────────────────────────
+// ── World poses (O(n) BFS) ──────────────────────────────────────────────
+// worldQ = parentWorldQ * localQ
+// worldP = parentWorldP + parentWorldQ * localP
 
-function computeWorldPositions(
+interface WorldPose {
+  pos: THREE.Vector3;
+  quat: THREE.Quaternion;
+}
+
+function computeWorldPoses(
   scene: SceneData,
   bodyMap: Map<number, BodyInfo>,
   childrenMap: Map<number, number[]>,
-): Map<number, THREE.Vector3> {
-  const m = new Map<number, THREE.Vector3>();
+): Map<number, WorldPose> {
+  const m = new Map<number, WorldPose>();
   const queue: number[] = [];
+
+  const toPose = (b: BodyInfo): WorldPose => {
+    const t = b.transform.translation;
+    const r = b.transform.rotation;
+    return {
+      pos: new THREE.Vector3(t[0], t[1], t[2]),
+      quat: new THREE.Quaternion(r[1], r[2], r[3], r[0]),
+    };
+  };
 
   for (const b of scene.bodies) {
     if (b.parent_id === null) {
-      const t = b.transform.translation;
-      m.set(b.id, new THREE.Vector3(t[0], t[1], t[2]));
+      m.set(b.id, toPose(b));
       queue.push(b.id);
     }
   }
 
   while (queue.length > 0) {
     const id = queue.shift()!;
-    const parentPos = m.get(id)!;
+    const parent = m.get(id)!;
     const children = childrenMap.get(id) || [];
     for (const childId of children) {
+      if (m.has(childId)) continue; // guard: self/cyclic parent links (e.g. root id 0 keyed under 0)
       const child = bodyMap.get(childId);
       if (!child) continue;
-      const t = child.transform.translation;
-      const r = child.transform.rotation;
-      const pos = new THREE.Vector3(t[0], t[1], t[2]);
-      const quat = new THREE.Quaternion(r[1], r[2], r[3], r[0]);
-      pos.applyQuaternion(quat);
-      pos.add(parentPos);
-      m.set(childId, pos);
+      const local = toPose(child);
+      m.set(childId, {
+        pos: local.pos.clone().applyQuaternion(parent.quat).add(parent.pos),
+        quat: parent.quat.clone().multiply(local.quat),
+      });
       queue.push(childId);
     }
   }

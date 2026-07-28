@@ -58,6 +58,7 @@ export interface MeshInfo {
   parent: number;
   path: string;
   offset: [number, number, number];
+  rotation?: [number, number, number, number]; // w, x, y, z
   url: string;
   scale?: [number, number, number];
   color?: [number, number, number];

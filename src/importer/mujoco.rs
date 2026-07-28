@@ -232,23 +232,48 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
         let geom_type = model.geom_type()[g];
         let mesh_file = match geom_type {
             mjtGeom_::mjGEOM_MESH => {
-                // Mesh geoms reference mesh data; we store the name as reference
-                model.id_to_name(MjtObj::mjOBJ_GEOM, g)
+                // Use the mesh *asset* name (geom names can differ, e.g.
+                // "humerus_geom_1" vs asset/file "humerus"); the mesh dir
+                // is keyed by asset file names.
+                let mesh_id = model.geom_dataid()[g] as usize;
+                model.id_to_name(MjtObj::mjOBJ_MESH, mesh_id)
                     .map(|s| s.to_string())
             }
             _ => None, // Primitive geoms don't have mesh files
         };
 
+        let mut translation = [pos[0], pos[1], pos[2]];
+        let mut rotation = quat;
+        let mut scale = [size[0], size[1], size[2]];
+
+        if geom_type == mjtGeom_::mjGEOM_MESH {
+            // MuJoCo re-centers and re-orients every mesh at compile time
+            // (CoM at origin, principal inertia axes aligned). geom_pos/geom_quat
+            // position that *processed* frame; mesh_pos/mesh_quat map it back to
+            // the original asset frame:
+            //   v_geom = conj(mesh_quat) * (mesh_scale ⊙ v_raw − mesh_pos)
+            // Compose this pre-transform into the geom transform so the raw
+            // STL vertices display correctly.
+            let mid = model.geom_dataid()[g] as usize;
+            let mp = model.mesh_pos()[mid];
+            let q_pre = qconj(model.mesh_quat()[mid]);
+            let t_pre = qrot(q_pre, [-mp[0], -mp[1], -mp[2]]);
+            rotation = qmul(quat, q_pre);
+            let rt = qrot(quat, t_pre);
+            translation = [pos[0] + rt[0], pos[1] + rt[1], pos[2] + rt[2]];
+            scale = model.mesh_scale()[mid];
+        }
+
         let geom_entity = world.spawn();
         world.attach(geom_entity, DisplayGeometry {
             body,
             mesh_file,
-            scale: [size[0], size[1], size[2]],
+            scale,
             color: [rgba[0] as f64, rgba[1] as f64, rgba[2] as f64],
             opacity: rgba[3] as f64,
             transform: Transform {
-                translation: Vec3::new(pos[0], pos[1], pos[2]),
-                rotation: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] },
+                translation: Vec3::new(translation[0], translation[1], translation[2]),
+                rotation: Quaternion { w: rotation[0], x: rotation[1], y: rotation[2], z: rotation[3] },
             },
         });
 
@@ -417,4 +442,32 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
     }
 
     Ok((world, body_map))
+}
+
+// ── Quaternion helpers (MuJoCo order: w, x, y, z) ─────
+
+fn qconj(q: [f64; 4]) -> [f64; 4] {
+    [q[0], -q[1], -q[2], -q[3]]
+}
+
+fn qmul(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    let (aw, ax, ay, az) = (a[0], a[1], a[2], a[3]);
+    let (bw, bx, by, bz) = (b[0], b[1], b[2], b[3]);
+    [
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    ]
+}
+
+fn qrot(q: [f64; 4], v: [f64; 3]) -> [f64; 3] {
+    let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
+    let c = [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]];
+    let cc = [y * c[2] - z * c[1], z * c[0] - x * c[2], x * c[1] - y * c[0]];
+    [
+        v[0] + 2.0 * (w * c[0] + cc[0]),
+        v[1] + 2.0 * (w * c[1] + cc[1]),
+        v[2] + 2.0 * (w * c[2] + cc[2]),
+    ]
 }

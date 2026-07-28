@@ -108,6 +108,7 @@ struct MeshInfo {
     parent: u32,
     path: String,
     offset: [f64; 3],
+    rotation: [f64; 4],
     url: String,
     scale: [f64; 3],
     color: [f64; 3],
@@ -132,7 +133,23 @@ fn resolve_mesh_path(mesh_dir: &PathBuf, mesh_name: &str) -> Option<String> {
             return Some(format!("{}{}", mesh_name, ext));
         }
     }
-    
+
+    // Asset names may embed geom prefixes ("humerus_geom_1_humerus") while the
+    // file is named by the plain bone ("humerus.stl"). Fall back to a file
+    // whose stem is a "_"-delimited suffix of the asset name.
+    // ponytail: O(dir) scan per unresolved mesh, first arbitrary match wins;
+    // switch to an explicit asset->file map if collisions ever matter.
+    if let Ok(entries) = std::fs::read_dir(mesh_dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().into_owned();
+            if let Some(stem) = fname.rsplit_once('.').map(|(s, _)| s) {
+                if mesh_name.len() > stem.len() && mesh_name.ends_with(&format!("_{stem}")) {
+                    return Some(fname);
+                }
+            }
+        }
+    }
+
     None
 }
 
@@ -277,6 +294,12 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
                         geom.transform.translation.y,
                         geom.transform.translation.z,
                     ],
+                    rotation: [
+                        geom.transform.rotation.w,
+                        geom.transform.rotation.x,
+                        geom.transform.rotation.y,
+                        geom.transform.rotation.z,
+                    ],
                     url,
                     scale: geom.scale,
                     color: geom.color,
@@ -299,6 +322,8 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
             path: mesh_geom.mesh.clone(),
             offset: frame.map(|f| [f.transform.translation.x, f.transform.translation.y, f.transform.translation.z])
                 .unwrap_or([0.0; 3]),
+            rotation: frame.map(|f| [f.transform.rotation.w, f.transform.rotation.x, f.transform.rotation.y, f.transform.rotation.z])
+                .unwrap_or([1.0, 0.0, 0.0, 0.0]),
             url,
             scale: [1.0; 3],
             color: [0.5, 0.5, 0.5],
