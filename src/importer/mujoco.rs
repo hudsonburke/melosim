@@ -358,13 +358,15 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
             world.attach(muscle_entity, Name { value: act_name.clone() });
 
             // Muscle parameters from MuJoCo's compiled model:
-            // gainprm[0] = max_isometric_force
-            // biasprm[0] = optimal_fiber_length
-            // biasprm[1] = tendon_slack_length
-            // dynprm[0] = activation time constant
-            // dynprm[1] = deactivation time constant
-            // ctrlrange[0] = minimum activation
-            let max_force = actuator_gainprm[a][0];
+            // For <muscle> actuators:
+            //   gear[0] = max_isometric_force (from MJCF "force" attribute)
+            //   gainprm[0] = gain scaling factor
+            //   biasprm[0..2] = muscle curve parameters
+            //   dynprm[0] = activation time constant
+            //   dynprm[1] = deactivation time constant
+            //   ctrlrange[0] = minimum activation (from default class)
+            //   lengthrange = [tendon_slack_length, max_muscle_length]
+            let max_force = actuator_gear[a][0];
             let opt_fiber = actuator_biasprm[a][0];
             let tendon_slack = actuator_biasprm[a][1];
             let pennation = actuator_biasprm[a][2];
