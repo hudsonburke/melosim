@@ -46,7 +46,7 @@
             pkgs.libXmu pkgs.libXt pkgs.freetype pkgs.fontconfig
             pkgs.libxcursor pkgs.libxrandr pkgs.libxinerama
             # Frontend
-            pkgs.nodejs_20
+            pkgs.nodejs_22
             qemu
           ];
 
@@ -162,7 +162,7 @@
               libGL libGLU libX11 libXi libXmu libXt
               freetype fontconfig libxcursor libxrandr libxinerama
               pythonEnv
-              nodejs_20
+              nodejs_22
               qemu
               (rustToolchain.override { extensions = [ "rust-src" "clippy" ]; })
             ];
