@@ -361,3 +361,21 @@ Import pipeline:
 2. Write MuJoCo importer (using mujoco-rs)
 3. Write MuJoCo exporter
 4. Write OpenSim exporter (in progress — structural output works, dead code cleanup pending)
+
+## Future Considerations
+
+### Shipyard ECS
+
+Shipyard (by Catherine West / kyren) provides component queries, generational entity IDs, sparse set iteration, and system scheduling. We evaluated it against melosim's current architecture (AnyMap of `Vec<Option<T>>`, dense `EntityID(u32)`, explicit cross-entity references).
+
+**What Shipyard would add:** Combined component iteration (`View<A>` + `View<B>` filter to entities with both), generational safety on entity deletion, better iteration (sparse sets skip Nones), and workloads for system scheduling.
+
+**What it would cost:** Opaque EntityId (not u32) breaks direct FlatWorld indexing — a freeze extraction step becomes required. Derive macros on all components. Closure-based `run()` API changes how systems are written. Double indirection for lookup (sparse array → dense array). The freeze pattern goes from trivial Vec clone to custom extraction from Shipyard's internal sparse sets.
+
+**Why we're not adopting it now:** At 200-entity biomechanics models with static entity sets and explicit cross-entity references (HingeJoint.body_a, Frame.parent), manual iteration with `world.get::<T>(entity)` lookups is simple, fast, and debuggable. Shipyard's query power shines at 10K+ entities with dynamic component addition/removal during simulation.
+
+**When to reconsider:** If the FK solver or muscle force solver develops complex multi-component iteration patterns that manual iteration can't express cleanly, or if parallel system execution becomes necessary for solver performance, revisit Shipyard. The migration scope is comparable to the SlotMap → Vec<Option<T>> refactor (~20 source files, ~2-3 focused sessions). Keep explicit cross-entity references (components store EntityID fields) — this makes the migration cleaner since you're replacing storage and iteration, not rearchitecting entity relationships.
+
+### SparseSet storage
+
+Shipyard uses SparseSet internally — a dense packed array of components plus a sparse index array. This provides O(1) lookup, O(min(n,m)) combined iteration, and skip-Nones iteration. We evaluated replacing `Vec<Option<T>>` with a custom SparseSet. Not adopted because: the performance gain is negligible at 200 entities, direct array indexing (`vec[id.0 as usize]`) is simpler and GPU-mappable, and the double indirection (sparse → dense → component) is unnecessary overhead for our scale. Revisit if entity counts grow to thousands or if solver iteration becomes a bottleneck.
