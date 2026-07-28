@@ -11,6 +11,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [transformMode, setTransformMode] = useState<"translate" | "rotate">("translate");
   const [showSites, setShowSites] = useState(false);
+  const [showMuscles, setShowMuscles] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +65,13 @@ export default function App() {
         ) : (
           <>
             {error && <div className="error-banner">⚠ {error}</div>}
-            <Scene scene={scene} onSelect={setSelectedId} selected={selectedId} showSites={showSites} />
+            <Scene
+              scene={scene}
+              onSelect={setSelectedId}
+              selected={selectedId}
+              showSites={showSites}
+              showMuscles={showMuscles}
+            />
           </>
         )}
       </div>
@@ -75,6 +82,8 @@ export default function App() {
         onModeChange={setTransformMode}
         showSites={showSites}
         onSiteToggle={() => setShowSites(!showSites)}
+        showMuscles={showMuscles}
+        onMuscleToggle={() => setShowMuscles(!showMuscles)}
         onImport={handleImport}
         onRefresh={fetchScene}
       />
@@ -98,6 +107,7 @@ function createDemoScene(): SceneData {
       { id: 7, name: "ankle_r", joint_type: "hinge", body_a: 3, body_b: 4, axis: [0, 0, 1], limits: { lower: -0.7, upper: 0.52 } },
     ],
     muscles: [],
+    muscle_paths: [],
     sites: [],
     meshes: [],
   };

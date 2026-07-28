@@ -8,13 +8,16 @@ interface ControlPanelProps {
   onModeChange: (mode: "translate" | "rotate") => void;
   showSites: boolean;
   onSiteToggle: () => void;
+  showMuscles: boolean;
+  onMuscleToggle: () => void;
   onImport: (path: string, format: string) => void;
   onRefresh: () => void;
 }
 
 export default function ControlPanel({
   scene, selectedId, transformMode, onModeChange,
-  showSites, onSiteToggle, onImport, onRefresh,
+  showSites, onSiteToggle, showMuscles, onMuscleToggle,
+  onImport, onRefresh,
 }: ControlPanelProps) {
   const [importPath, setImportPath] = useState("");
   const [importFormat, setImportFormat] = useState("mjcf");
@@ -60,6 +63,10 @@ export default function ControlPanel({
 
       <section>
         <h3>View</h3>
+        <label>
+          <input type="checkbox" checked={showMuscles} onChange={onMuscleToggle} />
+          Show Muscles
+        </label>
         <label>
           <input type="checkbox" checked={showSites} onChange={onSiteToggle} />
           Show Sites

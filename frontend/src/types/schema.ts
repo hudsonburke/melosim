@@ -34,6 +34,17 @@ export interface MuscleInfo {
   tendon_slack_length: number;
 }
 
+export interface MusclePathInfo {
+  muscle_id: number;
+  muscle_name: string;
+  points: MusclePathPoint[];
+}
+
+export interface MusclePathPoint {
+  body: number;
+  location: [number, number, number];
+}
+
 export interface SiteInfo {
   id: number;
   name: string;
@@ -48,6 +59,9 @@ export interface MeshInfo {
   path: string;
   offset: [number, number, number];
   url: string;
+  scale?: [number, number, number];
+  color?: [number, number, number];
+  opacity?: number;
 }
 
 export interface Scene {
@@ -55,6 +69,7 @@ export interface Scene {
   bodies: BodyInfo[];
   joints: JointInfo[];
   muscles: MuscleInfo[];
+  muscle_paths: MusclePathInfo[];
   sites: SiteInfo[];
   meshes: MeshInfo[];
 }

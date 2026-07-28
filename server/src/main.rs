@@ -33,6 +33,7 @@ struct Scene {
     bodies: Vec<BodyInfo>,
     joints: Vec<JointInfo>,
     muscles: Vec<MuscleInfo>,
+    muscle_paths: Vec<MusclePathInfo>,
     sites: Vec<SiteInfo>,
     meshes: Vec<MeshInfo>,
 }
@@ -85,6 +86,19 @@ struct SiteInfo {
     name: String,
     parent: u32,
     offset: [f64; 3],
+}
+
+#[derive(Serialize)]
+struct MusclePathInfo {
+    muscle_id: u32,
+    muscle_name: String,
+    points: Vec<MusclePathPoint>,
+}
+
+#[derive(Serialize)]
+struct MusclePathPoint {
+    body: u32,
+    location: [f64; 3],
 }
 
 #[derive(Serialize)]
@@ -211,6 +225,29 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
         });
     }
 
+    // Muscle paths
+    let mut muscle_paths = Vec::new();
+    for (_eid, path) in world.iter::<MusclePath>() {
+        let muscle_name = world.get::<Name>(path.muscle)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
+        let points: Vec<MusclePathPoint> = path.points.iter().filter_map(|p| {
+            match p {
+                PathPoint::BodyFixed { body, location } => {
+                    Some(MusclePathPoint { body: body.0, location: *location })
+                }
+                _ => None, // Skip Moving points for now
+            }
+        }).collect();
+        if !points.is_empty() {
+            muscle_paths.push(MusclePathInfo {
+                muscle_id: path.muscle.0,
+                muscle_name,
+                points,
+            });
+        }
+    }
+
     // Sites
     for (eid, site) in world.iter::<Site>() {
         let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
@@ -274,6 +311,7 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
         bodies,
         joints,
         muscles,
+        muscle_paths,
         sites,
         meshes,
     }

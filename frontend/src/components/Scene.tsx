@@ -1,8 +1,8 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid } from "@react-three/drei";
 import * as THREE from "three";
-import type { Scene as SceneData, BodyInfo, MeshInfo } from "../types/schema";
+import type { Scene as SceneData, BodyInfo, MeshInfo, MusclePathInfo } from "../types/schema";
 
 // ── Scene ────────────────────────────────────────────────────────────────
 
@@ -11,9 +11,10 @@ interface SceneProps {
   onSelect: (id: number | null) => void;
   selected: number | null;
   showSites: boolean;
+  showMuscles?: boolean;
 }
 
-export default function Scene({ scene, onSelect, selected, showSites }: SceneProps) {
+export default function Scene({ scene, onSelect, selected, showSites, showMuscles = false }: SceneProps) {
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <Canvas camera={{ position: [2.5, 1.5, 3], fov: 45 }} style={{ background: "#1a1a1a" }}>
@@ -23,7 +24,13 @@ export default function Scene({ scene, onSelect, selected, showSites }: ScenePro
         <Grid infiniteGrid />
         <OrbitControls makeDefault />
         {scene && (
-          <ModelRenderer scene={scene} selected={selected} onSelect={onSelect} showSites={showSites} />
+          <ModelRenderer
+            scene={scene}
+            selected={selected}
+            onSelect={onSelect}
+            showSites={showSites}
+            showMuscles={showMuscles}
+          />
         )}
       </Canvas>
     </div>
@@ -41,7 +48,6 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
 
   useEffect(() => {
     let cancelled = false;
-    // Dynamic import to avoid blocking the main bundle
     import("three/examples/jsm/loaders/STLLoader.js").then(({ STLLoader }) => {
       const loader = new STLLoader();
       loader.load(mesh.url, (geo) => {
@@ -61,7 +67,7 @@ function AsyncSTLMesh({ mesh, color, onClick }: {
     return () => { cancelled = true; };
   }, [mesh.url]);
 
-  if (!geometry) return null; // render nothing while loading
+  if (!geometry) return null;
 
   return (
     <mesh geometry={geometry} onClick={onClick}>
@@ -76,11 +82,9 @@ function JointLines({ scene, worldPoses }: {
   scene: SceneData;
   worldPoses: Map<number, THREE.Vector3>;
 }) {
-  const ref = useRef<THREE.LineSegments>(null);
-
-  const { positions } = useMemo(() => {
+  const positions = useMemo(() => {
     const count = scene.joints.length;
-    const pos = new Float32Array(count * 6); // 2 verts per joint
+    const pos = new Float32Array(count * 6);
     let i = 0;
     for (const j of scene.joints) {
       const a = worldPoses.get(j.body_a);
@@ -90,29 +94,82 @@ function JointLines({ scene, worldPoses }: {
         pos[i++] = b.x; pos[i++] = b.y; pos[i++] = b.z;
       }
     }
-    return { positions: pos };
+    return pos;
   }, [scene.joints, worldPoses]);
 
+  if (positions.length === 0) return null;
+
   return (
-    <lineSegments ref={ref}>
+    <lineSegments>
       <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          args={[positions, 3]}
-        />
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
       <lineBasicMaterial color="#666" />
     </lineSegments>
   );
 }
 
+// ── Muscle visualization (polylines through path points) ─────────────────
+
+function MuscleVisualization({ musclePaths, worldPoses }: {
+  musclePaths: MusclePathInfo[];
+  worldPoses: Map<number, THREE.Vector3>;
+}) {
+  const lines = useMemo(() => {
+    const result: { points: THREE.Vector3[]; name: string }[] = [];
+    for (const mp of musclePaths) {
+      const points: THREE.Vector3[] = [];
+      for (const pt of mp.points) {
+        const bodyPos = worldPoses.get(pt.body);
+        if (bodyPos) {
+          // Add body position + local offset
+          points.push(new THREE.Vector3(
+            bodyPos.x + pt.location[0],
+            bodyPos.y + pt.location[1],
+            bodyPos.z + pt.location[2],
+          ));
+        }
+      }
+      if (points.length >= 2) {
+        result.push({ points, name: mp.muscle_name });
+      }
+    }
+    return result;
+  }, [musclePaths, worldPoses]);
+
+  if (lines.length === 0) return null;
+
+  // Merge all muscle lines into one LineSegments for performance
+  const segmentCount = lines.reduce((sum, l) => sum + l.points.length - 1, 0);
+  const positions = new Float32Array(segmentCount * 6);
+  let offset = 0;
+  for (const line of lines) {
+    for (let i = 0; i < line.points.length - 1; i++) {
+      const a = line.points[i];
+      const b = line.points[i + 1];
+      positions[offset++] = a.x; positions[offset++] = a.y; positions[offset++] = a.z;
+      positions[offset++] = b.x; positions[offset++] = b.y; positions[offset++] = b.z;
+    }
+  }
+
+  return (
+    <lineSegments>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <lineBasicMaterial color="#ff3366" linewidth={2} />
+    </lineSegments>
+  );
+}
+
 // ── Model renderer ────────────────────────────────────────────────────────
 
-function ModelRenderer({ scene, selected, onSelect, showSites }: {
+function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
   scene: SceneData;
   selected: number | null;
   onSelect: (id: number | null) => void;
   showSites: boolean;
+  showMuscles: boolean;
 }) {
   const bodyMap = useMemo(() => {
     const m = new Map<number, BodyInfo>();
@@ -130,58 +187,14 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
     return m;
   }, [scene.bodies]);
 
-  const meshesByBody = useMemo(() => {
-    const m = new Map<number, MeshInfo[]>();
-    for (const mesh of scene.meshes) {
-      if (!m.has(mesh.parent)) m.set(mesh.parent, []);
-      m.get(mesh.parent)!.push(mesh);
-    }
-    return m;
-  }, [scene.meshes]);
-
   const worldPoses = useMemo(
     () => computeWorldPositions(scene, bodyMap, childrenMap),
     [scene, bodyMap, childrenMap],
   );
 
-  // Bodies without STL meshes → one instanced draw call
-  const instancedBodies = useMemo(() => {
-    const bodiesWithMesh = new Set(meshesByBody.keys());
-    const ids: number[] = [];
-    const matrices: THREE.Matrix4[] = [];
-    const scale = 0.06;
-
-    for (const b of scene.bodies) {
-      if (bodiesWithMesh.has(b.id)) continue;
-      const pos = worldPoses.get(b.id);
-      if (!pos) continue;
-      ids.push(b.id);
-      const mat = new THREE.Matrix4();
-      mat.compose(pos, new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
-      matrices.push(mat);
-    }
-
-    const count = matrices.length;
-    const buffer = new Float32Array(count * 16);
-    for (let i = 0; i < count; i++) {
-      const el = matrices[i].elements;
-      for (let j = 0; j < 16; j++) buffer[i * 16 + j] = el[j];
-    }
-    return { buffer, count, ids };
-  }, [scene.bodies, worldPoses, meshesByBody]);
-
   return (
     <group>
-      {/* Instanced bodies (no mesh) — single draw call */}
-      {instancedBodies.count > 0 && (
-        <instancedMesh args={[undefined, undefined, instancedBodies.count]} frustumCulled={false}>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color="#3399ff" transparent opacity={0.85} />
-          <instancedBufferAttribute attach="instanceMatrix" args={[instancedBodies.buffer, 16]} />
-        </instancedMesh>
-      )}
-
-      {/* STL meshes — each loads independently, no Suspense blocking */}
+      {/* Display geometry (meshes) — the default view */}
       {scene.meshes.map(mesh => {
         const pos = worldPoses.get(mesh.parent);
         if (!pos) return null;
@@ -196,24 +209,27 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
         );
       })}
 
-      {/* Sites — single instanced draw call */}
+      {/* Sites */}
       {showSites && <SitePoints scene={scene} worldPoses={worldPoses} />}
 
-      {/* Joint lines — single LineSegments draw call */}
+      {/* Muscles */}
+      {showMuscles && (
+        <MuscleVisualization musclePaths={scene.muscle_paths} worldPoses={worldPoses} />
+      )}
+
+      {/* Joint lines — always visible for structure */}
       <JointLines scene={scene} worldPoses={worldPoses} />
     </group>
   );
 }
 
-// ── Site points (instanced) ──────────────────────────────────────────────
+// ── Site points (single draw call) ───────────────────────────────────────
 
 function SitePoints({ scene, worldPoses }: {
   scene: SceneData;
   worldPoses: Map<number, THREE.Vector3>;
 }) {
-  const ref = useRef<THREE.Points>(null);
-
-  const { positions } = useMemo(() => {
+  const positions = useMemo(() => {
     const pos = new Float32Array(scene.sites.length * 3);
     let i = 0;
     for (const s of scene.sites) {
@@ -222,11 +238,13 @@ function SitePoints({ scene, worldPoses }: {
         pos[i++] = p.x; pos[i++] = p.y; pos[i++] = p.z;
       }
     }
-    return { positions: pos };
+    return pos;
   }, [scene.sites, worldPoses]);
 
+  if (positions.length === 0) return null;
+
   return (
-    <points ref={ref}>
+    <points>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
