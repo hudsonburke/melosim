@@ -94,11 +94,35 @@ struct MeshInfo {
     parent: u32,
     path: String,
     offset: [f64; 3],
-    /// URL to fetch the mesh file from the server
     url: String,
+    scale: [f64; 3],
+    color: [f64; 3],
+    opacity: f64,
 }
 
-fn world_to_scene(world: &World, mesh_base_url: &str) -> Scene {
+/// Try to resolve a mesh name to a file in the mesh directory.
+/// Tries common extensions: .stl, .obj, .vtk, .vtp
+fn resolve_mesh_path(mesh_dir: &PathBuf, mesh_name: &str) -> Option<String> {
+    let extensions = [".stl", ".obj", ".vtk", ".vtp", ".ply"];
+    
+    // Try the name as-is first
+    let path = mesh_dir.join(mesh_name);
+    if path.exists() {
+        return Some(mesh_name.to_string());
+    }
+    
+    // Try with extensions
+    for ext in &extensions {
+        let path_with_ext = mesh_dir.join(format!("{}{}", mesh_name, ext));
+        if path_with_ext.exists() {
+            return Some(format!("{}{}", mesh_name, ext));
+        }
+    }
+    
+    None
+}
+
+fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Scene {
     let mut bodies = Vec::new();
     let mut joints = Vec::new();
     let mut muscles = Vec::new();
@@ -198,23 +222,50 @@ fn world_to_scene(world: &World, mesh_base_url: &str) -> Scene {
         });
     }
 
-    // Mesh geometries
-    for (eid, mesh) in world.iter::<MeshGeometry>() {
+    // Mesh geometries from DisplayGeometry
+    for (eid, geom) in world.iter::<DisplayGeometry>() {
+        if let Some(ref mesh_name) = geom.mesh_file {
+            // Try to resolve mesh name to actual file
+            if let Some(resolved_path) = resolve_mesh_path(mesh_dir, mesh_name) {
+                let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+                let url = format!("{}/{}", mesh_base_url, resolved_path);
+                
+                meshes.push(MeshInfo {
+                    id: eid.0,
+                    name,
+                    parent: geom.body.0,
+                    path: resolved_path,
+                    offset: [
+                        geom.transform.translation.x,
+                        geom.transform.translation.y,
+                        geom.transform.translation.z,
+                    ],
+                    url,
+                    scale: geom.scale,
+                    color: geom.color,
+                    opacity: geom.opacity,
+                });
+            }
+        }
+    }
+
+    // Also include MeshGeometry components
+    for (eid, mesh_geom) in world.iter::<MeshGeometry>() {
         let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
         let frame = world.get::<Frame>(eid);
-        let mesh_path = &mesh.mesh;
-        
-        // Build URL for mesh file serving
-        let url = format!("{}/{}", mesh_base_url, mesh_path);
+        let url = format!("{}/{}", mesh_base_url, mesh_geom.mesh);
         
         meshes.push(MeshInfo {
             id: eid.0,
             name,
             parent: frame.map(|f| f.parent.0).unwrap_or(0),
-            path: mesh_path.clone(),
+            path: mesh_geom.mesh.clone(),
             offset: frame.map(|f| [f.transform.translation.x, f.transform.translation.y, f.transform.translation.z])
                 .unwrap_or([0.0; 3]),
             url,
+            scale: [1.0; 3],
+            color: [0.5, 0.5, 0.5],
+            opacity: 1.0,
         });
     }
 
@@ -289,7 +340,7 @@ struct ErrorResponse {
 async fn get_scene(State(state): State<AppState>) -> Json<Scene> {
     let world = state.world.lock().unwrap();
     let mesh_base_url = "/meshes";
-    Json(world_to_scene(&world, mesh_base_url))
+    Json(world_to_scene(&world, mesh_base_url, &state.mesh_dir))
 }
 
 async fn post_attach_mesh(
@@ -389,7 +440,6 @@ async fn serve_mesh(
     let mesh_dir = &state.mesh_dir;
     let file_path = mesh_dir.join(&path);
     
-    // Security: prevent directory traversal
     if path.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
     }
