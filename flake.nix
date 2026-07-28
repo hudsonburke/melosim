@@ -11,7 +11,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         lib = nixpkgs.lib;
         overlays = [ (import rust-overlay) ];
@@ -33,8 +33,103 @@
         # Set MUJOCO_DOWNLOAD_DIR so the crate knows where to store it.
         # Also add the .so to LD_LIBRARY_PATH for runtime.
         mujocoDownloadDir = "$PWD/.mujoco";
+
+        # Helper: write a shell script that becomes a flake app
+        mkAppScript = name: text: pkgs.writeShellScriptBin name text;
+
+        # Shared env setup prefix for anything that needs MuJoCo + frontend
+        setupPrefix = ''
+          set -euo pipefail
+          cd "$PWD"
+
+          # MuJoCo
+          export MUJOCO_DOWNLOAD_DIR="${mujocoDownloadDir}"
+          MUJOCO_LIB="${mujocoDownloadDir}/mujoco-3.9.0/lib"
+          if [ -d "$MUJOCO_LIB" ]; then
+            export LD_LIBRARY_PATH="$MUJOCO_LIB''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          fi
+
+          # Auto-clone myo_sim test fixtures
+          MYO_SIM_DIR="$PWD/tests/fixtures/myo_sim"
+          if [ ! -d "$MYO_SIM_DIR" ]; then
+            echo "Cloning MyoSuite test fixtures..."
+            mkdir -p "$PWD/tests/fixtures"
+            git clone --depth 1 https://github.com/MyoHub/myo_sim.git "$MYO_SIM_DIR"
+          fi
+        '';
+
+        # ── Flake apps ──
+
+        serverScript = mkAppScript "melosim-server" ''
+          export PATH="${rustToolchain}/bin:${pkgs.nodejs_22}/bin:$PATH"
+          ${setupPrefix}
+
+          PORT="''${1:-3000}"
+          MESH_DIR="''${2:-tests/fixtures/myo_sim/meshes}"
+          STATIC_DIR="frontend/dist"
+
+          export PORT MESH_DIR STATIC_DIR
+
+          # Build frontend if stale
+          if [ -d "frontend" ]; then
+            if [ ! -d "frontend/dist" ] || [ "frontend/src" -nt "frontend/dist" ]; then
+              echo "Building frontend..."
+              (cd frontend && npm install --silent && npm run build)
+            fi
+          fi
+
+          echo "Starting melosim-server on port $PORT"
+          echo "  Mesh directory: $MESH_DIR"
+          echo "  Static files:   $STATIC_DIR"
+          echo "  Open http://localhost:$PORT"
+          echo ""
+
+          exec cargo run -p melosim-server --release
+        '';
+
+        frontendDevScript = mkAppScript "melosim-frontend-dev" ''
+          cd "$PWD/frontend"
+          if [ ! -d "node_modules" ]; then
+            npm install
+          fi
+          exec npm run dev "''${@}"
+        '';
+
+        buildFrontendScript = mkAppScript "melosim-build-frontend" ''
+          cd "$PWD/frontend"
+          if [ ! -d "node_modules" ]; then
+            npm install --silent
+          fi
+          exec npm run build
+        '';
+
+        cargoBuildScript = mkAppScript "melosim-build" ''
+          export PATH="${rustToolchain}/bin:$PATH"
+          ${setupPrefix}
+          echo "Building melosim workspace..."
+          exec cargo build "''${@}"
+        '';
+
+        cargoTestScript = mkAppScript "melosim-test" ''
+          export PATH="${rustToolchain}/bin:$PATH"
+          ${setupPrefix}
+          echo "Running tests..."
+          exec cargo test "''${@}"
+        '';
       in {
         packages.default = rustToolchain;
+
+        # ── Apps: `nix run .#<name>` ──
+        apps = {
+          server = flake-utils.lib.mkApp { drv = serverScript; };
+          frontend-dev = flake-utils.lib.mkApp { drv = frontendDevScript; };
+          build-frontend = flake-utils.lib.mkApp { drv = buildFrontendScript; };
+          build = flake-utils.lib.mkApp { drv = cargoBuildScript; };
+          test = flake-utils.lib.mkApp { drv = cargoTestScript; };
+        };
+
+        # Default: `nix run` starts the server
+        apps.default = flake-utils.lib.mkApp { drv = serverScript; };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
@@ -47,6 +142,9 @@
             pkgs.libxcursor pkgs.libxrandr pkgs.libxinerama
             # Frontend
             pkgs.nodejs_22
+            # Flake apps (so they're available inside nix develop too)
+            serverScript frontendDevScript buildFrontendScript
+            cargoBuildScript cargoTestScript
             qemu
           ];
 
@@ -140,9 +238,12 @@
 
             echo ""
             echo "  Commands:"
-            echo "    roundtrip <input.osim> [output.osim]"
-            echo "    ./run-server.sh [PORT] [MESH_DIR]"
-            echo "    cd frontend && npm run dev"
+            echo "    nix run .#server            Start the server + frontend"
+            echo "    nix run .#frontend-dev      Start Vite dev server"
+            echo "    nix run .#build-frontend    Build frontend to dist/"
+            echo "    nix run .#build             cargo build"
+            echo "    nix run .#test              cargo test"
+            echo "    roundtrip <input.osim>      Roundtrip via OpenSim"
             echo ""
             echo "  python: $(python --version 2>/dev/null || echo 'n/a')"
             echo "  node: $(node --version 2>/dev/null || echo 'n/a')"
