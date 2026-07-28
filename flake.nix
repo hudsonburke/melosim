@@ -131,6 +131,7 @@
             fi
 
             echo "  Roundtrip: roundtrip <input.osim> [output.osim]"
+            echo "  Server:    ./run-server.sh [PORT] [MESH_DIR]"
             echo "  python: $(python --version 2>/dev/null || echo 'n/a')"
           '';
         };
