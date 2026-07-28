@@ -108,6 +108,9 @@
           if [ ! -d "node_modules" ]; then
             npm install
           fi
+          # When running vite dev separately, point to the API server
+          export VITE_API_BASE="''${VITE_API_BASE:-http://localhost:3000}"
+          echo "Vite dev server (API: $VITE_API_BASE)"
           exec npm run dev -- --port "''${1:-5173}" "''${@:2}"
         '';
 
