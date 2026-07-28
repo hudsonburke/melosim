@@ -587,6 +587,45 @@ fn find_parent_joint(world: &World, child_key: EntityID) -> Option<String> {
             return Some(xml);
         }
     }
+    for (joint_key, joint) in world.iter::<CustomJoint>() {
+        if joint.body_b == child_key {
+            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
+            let mut xml = format!("        <Joint>\n          <CustomJoint name=\"custom_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+
+            // Emit coordinates
+            for coord_key in &joint.coordinates {
+                if let Some(coord) = world.get::<JointCoordinate>(*coord_key) {
+                    xml.push_str("            <CoordinateSet>\n");
+                    xml.push_str(&format!(
+                        "              <Coordinate name=\"{}\">\n",
+                        escape_attr(&coord.name)
+                    ));
+                    if coord.clamped {
+                        xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
+                        xml.push_str(&format!("                <range_max>{}</range_max>\n", coord.range_max));
+                    }
+                    xml.push_str(&format!("                <clamped>{}</clamped>\n", coord.clamped));
+                    xml.push_str(&format!("                <locked>{}</locked>\n", coord.locked));
+                    if let Some(ref pf) = coord.prescribed_function {
+                        emit_joint_function(&mut xml, "prescribed_function", pf);
+                    }
+                    xml.push_str("              </Coordinate>\n");
+                    xml.push_str("            </CoordinateSet>\n");
+                }
+            }
+
+            // Emit SpatialTransform
+            emit_spatial_transform(world, joint_key, &mut xml);
+
+            xml.push_str("          </CustomJoint>\n        </Joint>\n");
+            return Some(xml);
+        }
+    }
 
     None
 }
@@ -624,7 +663,6 @@ fn emit_joint(
 }
 
 /// Emit a JointFunction XML element.
-#[allow(dead_code)]
 fn emit_joint_function(xml: &mut String, tag: &str, function: &JointFunction) {
     match function {
         JointFunction::Constant(c) => {
@@ -660,7 +698,6 @@ fn emit_joint_function(xml: &mut String, tag: &str, function: &JointFunction) {
 }
 
 /// Emit SpatialTransform XML for a CustomJoint.
-#[allow(dead_code)]
 fn emit_spatial_transform(world: &World, joint_key: EntityID, xml: &mut String) {
     // Find the SpatialTransform for this joint
     for (_st_key, st) in world.iter::<SpatialTransform>() {
