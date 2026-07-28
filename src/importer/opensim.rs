@@ -36,6 +36,8 @@ pub struct OpenSimModelData {
     pub muscles: Vec<OpenSimMuscleData>,
     pub wrap_objects: Vec<OpenSimWrapData>,
     pub display_geometries: Vec<OpenSimDisplayGeometryData>,
+    #[serde(default)]
+    pub coordinate_actuators: Vec<OpenSimCoordinateActuatorData>,
 }
 
 /// An OpenSim Body's essential properties.
@@ -165,6 +167,23 @@ pub struct OpenSimDisplayGeometryData {
     pub orientation: [f64; 3],
 }
 
+/// A CoordinateActuator — torque on a single coordinate.
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenSimCoordinateActuatorData {
+    pub name: String,
+    pub coordinate: String,
+    #[serde(default = "default_optimal_force")]
+    pub optimal_force: f64,
+    #[serde(default = "default_min_control")]
+    pub min_control: f64,
+    #[serde(default = "default_max_control")]
+    pub max_control: f64,
+}
+
+fn default_optimal_force() -> f64 { 1.0 }
+fn default_min_control() -> f64 { -1.0 }
+fn default_max_control() -> f64 { 1.0 }
+
 // ── Import Functions ──────────────────────────────────
 
 /// Import a full OpenSim model from intermediate data into a World.
@@ -254,6 +273,14 @@ pub fn import_opensim_model(
         }
     }
 
+    // Phase 7: Import coordinate actuators
+    for act_data in &data.coordinate_actuators {
+        match import_coordinate_actuator(world, act_data, &coord_map) {
+            Ok(_) => {}
+            Err(e) => errors.push(e),
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -316,6 +343,29 @@ pub fn import_opensim_marker(
     });
     world.attach(site_entity, Name { value: data.name.clone() });
     site_entity
+}
+
+/// Import a single CoordinateActuator.
+pub fn import_coordinate_actuator(
+    world: &mut World,
+    data: &OpenSimCoordinateActuatorData,
+    coord_map: &HashMap<String, EntityID>,
+) -> Result<EntityID, String> {
+    let coord_key = coord_map.get(&data.coordinate).copied().ok_or_else(|| {
+        format!(
+            "CoordinateActuator '{}': coordinate '{}' not found",
+            data.name, data.coordinate
+        )
+    })?;
+    let entity = world.spawn();
+    world.attach(entity, CoordinateActuator {
+        coordinate: coord_key,
+        optimal_force: data.optimal_force,
+        min_control: data.min_control,
+        max_control: data.max_control,
+    });
+    world.attach(entity, Name { value: data.name.clone() });
+    Ok(entity)
 }
 
 /// Import a single OpenSim muscle: creates Muscle + MusclePath + Millard2012Params.

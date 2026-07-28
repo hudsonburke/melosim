@@ -80,7 +80,7 @@ fn test_export_simple_muscle() {
     // Check basic structure
     check_xml_structure(&xml);
 
-    // Check ForceSet with muscle
+    // Check ForceSet with muscle + actuator
     assert!(xml.contains("<ForceSet>"), "Should contain ForceSet");
     assert!(
         xml.contains("Millard2012EquilibriumMuscle"),
@@ -89,6 +89,18 @@ fn test_export_simple_muscle() {
     assert!(
         xml.contains("rectus_femoris_r"),
         "Should contain muscle name"
+    );
+    assert!(
+        xml.contains("CoordinateActuator"),
+        "Should contain CoordinateActuator"
+    );
+    assert!(
+        xml.contains("knee_actuator"),
+        "Should contain actuator name"
+    );
+    assert!(
+        xml.contains("<optimal_force>50</optimal_force>"),
+        "Should contain optimal_force"
     );
 
     // Check muscle parameters

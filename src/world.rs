@@ -180,6 +180,7 @@ impl World {
             millard_params: extract::<Millard2012Params>(self),
             wraps: extract::<WrapGeom>(self),
             display_geoms: extract::<DisplayGeometry>(self),
+            coordinate_actuators: extract::<CoordinateActuator>(self),
             extensions: AnyMap::new(),
             num_entities: self.next_id,
         }
@@ -263,6 +264,15 @@ impl World {
             }
         }
 
+        for (key, act) in self.iter::<CoordinateActuator>() {
+            if self.get::<JointCoordinate>(act.coordinate).is_none() {
+                errors.push(format!(
+                    "CoordinateActuator {:?} references missing coordinate {:?}",
+                    key.0, act.coordinate.0
+                ));
+            }
+        }
+
         errors
     }
 }
@@ -285,6 +295,7 @@ impl std::fmt::Debug for World {
             .field("sites", &self.count::<Site>())
             .field("materials", &self.count::<Material>())
             .field("muscles", &self.count::<Muscle>())
+            .field("coordinate_actuators", &self.count::<CoordinateActuator>())
             .field("millard_params", &self.count::<Millard2012Params>())
             .field("wraps", &self.count::<WrapGeom>())
             .field("display_geoms", &self.count::<DisplayGeometry>())

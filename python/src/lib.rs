@@ -628,6 +628,7 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
         "millard_params": world.count::<Millard2012Params>(),
         "wraps": world.count::<WrapGeom>(),
         "display_geoms": world.count::<DisplayGeometry>(),
+        "coordinate_actuators": world.count::<CoordinateActuator>(),
     });
 
     Ok(summary.to_string())

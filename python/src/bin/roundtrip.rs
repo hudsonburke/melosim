@@ -84,6 +84,7 @@ fn main() {
     println!("  Muscles: {}", world.count::<melosim::components::Muscle>());
     println!("  Markers: {}", world.count::<melosim::components::Site>());
     println!("  WrapGeoms: {}", world.count::<melosim::components::WrapGeom>());
+    println!("  CoordActs: {}", world.count::<melosim::components::CoordinateActuator>());
 
     // Step 2: Validate
     println!("\n[2/3] Validating World...");

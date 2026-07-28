@@ -192,6 +192,14 @@ A muscle is an entity that can have multiple components:
 
 **Why decompose:** The Hill-type solver reads physiology params. The FEM solver reads mesh + material. The wrapping solver reads the path. Different systems, different components.
 
+### Actuator Types
+
+Same pattern as joints — each actuator type is its own component. Adding a new actuator type (e.g., `TorqueActuator`, `PointActuator`) means defining a struct and wiring it into the importer/exporter. No changes to existing code.
+
+| Component | Fields | Purpose |
+|---|---|---|
+| `CoordinateActuator` | coordinate: EntityID, optimal_force, min_control, max_control | Generalized force on a single DOF |
+
 ### Joint Types
 
 Each joint type is a standalone component carrying both the common fields (body_a, body_b, limits) and type-specific data. Every component is its own entity — joints are not inlined into bodies.

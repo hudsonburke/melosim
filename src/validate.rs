@@ -237,6 +237,22 @@ pub fn validate_site(world: &mut World) {
     errors.extend(local_errors);
 }
 
+// ── CoordinateActuator validation ──
+
+pub fn validate_coordinate_actuator(world: &mut World) {
+    let mut local_errors = Vec::new();
+    for (key, act) in world.iter::<CoordinateActuator>() {
+        if world.get::<JointCoordinate>(act.coordinate).is_none() {
+            local_errors.push(format!(
+                "{:?} CoordinateActuator references missing coordinate {:?}",
+                key.0, act.coordinate.0
+            ));
+        }
+    }
+    let errors = world.get_resource_or_default::<Vec<String>>();
+    errors.extend(local_errors);
+}
+
 // ── Print accumulated errors ──
 // Run this last to show all validation results.
 

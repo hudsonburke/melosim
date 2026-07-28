@@ -164,6 +164,7 @@ fn main() {
     registry.add("validate_spatial_transform", validate::validate_spatial_transform);
     registry.add("validate_frame", validate::validate_frame);
     registry.add("validate_site", validate::validate_site);
+    registry.add("validate_coordinate_actuator", validate::validate_coordinate_actuator);
     registry.add("print_errors", validate::print_errors);
     registry.run(&mut world);
 

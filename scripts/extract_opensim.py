@@ -316,6 +316,18 @@ def extract_muscle_path_points(force):
     return points
 
 
+def extract_coordinate_actuator(force):
+    coord_prop = force.getCoordinate()
+    coord_name = coord_prop.getName() if coord_prop else ""
+    return {
+        "name": force.getName(),
+        "coordinate": coord_name,
+        "optimal_force": force.getOptimalForce(),
+        "min_control": force.getMinControl(),
+        "max_control": force.getMaxControl(),
+    }
+
+
 def extract_muscle(force):
     path_points = extract_muscle_path_points(force)
     return {
@@ -442,6 +454,7 @@ def extract_model(osim_path):
         "muscles": [],
         "wrap_objects": [],
         "display_geometries": [],
+        "coordinate_actuators": [],
     }
 
     # Bodies
@@ -477,6 +490,10 @@ def extract_model(osim_path):
             class_name = force.getConcreteClassName()
             if "Muscle" in class_name:
                 data["muscles"].append(extract_muscle(force))
+            elif class_name == "CoordinateActuator":
+                data["coordinate_actuators"].append(
+                    extract_coordinate_actuator(force)
+                )
     except Exception:
         pass
 
@@ -512,6 +529,7 @@ def main():
     print(f"  Muscles:      {len(data['muscles'])}")
     print(f"  Wrap objects: {len(data['wrap_objects'])}")
     print(f"  Display geom: {len(data['display_geometries'])}")
+    print(f"  Coord acts:   {len(data['coordinate_actuators'])}")
 
     with open(json_path, "w") as f:
         json.dump(data, f, indent=2)

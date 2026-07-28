@@ -86,10 +86,41 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
 
     // ── ForceSet (muscles + actuators) ──
     let muscle_count = world.count::<Muscle>();
-    if muscle_count > 0 {
+    let actuator_count = world.count::<CoordinateActuator>();
+    if muscle_count + actuator_count > 0 {
         xml.push_str("  <ForceSet>\n");
         xml.push_str("    <objects>\n");
         xml.push_str(&emit_muscles(world, &body_names, &coord_names));
+        for (act_key, act) in world.iter::<CoordinateActuator>() {
+            let act_name = world.get::<Name>(act_key)
+                .map(|n| n.value.as_str())
+                .unwrap_or("actuator");
+            let coord_name = coord_names
+                .get(&act.coordinate)
+                .map(|s| s.as_str())
+                .unwrap_or("unknown");
+            xml.push_str(&format!(
+                "      <CoordinateActuator name=\"{}\">\n",
+                escape_attr(act_name)
+            ));
+            xml.push_str(&format!(
+                "        <coordinate>{}</coordinate>\n",
+                escape_attr(coord_name)
+            ));
+            xml.push_str(&format!(
+                "        <optimal_force>{}</optimal_force>\n",
+                act.optimal_force
+            ));
+            xml.push_str(&format!(
+                "        <min_control>{}</min_control>\n",
+                act.min_control
+            ));
+            xml.push_str(&format!(
+                "        <max_control>{}</max_control>\n",
+                act.max_control
+            ));
+            xml.push_str("      </CoordinateActuator>\n");
+        }
         xml.push_str("    </objects>\n");
         xml.push_str("  </ForceSet>\n");
     }

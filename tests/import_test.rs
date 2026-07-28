@@ -128,6 +128,7 @@ fn test_import_simple_muscle() {
     assert_eq!(world.count::<Millard2012Params>(), 1);
     assert_eq!(world.count::<WrapGeom>(), 1);
     assert_eq!(world.count::<DisplayGeometry>(), 1);
+    assert_eq!(world.count::<CoordinateActuator>(), 1);
 
     // Validate the world
     let errors = world.validate();
@@ -136,6 +137,15 @@ fn test_import_simple_muscle() {
     // Freeze — verify counts transfer
     let flat = world.freeze();
     assert_eq!(flat.len(), world.next_id as usize);
+
+    // Verify CoordinateActuator references the knee_flexion coordinate
+    for (_key, act) in world.iter::<CoordinateActuator>() {
+        let coord_name = world.get::<Name>(act.coordinate)
+            .map(|n| n.value.as_str())
+            .unwrap_or("");
+        assert_eq!(coord_name, "knee_flexion", "CoordinateActuator should reference knee_flexion");
+        assert_eq!(act.optimal_force, 50.0);
+    }
 
     // Verify muscle was created with correct name
     let name = world.iter::<Name>().find(|(_, n)| n.value == "rectus_femoris_r");

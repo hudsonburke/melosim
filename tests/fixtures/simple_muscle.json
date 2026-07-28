@@ -123,6 +123,15 @@
       "orientation": [0.0, 0.0, 0.0]
     }
   ],
+  "coordinate_actuators": [
+    {
+      "name": "knee_actuator",
+      "coordinate": "knee_flexion",
+      "optimal_force": 50.0,
+      "min_control": -1.0,
+      "max_control": 1.0
+    }
+  ],
   "display_geometries": [
     {
       "body": "femur",
