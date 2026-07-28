@@ -82,7 +82,7 @@ fn main() {
     println!("  Bodies: {}", world.count::<melosim::components::InertialProperties>());
     println!("  Joints: {}", count_all_joints(&world));
     println!("  Muscles: {}", world.count::<melosim::components::Muscle>());
-    println!("  Markers: {}", world.count::<melosim::components::Landmark>());
+    println!("  Markers: {}", world.count::<melosim::components::Site>());
     println!("  WrapGeoms: {}", world.count::<melosim::components::WrapGeom>());
 
     // Step 2: Validate
@@ -369,11 +369,7 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                         loc.get_item(2).map_err(|e| format!("loc[2] failed: {e}"))?.extract().map_err(|e| format!("extract loc[2] failed: {e}"))?,
                     ),
                 });
-                let landmark_entity = world.spawn();
-                world.attach(landmark_entity, melosim::components::Landmark {
-                    site: site_entity,
-                });
-                world.attach(landmark_entity, melosim::components::Name { value: name });
+                world.attach(site_entity, melosim::components::Name { value: name });
             }
         }
 

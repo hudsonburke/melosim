@@ -20,8 +20,3 @@ pub struct Site {
     pub parent: EntityID,
     pub offset: Vec3,
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Landmark {
-    pub site: EntityID,
-}

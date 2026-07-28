@@ -303,7 +303,7 @@ pub fn import_opensim_joint(
     }
 }
 
-/// Import a single OpenSim marker: creates Site + Landmark entities.
+/// Import a single OpenSim marker: creates a Site entity with Name.
 pub fn import_opensim_marker(
     world: &mut World,
     data: &OpenSimMarkerData,
@@ -314,11 +314,7 @@ pub fn import_opensim_marker(
         parent: body_key,
         offset: data.location.into(),
     });
-    let landmark_entity = world.spawn();
-    world.attach(landmark_entity, Landmark {
-        site: site_entity,
-    });
-    world.attach(landmark_entity, Name { value: data.name.clone() });
+    world.attach(site_entity, Name { value: data.name.clone() });
     site_entity
 }
 

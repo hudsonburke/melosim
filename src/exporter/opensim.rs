@@ -95,33 +95,31 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
     }
 
     // ── MarkerSet ──
-    let marker_count = world.count::<Landmark>();
+    let marker_count = world.count::<Site>();
     if marker_count > 0 {
         xml.push_str("  <MarkerSet>\n");
         xml.push_str("    <objects>\n");
-        for (landmark_key, landmark) in world.iter::<Landmark>() {
-            if let Some(site) = world.get::<Site>(landmark.site) {
-                let landmark_name = world.get::<Name>(landmark_key).map(|n| n.value.as_str()).unwrap_or("marker");
-                xml.push_str(&format!(
-                    "      <Marker name=\"{}\">\n",
-                    escape_attr(landmark_name)
-                ));
-                // Get parent body name for marker
-                let parent_name = body_names
-                    .get(&site.parent)
-                    .map(|s| s.as_str())
-                    .unwrap_or("ground");
-                xml.push_str(&format!(
-                    "        <body>{}</body>\n",
-                    escape_attr(parent_name)
-                ));
-                xml.push_str(&format!(
-                    "        <location>{} {} {}</location>\n",
-                    site.offset.x, site.offset.y, site.offset.z
-                ));
-                xml.push_str("        <fixed>true</fixed>\n");
-                xml.push_str("      </Marker>\n");
-            }
+        for (site_key, site) in world.iter::<Site>() {
+            let marker_name = world.get::<Name>(site_key).map(|n| n.value.as_str()).unwrap_or("marker");
+            xml.push_str(&format!(
+                "      <Marker name=\"{}\">\n",
+                escape_attr(marker_name)
+            ));
+            // Get parent body name for marker
+            let parent_name = body_names
+                .get(&site.parent)
+                .map(|s| s.as_str())
+                .unwrap_or("ground");
+            xml.push_str(&format!(
+                "        <body>{}</body>\n",
+                escape_attr(parent_name)
+            ));
+            xml.push_str(&format!(
+                "        <location>{} {} {}</location>\n",
+                site.offset.x, site.offset.y, site.offset.z
+            ));
+            xml.push_str("        <fixed>true</fixed>\n");
+            xml.push_str("      </Marker>\n");
         }
         xml.push_str("    </objects>\n");
         xml.push_str("  </MarkerSet>\n");

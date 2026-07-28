@@ -174,8 +174,7 @@ fn extract<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
 | `Name` | value (String) | Import/export, logging, debugging (metadata only — never in FlatWorld) |
 | `InertialProperties` | mass, com, inertia | Rigid body solver |
 | `Frame` | parent, transform | All systems (parent-relative transforms) |
-| `Site` | parent, offset | Cable routing, landmarks, muscle paths |
-| `Landmark` | site | Marker export (name comes from Name component) |
+| `Site` | parent, offset | Marker/anatomical landmarks (name from Name component) |
 | `Material` | density, youngs_modulus, poissons_ratio | FEM solver |
 | `MeshGeometry` | mesh | Visualization, export |
 | `DisplayGeometry` | body, mesh_file, scale, color, opacity, transform | Visualization, export |
@@ -282,7 +281,7 @@ Components reference other entities by EntityID, and systems iterate the compone
 2. Walk `model.getBodySet()` → spawn + attach InertialProperties + Frame entities
 3. Walk `model.getJointSet()` → spawn + attach Joint entities (detect type via `getConcreteClassName()`)
 4. Walk `model.getMuscleSet()` → spawn + attach Muscle + MusclePath + Millard2012Params entities
-5. Walk `model.getMarkerSet()` → spawn + attach Site + Landmark entities
+5. Walk `model.getMarkerSet()` → spawn + attach Site + Name entities
 6. Walk `model.getWrapObjectSet()` → spawn + attach WrapGeom entities
 7. Walk body frames for display geometries → spawn + attach DisplayGeometry entities
 8. Validate all references (bodies exist, muscles reference valid bodies, etc.)
@@ -291,7 +290,7 @@ Components reference other entities by EntityID, and systems iterate the compone
 1. Walk all InertialProperties → emit `<Body>` elements with real names
 2. Walk all joints → emit `<Joint>` elements (detect type, emit appropriate XML)
 3. Walk all muscles → emit `<Millard2012EquilibriumMuscle>` elements with GeometryPath
-4. Walk all Landmarks → emit `<Marker>` elements
+4. Walk all Sites → emit `<Marker>` elements (name from Name component)
 5. Walk all WrapGeom → emit `<WrapObject>` elements
 6. Walk all DisplayGeometry → emit <DisplayGeometry> elements
 7. Write the .osim XML file
@@ -304,7 +303,7 @@ Components reference other entities by EntityID, and systems iterate the compone
 - OpenSim's inheritance hierarchy — Python API flattens this
 - Muscle wrapping surfaces — multiple algorithms (sphere, cylinder, ellipsoid)
 - Custom joints — SpatialTransform with polynomial functions
-- OpenSim 4.x API differences: markers use ComponentList/Landmark API, wrap objects use per-body getWrapObjectSet, display geometry uses frame/geometry API
+- OpenSim 4.x API differences: markers use ComponentList API, wrap objects use per-body getWrapObjectSet, display geometry uses frame/geometry API
 
 ### Validation
 - Parse Rajagopal 2015 → ECS World
@@ -352,7 +351,7 @@ Import pipeline:
 │   ├── import_opensim_body()       ← individual: spawns InertialProperties + Frame entities
 │   ├── import_opensim_joint()      ← individual: spawns Joint entity, resolves body refs
 │   ├── import_opensim_muscle()     ← individual: spawns Muscle entity, resolves body refs
-│   ├── import_opensim_marker()     ← individual: spawns Site + Landmark entities
+│   ├── import_opensim_marker()     ← individual: spawns Site + Name entity
 │   └── import_opensim_wrap()       ← individual: spawns WrapGeom entity
 ```
 

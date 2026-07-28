@@ -51,7 +51,7 @@ fn test_export_simple_hip() {
     assert!(xml.contains("<FreeJoint"), "Should contain FreeJoint");
     assert!(xml.contains("<PinJoint"), "Should contain PinJoint");
 
-    // Check markers have correct names from Landmark component
+    // Check markers have correct names from Name component on Site
     assert!(xml.contains("<Marker name=\"RASI\""), "Should contain RASI marker");
     assert!(xml.contains("<Marker name=\"RTHI\""), "Should contain RTHI marker");
 

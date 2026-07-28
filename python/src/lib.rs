@@ -624,7 +624,6 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
         "coordinate_effects": world.count::<CoordinateEffect>(),
         "spatial_transforms": world.count::<SpatialTransform>(),
         "sites": world.count::<Site>(),
-        "landmarks": world.count::<Landmark>(),
         "muscles": world.count::<Muscle>(),
         "millard_params": world.count::<Millard2012Params>(),
         "wraps": world.count::<WrapGeom>(),

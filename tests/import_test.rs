@@ -15,14 +15,13 @@ fn test_import_simple_hip() {
     let mut world = World::new();
     import_opensim_model(&mut world, &model).expect("Import failed");
 
-    // Validate: 3 bodies + 2 joints + 1 coordinate + 2 markers (+ frames + landmarks)
+    // Validate: 3 bodies + 2 joints + 1 coordinate + 2 markers (sites with names)
     assert_eq!(world.count::<InertialProperties>(), 3);
     assert_eq!(world.count::<Frame>(), 3);
     assert_eq!(world.count::<HingeJoint>(), 1);
     assert_eq!(world.count::<FreeJoint>(), 1);
     assert_eq!(world.count::<JointCoordinate>(), 1);
     assert_eq!(world.count::<Site>(), 2);
-    assert_eq!(world.count::<Landmark>(), 2);
 
     // Validate the world — all entity references should resolve
     let errors = world.validate();
@@ -61,7 +60,6 @@ fn test_import_simple_knee() {
     assert_eq!(world.count::<CoordinateEffect>(), 3);
     assert_eq!(world.count::<SpatialTransform>(), 1);
     assert_eq!(world.count::<Site>(), 2);
-    assert_eq!(world.count::<Landmark>(), 2);
 
     // Validate the world
     let errors = world.validate();
@@ -124,8 +122,7 @@ fn test_import_simple_muscle() {
     assert_eq!(world.count::<FreeJoint>(), 1);
     assert_eq!(world.count::<JointCoordinate>(), 1);
     assert_eq!(world.count::<Site>(), 1);
-    assert_eq!(world.count::<Landmark>(), 1);
-    // New component types
+    // Component types
     assert_eq!(world.count::<Muscle>(), 1);
     assert_eq!(world.count::<MusclePath>(), 1);
     assert_eq!(world.count::<Millard2012Params>(), 1);
