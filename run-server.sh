@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the melosim-server with correct library paths.
+# Run the melosim-server with frontend and correct library paths.
 # Usage: ./run-server.sh [PORT] [MESH_DIR]
 
 set -euo pipefail
@@ -25,6 +25,21 @@ if [ ! -d "$MYO_SIM_DIR" ]; then
   cd "$SCRIPT_DIR"
 fi
 
+# Build frontend if needed
+FRONTEND_DIR="$SCRIPT_DIR/frontend"
+FRONTEND_DIST="$FRONTEND_DIR/dist"
+if [ -d "$FRONTEND_DIR" ]; then
+  if [ ! -d "$FRONTEND_DIST" ] || [ "$FRONTEND_DIR/src" -nt "$FRONTEND_DIST" ]; then
+    echo "Building frontend..."
+    cd "$FRONTEND_DIR"
+    if [ ! -d "node_modules" ]; then
+      npm install
+    fi
+    npm run build
+    cd "$SCRIPT_DIR"
+  fi
+fi
+
 # Default port
 PORT="${1:-3000}"
 export PORT
@@ -33,8 +48,15 @@ export PORT
 MESH_DIR="${2:-tests/fixtures/myo_sim/meshes}"
 export MESH_DIR
 
+# Serve frontend from dist
+STATIC_DIR="${FRONTEND_DIST:-static}"
+export STATIC_DIR
+
 echo "Starting melosim-server on port $PORT"
-echo "Mesh directory: $MESH_DIR"
+echo "  Mesh directory: $MESH_DIR"
+echo "  Static files: $STATIC_DIR"
+echo ""
+echo "  Open http://localhost:$PORT in your browser"
 
 # Build and run
 exec cargo run -p melosim-server

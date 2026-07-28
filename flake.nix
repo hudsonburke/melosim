@@ -45,6 +45,8 @@
             pkgs.libGL pkgs.libGLU pkgs.libX11 pkgs.libXi
             pkgs.libXmu pkgs.libXt pkgs.freetype pkgs.fontconfig
             pkgs.libxcursor pkgs.libxrandr pkgs.libxinerama
+            # Frontend
+            pkgs.nodejs_20
             qemu
           ];
 
@@ -70,6 +72,12 @@
             export MUJOCO_DOWNLOAD_DIR="${mujocoDownloadDir}"
             if [ -d "${mujocoDownloadDir}/mujoco-3.9.0/lib" ]; then
               export LD_LIBRARY_PATH="${mujocoDownloadDir}/mujoco-3.9.0/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            fi
+
+            # ── Frontend setup ──
+            if [ -d "$PWD/frontend" ] && [ ! -d "$PWD/frontend/node_modules" ]; then
+              echo "  Installing frontend dependencies..."
+              cd "$PWD/frontend" && npm install && cd "$PWD"
             fi
 
             if [ "${system}" = "aarch64-linux" ]; then
@@ -130,9 +138,14 @@
               }
             fi
 
-            echo "  Roundtrip: roundtrip <input.osim> [output.osim]"
-            echo "  Server:    ./run-server.sh [PORT] [MESH_DIR]"
+            echo ""
+            echo "  Commands:"
+            echo "    roundtrip <input.osim> [output.osim]"
+            echo "    ./run-server.sh [PORT] [MESH_DIR]"
+            echo "    cd frontend && npm run dev"
+            echo ""
             echo "  python: $(python --version 2>/dev/null || echo 'n/a')"
+            echo "  node: $(node --version 2>/dev/null || echo 'n/a')"
           '';
         };
 
@@ -149,6 +162,7 @@
               libGL libGLU libX11 libXi libXmu libXt
               freetype fontconfig libxcursor libxrandr libxinerama
               pythonEnv
+              nodejs_20
               qemu
               (rustToolchain.override { extensions = [ "rust-src" "clippy" ]; })
             ];
