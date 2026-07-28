@@ -1,6 +1,7 @@
 use crate::components::*;
 use crate::flat::FlatWorld;
 use crate::id::EntityID;
+use crate::math::*;
 use anymap2::AnyMap;
 
 /// Type alias for per-type component storage.
@@ -122,6 +123,116 @@ impl World {
                     None
                 }
             })
+    }
+
+    // ── Queries ──
+
+    /// Find an entity by its Name component value.
+    /// Returns the first entity with a matching name.
+    pub fn find_by_name(&self, name: &str) -> Option<EntityID> {
+        self.iter::<Name>()
+            .find(|(_, n)| n.value == name)
+            .map(|(eid, _)| eid)
+    }
+
+    /// Find all entities with a given Name component value.
+    /// Useful when multiple entities share a name (e.g., bilateral models).
+    pub fn find_all_by_name(&self, name: &str) -> Vec<EntityID> {
+        self.iter::<Name>()
+            .filter(|(_, n)| n.value == name)
+            .map(|(eid, _)| eid)
+            .collect()
+    }
+
+    // ── Convenience: model editing ──
+
+    /// Attach a mesh geometry to a parent body.
+    ///
+    /// Creates a new entity with:
+    /// - `Frame { parent, transform }` — position relative to parent
+    /// - `MeshGeometry { mesh: path, scale }` — mesh reference
+    /// - `Name { value }` — entity name
+    ///
+    /// Returns the new entity's ID.
+    pub fn attach_mesh(
+        &mut self,
+        parent: EntityID,
+        mesh_path: &str,
+        name: &str,
+        offset: Vec3,
+    ) -> EntityID {
+        let entity = self.spawn();
+        self.attach(entity, Frame {
+            parent,
+            transform: Transform {
+                translation: offset,
+                rotation: Quaternion::default(),
+            },
+        });
+        self.attach(entity, MeshGeometry {
+            mesh: mesh_path.to_string(),
+        });
+        self.attach(entity, Name { value: name.to_string() });
+        entity
+    }
+
+    /// Create a new body fixed to a parent.
+    ///
+    /// Creates a new entity with:
+    /// - `InertialProperties { mass, com, inertia }` — dynamics
+    /// - `Frame { parent, transform }` — position relative to parent
+    /// - `Name { value }` — entity name
+    ///
+    /// Returns the new entity's ID.
+    pub fn attach_body(
+        &mut self,
+        parent: EntityID,
+        name: &str,
+        mass: f64,
+        offset: Vec3,
+    ) -> EntityID {
+        let entity = self.spawn();
+        self.attach(entity, InertialProperties {
+            mass,
+            com: [0.0; 3],
+            inertia: [0.0; 6],
+        });
+        self.attach(entity, Frame {
+            parent,
+            transform: Transform {
+                translation: offset,
+                rotation: Quaternion::default(),
+            },
+        });
+        self.attach(entity, Name { value: name.to_string() });
+        entity
+    }
+
+    /// Start building a body attached to a parent.
+    ///
+    /// Returns a `BodyBuilder` for fluent configuration.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let forearm = world.find_by_name("r_forearm").unwrap();
+    /// let cuff = world.body_builder("r_forearm")
+    ///     .name("arm_cuff")
+    ///     .mesh("assets/cuff.stl")
+    ///     .mass(0.5)
+    ///     .offset(Vec3::new(0.0, 0.0, -0.15))
+    ///     .build(&mut world);
+    /// ```
+    pub fn body_builder(&self, parent_name: &str) -> BodyBuilder {
+        BodyBuilder {
+            parent_name: parent_name.to_string(),
+            name: String::new(),
+            mesh: None,
+            mass: 0.0,
+            offset: Vec3::ZERO,
+            rotation: Quaternion::default(),
+            display_color: None,
+            display_opacity: 1.0,
+        }
     }
 
     // ── Resource access ──
@@ -302,6 +413,116 @@ impl std::fmt::Debug for World {
             .field("muscle_params", &self.count::<HillTypeMuscleParams>());
         s.field("next_id", &self.next_id);
         s.finish()
+    }
+}
+
+// ── Body builder ──
+
+/// Fluent builder for creating a body entity attached to a parent.
+///
+/// Use `world.body_builder("parent_name")` to start, then chain
+/// configuration methods, and call `.build(&mut world)` to finalize.
+pub struct BodyBuilder {
+    parent_name: String,
+    name: String,
+    mesh: Option<String>,
+    mass: f64,
+    offset: Vec3,
+    rotation: Quaternion,
+    display_color: Option<[f64; 3]>,
+    display_opacity: f64,
+}
+
+impl BodyBuilder {
+    /// Set the entity name.
+    pub fn name(mut self, name: &str) -> Self {
+        self.name = name.to_string();
+        self
+    }
+
+    /// Attach a mesh file (STL, OBJ, etc.) for visualization.
+    pub fn mesh(mut self, path: &str) -> Self {
+        self.mesh = Some(path.to_string());
+        self
+    }
+
+    /// Set the body mass (for dynamics). Defaults to 0.0 (fixed body).
+    pub fn mass(mut self, mass: f64) -> Self {
+        self.mass = mass;
+        self
+    }
+
+    /// Set the offset from the parent body.
+    pub fn offset(mut self, offset: Vec3) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// Set the rotation relative to the parent body.
+    pub fn rotation(mut self, rotation: Quaternion) -> Self {
+        self.rotation = rotation;
+        self
+    }
+
+    /// Set display color [r, g, b] (0.0–1.0). Only used if mesh is set.
+    pub fn color(mut self, color: [f64; 3]) -> Self {
+        self.display_color = Some(color);
+        self
+    }
+
+    /// Set display opacity (0.0–1.0). Defaults to 1.0.
+    pub fn opacity(mut self, opacity: f64) -> Self {
+        self.display_opacity = opacity;
+        self
+    }
+
+    /// Build the body entity and attach it to the parent.
+    ///
+    /// Returns the new entity ID, or `None` if the parent name wasn't found.
+    pub fn build(self, world: &mut World) -> Option<EntityID> {
+        let parent = world.find_by_name(&self.parent_name)?;
+
+        let entity = world.spawn();
+
+        // InertialProperties (mass=0 means fixed to parent)
+        world.attach(entity, InertialProperties {
+            mass: self.mass,
+            com: [0.0; 3],
+            inertia: [0.0; 6],
+        });
+
+        // Frame parented to the target body
+        world.attach(entity, Frame {
+            parent,
+            transform: Transform {
+                translation: self.offset,
+                rotation: self.rotation,
+            },
+        });
+
+        // Name
+        if !self.name.is_empty() {
+            world.attach(entity, Name { value: self.name });
+        }
+
+        // Mesh geometry (if provided)
+        if let Some(mesh_path) = self.mesh {
+            world.attach(entity, MeshGeometry { mesh: mesh_path });
+
+            // Display geometry for visualization
+            if let Some(color) = self.display_color {
+                world.attach(entity, DisplayGeometry {
+                    body: entity,
+                    mesh_file: None,
+                    scale: [1.0; 3],
+                    color,
+                    opacity: self.display_opacity,
+                    transform: Transform::default(),
+                });
+            }
+        }
+
+        Some(entity)
     }
 }
 

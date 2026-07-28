@@ -124,3 +124,115 @@ fn test_export_simple_muscle() {
     let close_forces = xml.matches("</ForceSet>").count();
     assert_eq!(open_forces, close_forces, "ForceSet tag mismatch");
 }
+
+// ── Model editing API tests ───────────────────────────
+
+use melosim::components::*;
+use melosim::id::EntityID;
+use melosim::math::{Transform, Vec3};
+
+#[test]
+fn test_find_by_name() {
+    let mut world = World::new();
+    let e1 = world.spawn();
+    let e2 = world.spawn();
+    world.attach(e1, Name { value: "forearm".into() });
+    world.attach(e2, Name { value: "cuff".into() });
+
+    assert_eq!(world.find_by_name("forearm"), Some(e1));
+    assert_eq!(world.find_by_name("cuff"), Some(e2));
+    assert_eq!(world.find_by_name("missing"), None);
+}
+
+#[test]
+fn test_attach_mesh() {
+    let mut world = World::new();
+
+    // Create a forearm body
+    let forearm = world.spawn();
+    world.attach(forearm, InertialProperties {
+        mass: 1.5,
+        com: [0.0; 3],
+        inertia: [0.0; 6],
+    });
+    world.attach(forearm, Frame {
+        parent: EntityID(0),
+        transform: Transform::default(),
+    });
+    world.attach(forearm, Name { value: "r_forearm".into() });
+
+    // Attach a mesh to it
+    let cuff = world.attach_mesh(
+        forearm,
+        "assets/arm_cuff.stl",
+        "arm_cuff",
+        Vec3::new(0.0, 0.0, -0.15),
+    );
+
+    // Verify the mesh entity has the right components
+    let frame = world.get::<Frame>(cuff).expect("cuff should have Frame");
+    assert_eq!(frame.parent, forearm);
+    assert_eq!(frame.transform.translation.z, -0.15);
+
+    let mesh = world.get::<MeshGeometry>(cuff).expect("cuff should have MeshGeometry");
+    assert_eq!(mesh.mesh, "assets/arm_cuff.stl");
+
+    let name = world.get::<Name>(cuff).expect("cuff should have Name");
+    assert_eq!(name.value, "arm_cuff");
+}
+
+#[test]
+fn test_body_builder() {
+    let mut world = World::new();
+
+    // Create a forearm body
+    let forearm = world.spawn();
+    world.attach(forearm, InertialProperties {
+        mass: 1.5,
+        com: [0.0; 3],
+        inertia: [0.0; 6],
+    });
+    world.attach(forearm, Frame {
+        parent: EntityID(0),
+        transform: Transform::default(),
+    });
+    world.attach(forearm, Name { value: "r_forearm".into() });
+
+    // Build a cuff with mass and mesh
+    let cuff = world.body_builder("r_forearm")
+        .name("arm_cuff")
+        .mesh("assets/cuff.stl")
+        .mass(0.5)
+        .offset(Vec3::new(0.0, 0.0, -0.15))
+        .color([0.8, 0.2, 0.1])
+        .build(&mut world)
+        .expect("should find parent");
+
+    // Verify all components
+    let inertial = world.get::<InertialProperties>(cuff).expect("cuff should have InertialProperties");
+    assert_eq!(inertial.mass, 0.5);
+
+    let frame = world.get::<Frame>(cuff).expect("cuff should have Frame");
+    assert_eq!(frame.parent, forearm);
+
+    let mesh = world.get::<MeshGeometry>(cuff).expect("cuff should have MeshGeometry");
+    assert_eq!(mesh.mesh, "assets/cuff.stl");
+
+    let name = world.get::<Name>(cuff).expect("cuff should have Name");
+    assert_eq!(name.value, "arm_cuff");
+}
+
+#[test]
+fn test_get_mut() {
+    let mut world = World::new();
+    let e = world.spawn();
+    world.attach(e, Name { value: "test".into() });
+
+    // Modify the name
+    if let Some(name) = world.get_mut::<Name>(e) {
+        name.value = "modified".into();
+    }
+
+    let name = world.get::<Name>(e).expect("should have Name");
+    assert_eq!(name.value, "modified");
+}
