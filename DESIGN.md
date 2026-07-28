@@ -171,20 +171,21 @@ fn extract<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
 
 | Component | Fields | Read by |
 |---|---|---|
-| `InertialProperties` | name, mass, com, inertia | Rigid body solver |
+| `Name` | value (String) | Import/export, logging, debugging (metadata only — never in FlatWorld) |
+| `InertialProperties` | mass, com, inertia | Rigid body solver |
 | `Frame` | parent, transform | All systems (parent-relative transforms) |
 | `Site` | parent, offset | Cable routing, landmarks, muscle paths |
+| `Landmark` | site | Marker export (name comes from Name component) |
 | `Material` | density, youngs_modulus, poissons_ratio | FEM solver |
 | `MeshGeometry` | mesh | Visualization, export |
 | `DisplayGeometry` | body, mesh_file, scale, color, opacity, transform | Visualization, export |
-| `Landmark` | site, name | Marker export |
 
 ### Muscle Decomposition
 A muscle is an entity that can have multiple components:
 
 | Component | Fields | Read by |
 |---|---|---|
-| `Muscle` | name | Identity only |
+| `Muscle` | (none — identity from Name component) | Identity only |
 | `MusclePath` | muscle, points | Wrapping solver, visualization, export |
 | `Millard2012Params` | muscle, max_isometric_force, optimal_fiber_length, tendon_slack_length, pennation_angle_at_optimal, ... | Millard force solver |
 | `HillTypeMuscleParams` | max_force, optimal_fiber_length, tendon_slack_length, pcsa, pennation_angle | Hill-type force solver |
@@ -220,7 +221,7 @@ Coordinates are **separate entities** (not inlined into joints). This allows ind
 
 | Component | Fields | Purpose |
 |---|---|---|
-| `JointCoordinate` | name, range_min, range_max, default_value, stiffness, damping, clamped, locked, prescribed_function | A single DOF definition |
+| `JointCoordinate` | range_min, range_max, default_value, stiffness, damping, clamped, locked, prescribed_function | A single DOF definition (name from Name component) |
 | `CoordinateEffect` | coordinate, joint, component (TransformComponent), function (JointFunction) | Maps one coordinate → one spatial transform axis |
 | `SpatialTransform` | joint, effects: Vec<EntityID> | Groups all CoordinateEffects for a CustomJoint |
 

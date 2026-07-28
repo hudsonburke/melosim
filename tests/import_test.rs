@@ -141,9 +141,8 @@ fn test_import_simple_muscle() {
     assert_eq!(flat.len(), world.next_id as usize);
 
     // Verify muscle was created with correct name
-    for (_key, muscle) in world.iter::<Muscle>() {
-        assert_eq!(muscle.name, "rectus_femoris_r");
-    }
+    let name = world.iter::<Name>().find(|(_, n)| n.value == "rectus_femoris_r");
+    assert!(name.is_some(), "Should find muscle named rectus_femoris_r");
     // Verify WrapGeom was created with correct type
     for (_key, wrap) in world.iter::<WrapGeom>() {
         match &wrap.geom_type {

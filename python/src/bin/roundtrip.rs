@@ -167,7 +167,6 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
 
             let body_entity = world.spawn();
             world.attach(body_entity, melosim::components::InertialProperties {
-                name: name.clone(),
                 mass,
                 com: [
                     com.get_item(0).map_err(|e| format!("com[0] failed: {e}"))?.extract().map_err(|e| format!("extract com[0] failed: {e}"))?,
@@ -183,6 +182,7 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                     inertia.get_item(5).map_err(|e| format!("inertia[5] failed: {e}"))?.extract().map_err(|e| format!("extract inertia[5] failed: {e}"))?,
                 ],
             });
+            world.attach(body_entity, melosim::components::Name { value: name.clone() });
             // Frame is a separate entity referencing the body
             let frame_entity = world.spawn();
             world.attach(frame_entity, melosim::components::Frame {
@@ -196,11 +196,11 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
         if !body_map.contains_key("ground") {
             let ground_entity = world.spawn();
             world.attach(ground_entity, melosim::components::InertialProperties {
-                name: "ground".to_string(),
                 mass: 0.0,
                 com: [0.0; 3],
                 inertia: [0.0; 6],
             });
+            world.attach(ground_entity, melosim::components::Name { value: "ground".to_string() });
             let ground_frame = world.spawn();
             world.attach(ground_frame, melosim::components::Frame {
                 parent: ground_entity,
@@ -316,7 +316,6 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
 
                         let ck = world.spawn();
                         world.attach(ck, melosim::components::JointCoordinate {
-                            name: cname,
                             range_min,
                             range_max,
                             default_value: 0.0,
@@ -326,6 +325,7 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                             locked,
                             prescribed_function: None,
                         });
+                        world.attach(ck, melosim::components::Name { value: cname });
                         coord_keys.push(ck);
                     }
 
@@ -372,8 +372,8 @@ fn import_via_pyo3(path: &str) -> Result<melosim::world::World, String> {
                 let landmark_entity = world.spawn();
                 world.attach(landmark_entity, melosim::components::Landmark {
                     site: site_entity,
-                    name,
                 });
+                world.attach(landmark_entity, melosim::components::Name { value: name });
             }
         }
 

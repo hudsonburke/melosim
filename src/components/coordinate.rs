@@ -8,7 +8,6 @@ use crate::id::EntityID;
 /// (e.g., "find all locked coordinates") without touching every joint.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JointCoordinate {
-    pub name: String,
     pub range_min: f64,
     pub range_max: f64,
     pub default_value: f64,

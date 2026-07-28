@@ -213,8 +213,10 @@ pub fn import_opensim_model(
     }
 
     // Build coordinate name → key map from the world
-    for (key, coord) in world.iter::<JointCoordinate>() {
-        coord_map.insert(coord.name.clone(), key);
+    for (key, _coord) in world.iter::<JointCoordinate>() {
+        if let Some(name) = world.get::<Name>(key) {
+            coord_map.insert(name.value.clone(), key);
+        }
     }
 
     // Phase 3: Import markers
@@ -266,11 +268,11 @@ pub fn import_opensim_body(
 ) -> Result<EntityID, String> {
     let body_entity = world.spawn();
     world.attach(body_entity, InertialProperties {
-        name: data.name.clone(),
         mass: data.mass,
         com: data.mass_center,
         inertia: data.inertia,
     });
+    world.attach(body_entity, Name { value: data.name.clone() });
     // Frame is a separate entity referencing the body
     let frame_entity = world.spawn();
     world.attach(frame_entity, Frame {
@@ -315,8 +317,8 @@ pub fn import_opensim_marker(
     let landmark_entity = world.spawn();
     world.attach(landmark_entity, Landmark {
         site: site_entity,
-        name: data.name.clone(),
     });
+    world.attach(landmark_entity, Name { value: data.name.clone() });
     site_entity
 }
 
@@ -329,9 +331,8 @@ pub fn import_opensim_muscle(
 ) -> Result<EntityID, String> {
     // Step 1: Create the Muscle entity
     let muscle_entity = world.spawn();
-    world.attach(muscle_entity, Muscle {
-        name: data.name.clone(),
-    });
+    world.attach(muscle_entity, Muscle);
+    world.attach(muscle_entity, Name { value: data.name.clone() });
 
     // Step 2: Create Millard2012Params entity referencing the muscle
     let params_entity = world.spawn();
@@ -453,11 +454,11 @@ pub fn import_opensim_wrap(
 
     let entity = world.spawn();
     world.attach(entity, WrapGeom {
-        name: data.name.clone(),
         body: body_key,
         transform,
         geom_type,
     });
+    world.attach(entity, Name { value: data.name.clone() });
 
     Ok(entity)
 }
@@ -540,7 +541,6 @@ fn import_pin_joint(
     if let Some(coord) = &data.coordinate {
         let coord_entity = world.spawn();
         world.attach(coord_entity, JointCoordinate {
-            name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
             default_value: coord.default_value,
@@ -554,6 +554,7 @@ fn import_pin_joint(
                 }
             }),
         });
+        world.attach(coord_entity, Name { value: coord.name.clone() });
     }
 
     // Update the child body's frame to account for joint transform
@@ -598,7 +599,6 @@ fn import_ball_joint(
     if let Some(coord) = &data.coordinate {
         let coord_entity = world.spawn();
         world.attach(coord_entity, JointCoordinate {
-            name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
             default_value: coord.default_value,
@@ -608,6 +608,7 @@ fn import_ball_joint(
             locked: coord.locked,
             prescribed_function: None,
         });
+        world.attach(coord_entity, Name { value: coord.name.clone() });
     }
 
     update_child_frame(world, child_key, data);
@@ -668,7 +669,6 @@ fn import_universal_joint(
     for coord in coords {
         let coord_entity = world.spawn();
         world.attach(coord_entity, JointCoordinate {
-            name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
             default_value: coord.default_value,
@@ -678,6 +678,7 @@ fn import_universal_joint(
             locked: coord.locked,
             prescribed_function: None,
         });
+        world.attach(coord_entity, Name { value: coord.name.clone() });
     }
 
     update_child_frame(world, child_key, data);
@@ -705,7 +706,6 @@ fn import_custom_joint(
     for coord in coords {
         let coord_entity = world.spawn();
         world.attach(coord_entity, JointCoordinate {
-            name: coord.name.clone(),
             range_min: coord.range_min,
             range_max: coord.range_max,
             default_value: coord.default_value,
@@ -719,6 +719,7 @@ fn import_custom_joint(
                 }
             }),
         });
+        world.attach(coord_entity, Name { value: coord.name.clone() });
         coord_ids.insert(coord.name.clone(), coord_entity);
     }
 

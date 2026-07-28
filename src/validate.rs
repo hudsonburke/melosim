@@ -145,9 +145,10 @@ pub fn validate_coordinate(world: &mut World) {
     let mut local_errors = Vec::new();
     for (key, coord) in world.iter::<JointCoordinate>() {
         if coord.clamped && coord.range_min > coord.range_max {
+            let coord_name = world.get::<Name>(key).map(|n| n.value.clone()).unwrap_or_default();
             local_errors.push(format!(
                 "{:?} JointCoordinate '{}' has invalid range [{}, {}]",
-                key.0, coord.name, coord.range_min, coord.range_max
+                key.0, coord_name, coord.range_min, coord.range_max
             ));
         }
     }

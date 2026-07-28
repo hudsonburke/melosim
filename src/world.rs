@@ -155,8 +155,9 @@ impl World {
     /// # let mut world = World::new();
     /// # let e = world.spawn();
     /// # world.attach(e, melosim::components::InertialProperties {
-    /// #     name: "test".into(), mass: 1.0, com: [0.0; 3], inertia: [0.0; 6],
+    /// #     mass: 1.0, com: [0.0; 3], inertia: [0.0; 6],
     /// # });
+    /// # world.attach(e, melosim::components::Name { value: "test".into() });
     /// let mut flat = world.freeze();
     /// flat.extensions.insert::<Vec<Option<f64>>>(vec![None, Some(3.14)]);
     /// ```

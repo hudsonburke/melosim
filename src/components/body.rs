@@ -4,7 +4,6 @@ use crate::math::{Transform, Vec3};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InertialProperties {
-    pub name: String,
     pub mass: f64,
     pub com: [f64; 3],
     pub inertia: [f64; 6],
@@ -25,5 +24,4 @@ pub struct Site {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Landmark {
     pub site: EntityID,
-    pub name: String,
 }

@@ -17,6 +17,8 @@ use crate::components::*;
 use crate::id::EntityID;
 use crate::world::World;
 
+use crate::components::Name;
+
 /// Export the World to an .osim XML string.
 pub fn world_to_osim(world: &World, model_name: &str) -> String {
     let mut xml = String::new();
@@ -97,11 +99,12 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
     if marker_count > 0 {
         xml.push_str("  <MarkerSet>\n");
         xml.push_str("    <objects>\n");
-        for (_landmark_key, landmark) in world.iter::<Landmark>() {
+        for (landmark_key, landmark) in world.iter::<Landmark>() {
             if let Some(site) = world.get::<Site>(landmark.site) {
+                let landmark_name = world.get::<Name>(landmark_key).map(|n| n.value.as_str()).unwrap_or("marker");
                 xml.push_str(&format!(
                     "      <Marker name=\"{}\">\n",
-                    escape_attr(&landmark.name)
+                    escape_attr(landmark_name)
                 ));
                 // Get parent body name for marker
                 let parent_name = body_names
@@ -196,9 +199,10 @@ fn build_parent_set(world: &World) -> std::collections::HashSet<EntityID> {
 fn build_body_name_map(world: &World) -> HashMap<EntityID, String> {
     let mut map = HashMap::new();
 
-    // Use InertialProperties names for all bodies
-    for (key, body) in world.iter::<InertialProperties>() {
-        map.insert(key, body.name.clone());
+    for (id, name) in world.iter::<Name>() {
+        if world.get::<InertialProperties>(id).is_some() {
+            map.insert(id, name.value.clone());
+        }
     }
 
     map
@@ -207,8 +211,10 @@ fn build_body_name_map(world: &World) -> HashMap<EntityID, String> {
 /// Build a map from coordinate entity key → coordinate name.
 fn build_coordinate_name_map(world: &World) -> HashMap<EntityID, String> {
     let mut map = HashMap::new();
-    for (key, coord) in world.iter::<JointCoordinate>() {
-        map.insert(key, coord.name.clone());
+    for (id, name) in world.iter::<Name>() {
+        if world.get::<JointCoordinate>(id).is_some() {
+            map.insert(id, name.value.clone());
+        }
     }
     map
 }
@@ -305,7 +311,7 @@ fn emit_muscles(
 ) -> String {
     let mut xml = String::new();
 
-    for (muscle_key, muscle) in world.iter::<Muscle>() {
+    for (muscle_key, _muscle) in world.iter::<Muscle>() {
         // Find the MusclePath for this muscle
         let path = world
             .iter::<MusclePath>()
@@ -318,9 +324,10 @@ fn emit_muscles(
             .find(|(_, p)| p.muscle == muscle_key)
             .map(|(_, p)| p);
 
+        let muscle_name = world.get::<Name>(muscle_key).map(|n| n.value.as_str()).unwrap_or("muscle");
         xml.push_str(&format!(
             "        <Millard2012EquilibriumMuscle name=\"{}\">\n",
-            escape_attr(&muscle.name)
+            escape_attr(muscle_name)
         ));
 
         // Millard2012 param fields
@@ -453,7 +460,7 @@ fn emit_wrap_objects(
 ) -> String {
     let mut xml = String::new();
 
-    for (_wg_key, wg) in world.iter::<WrapGeom>() {
+    for (wg_key, wg) in world.iter::<WrapGeom>() {
         let body_name = body_names
             .get(&wg.body)
             .map(|s| s.as_str())
@@ -465,10 +472,11 @@ fn emit_wrap_objects(
             WrapGeomType::Ellipsoid { .. } => "WrapEllipsoid",
         };
 
+        let wrap_name = world.get::<Name>(wg_key).map(|n| n.value.as_str()).unwrap_or("wrap");
         xml.push_str(&format!(
             "          <{} name=\"{}\">\n",
             elem_name,
-            escape_attr(&wg.name)
+            escape_attr(wrap_name)
         ));
         xml.push_str(&format!(
             "            <frame>{}</frame>\n",
@@ -600,10 +608,11 @@ fn find_parent_joint(world: &World, child_key: EntityID) -> Option<String> {
             // Emit coordinates
             for coord_key in &joint.coordinates {
                 if let Some(coord) = world.get::<JointCoordinate>(*coord_key) {
+                    let coord_name = world.get::<Name>(*coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
                     xml.push_str("            <CoordinateSet>\n");
                     xml.push_str(&format!(
                         "              <Coordinate name=\"{}\">\n",
-                        escape_attr(&coord.name)
+                        escape_attr(coord_name)
                     ));
                     if coord.clamped {
                         xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
@@ -732,10 +741,11 @@ fn emit_spatial_transform(world: &World, joint_key: EntityID, xml: &mut String) 
                 if let Some(effect) = effects_by_slot.get(slot_name) {
                     xml.push_str(&format!("              <{}>\n", slot_name));
                     xml.push_str("                <CoordinateEffect>\n");
-                    if let Some(coord) = world.get::<JointCoordinate>(effect.coordinate) {
+                    if let Some(_coord) = world.get::<JointCoordinate>(effect.coordinate) {
+                        let coord_name = world.get::<Name>(effect.coordinate).map(|n| n.value.as_str()).unwrap_or("coord");
                         xml.push_str(&format!(
                             "                  <coordinate>{}</coordinate>\n",
-                            escape_attr(&coord.name)
+                            escape_attr(coord_name)
                         ));
                     }
                     emit_joint_function(xml, "function", &effect.function);

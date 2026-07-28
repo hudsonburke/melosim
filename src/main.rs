@@ -27,11 +27,11 @@ fn main() {
     // ── Bodies ──
     let ground = world.spawn();
     world.attach(ground, InertialProperties {
-        name: "ground".into(),
         mass: 0.0,
         com: [0.0, 0.0, 0.0],
         inertia: [0.0; 6],
     });
+    world.attach(ground, Name { value: "ground".into() });
     let ground_frame = world.spawn();
     world.attach(ground_frame, Frame {
         parent: ground,
@@ -40,11 +40,11 @@ fn main() {
 
     let pelvis = world.spawn();
     world.attach(pelvis, InertialProperties {
-        name: "pelvis".into(),
         mass: 11.78,
         com: [0.0, 0.0, 0.0],
         inertia: [0.18, 0.22, 0.20, 0.0, 0.0, 0.0],
     });
+    world.attach(pelvis, Name { value: "pelvis".into() });
     let pelvis_frame = world.spawn();
     world.attach(pelvis_frame, Frame {
         parent: ground,
@@ -53,11 +53,11 @@ fn main() {
 
     let femur = world.spawn();
     world.attach(femur, InertialProperties {
-        name: "femur".into(),
         mass: 9.3,
         com: [0.0, -0.17, 0.0],
         inertia: [0.12, 0.12, 0.02, 0.0, 0.0, 0.0],
     });
+    world.attach(femur, Name { value: "femur".into() });
     let femur_frame = world.spawn();
     world.attach(femur_frame, Frame {
         parent: pelvis,
@@ -94,7 +94,6 @@ fn main() {
     // 1. Create coordinate entities
     let knee_flexion = world.spawn();
     world.attach(knee_flexion, JointCoordinate {
-        name: "knee_flexion".into(),
         range_min: -2.0,
         range_max: 0.0,
         default_value: 0.0,
@@ -104,6 +103,7 @@ fn main() {
         locked: false,
         prescribed_function: None,
     });
+    world.attach(knee_flexion, Name { value: "knee_flexion".into() });
 
     // 2. Create the CustomJoint referencing those coordinates
     let knee = world.spawn();
@@ -182,7 +182,7 @@ fn main() {
         println!("  body_a={:?}, coordinates: {} DOFs", knee_cj.body_a.0, knee_cj.coordinates.len());
     }
     if let Some(coord) = &flat.coordinates[knee_flexion.0 as usize] {
-        println!("  Coordinate '{}' range [{}, {}]", coord.name, coord.range_min, coord.range_max);
+        println!("  Coordinate range [{}, {}]", coord.range_min, coord.range_max);
     }
     if let Some(effect) = &flat.coordinate_effects[flex_effect.0 as usize] {
         println!("  Effect: {:?} via {:?}", effect.component, effect.function);

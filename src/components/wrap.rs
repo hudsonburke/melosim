@@ -12,7 +12,6 @@ use crate::math::Transform;
 /// wrap around bones and joints (e.g., the quadriceps around the femur).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WrapGeom {
-    pub name: String,
     /// The body this wrap surface is rigidly attached to.
     pub body: EntityID,
     /// Transform from body frame to wrap surface frame.

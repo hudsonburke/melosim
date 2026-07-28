@@ -9,9 +9,7 @@ use crate::id::EntityID;
 ///
 /// In Rajagopal 2015, all 80 muscles are `Millard2012EquilibriumMuscle`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Muscle {
-    pub name: String,
-}
+pub struct Muscle;
 
 /// Millard 2012 equilibrium muscle model parameters.
 ///
