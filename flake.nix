@@ -28,6 +28,11 @@
 
         qemu = pkgs.qemu;
         isAarch64 = system == "aarch64-linux";
+
+        # MuJoCo: auto-downloaded at build time via mujoco-rs crate.
+        # Set MUJOCO_DOWNLOAD_DIR so the crate knows where to store it.
+        # Also add the .so to LD_LIBRARY_PATH for runtime.
+        mujocoDownloadDir = "$PWD/.mujoco";
       in {
         packages.default = rustToolchain;
 
@@ -59,6 +64,14 @@
             echo "  rust: $(rustc --version)"
             echo "  cargo: $(cargo --version)"
 
+            # ── MuJoCo setup ──
+            # mujoco-rs auto-downloads MuJoCo 3.9.0 into MUJOCO_DOWNLOAD_DIR
+            # on first build. We also add the .so to LD_LIBRARY_PATH.
+            export MUJOCO_DOWNLOAD_DIR="${mujocoDownloadDir}"
+            if [ -d "${mujocoDownloadDir}/mujoco-3.9.0/lib" ]; then
+              export LD_LIBRARY_PATH="${mujocoDownloadDir}/mujoco-3.9.0/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            fi
+
             if [ "${system}" = "aarch64-linux" ]; then
               echo "  arch: aarch64 (QEMU for x86_64 OpenSim)"
 
@@ -82,7 +95,7 @@
                 echo "  x86_64 OpenSim ready."
               fi
 
-              LD_LIBRARY_PATH="$X86_ZLIB:$X86_GCC_LIB"
+              LD_LIBRARY_PATH="$X86_ZLIB:$X86_GCC_LIB''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
               roundtrip() {
                 local input="$1"
@@ -147,6 +160,7 @@
                 libGL libGLU libX11 libXi libXmu libXt freetype fontconfig
                 libxcursor libxrandr libxinerama
               ]}"
+              "MUJOCO_DOWNLOAD_DIR=/workspace/.mujoco"
             ];
           };
         };
