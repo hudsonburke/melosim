@@ -1,9 +1,9 @@
-import { useState, useRef, useMemo, Suspense } from "react";
+import { useMemo, Suspense } from "react";
 import { Canvas, useLoader } from "@react-three/fiber";
-import { OrbitControls, Grid, Box, Line, Sphere } from "@react-three/drei";
+import { OrbitControls, Grid, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import type { Scene as SceneData, BodyInfo, JointInfo, SiteInfo, MeshInfo } from "../types/schema";
+import type { Scene as SceneData, BodyInfo, MeshInfo } from "../types/schema";
 
 // ── Scene ────────────────────────────────────────────────────────────────
 
@@ -35,13 +35,10 @@ export default function Scene({ scene, onSelect, selected, showSites }: ScenePro
 
 // ── STL Mesh loader ──────────────────────────────────────────────────────
 
-function STLMesh({ mesh, color, opacity, onClick, onPointerOver, onPointerOut }: {
+function STLMesh({ mesh, color, onClick }: {
   mesh: MeshInfo;
   color: string;
-  opacity: number;
   onClick?: () => void;
-  onPointerOver?: () => void;
-  onPointerOut?: () => void;
 }) {
   const geometry = useLoader(STLLoader, mesh.url);
   
@@ -63,19 +60,11 @@ function STLMesh({ mesh, color, opacity, onClick, onPointerOver, onPointerOut }:
     return geo;
   }, [geometry]);
 
-  if (!processedGeometry) {
-    return (
-      <Box args={[0.08, 0.08, 0.08]}
-        onClick={onClick} onPointerOver={onPointerOver} onPointerOut={onPointerOut}>
-        <meshStandardMaterial color={color} transparent opacity={opacity} />
-      </Box>
-    );
-  }
+  if (!processedGeometry) return null;
 
   return (
-    <mesh geometry={processedGeometry}
-      onClick={onClick} onPointerOver={onPointerOver} onPointerOut={onPointerOut}>
-      <meshStandardMaterial color={color} transparent opacity={opacity} />
+    <mesh geometry={processedGeometry} onClick={onClick}>
+      <meshStandardMaterial color={color} transparent opacity={0.85} />
     </mesh>
   );
 }
@@ -104,12 +93,6 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
     return m;
   }, [scene.bodies]);
 
-  const jointByChild = useMemo(() => {
-    const m = new Map<number, JointInfo>();
-    for (const j of scene.joints) m.set(j.body_b, j);
-    return m;
-  }, [scene.joints]);
-
   const meshesByBody = useMemo(() => {
     const m = new Map<number, MeshInfo[]>();
     for (const mesh of scene.meshes) {
@@ -119,163 +102,130 @@ function ModelRenderer({ scene, selected, onSelect, showSites }: {
     return m;
   }, [scene.meshes]);
 
-  const sitesByBody = useMemo(() => {
-    const m = new Map<number, SiteInfo[]>();
-    for (const s of scene.sites) {
-      if (!m.has(s.parent)) m.set(s.parent, []);
-      m.get(s.parent)!.push(s);
+  // Pre-compute world positions with O(n) BFS
+  const worldPoses = useMemo(
+    () => computeWorldPositions(scene, bodyMap, childrenMap),
+    [scene, bodyMap, childrenMap],
+  );
+
+  // Bodies without STL meshes → one instanced draw call
+  const instancedBodies = useMemo(() => {
+    const bodiesWithMesh = new Set(meshesByBody.keys());
+    const ids: number[] = [];
+    const matrices: THREE.Matrix4[] = [];
+    const scale = 0.06;
+
+    for (const b of scene.bodies) {
+      if (bodiesWithMesh.has(b.id)) continue;
+      const pos = worldPoses.get(b.id);
+      if (!pos) continue;
+      ids.push(b.id);
+      const mat = new THREE.Matrix4();
+      mat.compose(pos, new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+      matrices.push(mat);
     }
-    return m;
-  }, [scene.sites]);
 
-  const roots = useMemo(() => {
-    return scene.bodies.filter(b => b.parent_id === null).map(b => b.id);
-  }, [scene.bodies]);
+    const count = matrices.length;
+    const buffer = new Float32Array(count * 16);
+    for (let i = 0; i < count; i++) {
+      const el = matrices[i].elements;
+      for (let j = 0; j < 16; j++) buffer[i * 16 + j] = el[j];
+    }
+    return { buffer, count, ids };
+  }, [scene.bodies, worldPoses, meshesByBody]);
 
-  const worldPoses = useMemo(() => computeWorldPositions(scene), [scene]);
+  // Joint lines
+  const jointLines = useMemo(() => {
+    const points: [THREE.Vector3, THREE.Vector3][] = [];
+    for (const j of scene.joints) {
+      const p = worldPoses.get(j.body_a);
+      const c = worldPoses.get(j.body_b);
+      if (p && c) points.push([p, c]);
+    }
+    return points;
+  }, [scene.joints, worldPoses]);
 
   return (
     <group>
-      {roots.map(id => (
-        <BodyGroup key={id} bodyId={id} bodyMap={bodyMap} childrenMap={childrenMap}
-          jointByChild={jointByChild} meshesByBody={meshesByBody} sitesByBody={sitesByBody}
-          selected={selected} onSelect={onSelect} showSites={showSites} />
-      ))}
-      {scene.joints.map(j => {
-        const p = worldPoses.get(j.body_a);
-        const c = worldPoses.get(j.body_b);
-        if (!p || !c) return null;
-        return <Line key={`joint:${j.id}`} points={[p, c]} color="#666" lineWidth={1} />;
-      })}
-    </group>
-  );
-}
+      {/* Instanced bodies (no mesh) */}
+      {instancedBodies.count > 0 && (
+        <instancedMesh args={[undefined, undefined, instancedBodies.count]} frustumCulled={false}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial color="#3399ff" transparent opacity={0.85} />
+          <instancedBufferAttribute attach="instanceMatrix" args={[instancedBodies.buffer, 16]} />
+        </instancedMesh>
+      )}
 
-// ── Body group ────────────────────────────────────────────────────────────
-
-function BodyGroup({ bodyId, bodyMap, childrenMap, jointByChild, meshesByBody, sitesByBody, selected, onSelect, showSites }: {
-  bodyId: number;
-  bodyMap: Map<number, BodyInfo>;
-  childrenMap: Map<number, number[]>;
-  jointByChild: Map<number, JointInfo>;
-  meshesByBody: Map<number, MeshInfo[]>;
-  sitesByBody: Map<number, SiteInfo[]>;
-  selected: number | null;
-  onSelect: (id: number | null) => void;
-  showSites: boolean;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const groupRef = useRef<THREE.Group>(null);
-
-  const body = bodyMap.get(bodyId);
-  if (!body) return null;
-
-  const isSelected = selected === bodyId;
-  const color = isSelected ? "#ff6600" : hovered ? "#44aaff" : "#3399ff";
-  const scale = isSelected ? 1.5 : hovered ? 1.2 : 1.0;
-  const children = childrenMap.get(bodyId) || [];
-  const meshes = meshesByBody.get(bodyId) || [];
-  const sites = sitesByBody.get(bodyId) || [];
-
-  const t = body.transform.translation;
-  const r = body.transform.rotation;
-
-  return (
-    <group ref={groupRef} position={new THREE.Vector3(t[0], t[1], t[2])}
-      quaternion={new THREE.Quaternion(r[1], r[2], r[3], r[0])}>
-
-      {/* Body visualization */}
-      {meshes.length > 0 ? (
-        meshes.map(mesh => (
-          <group key={mesh.id} position={new THREE.Vector3(mesh.offset[0], mesh.offset[1], mesh.offset[2])}>
+      {/* STL meshes */}
+      {scene.meshes.map(mesh => {
+        const pos = worldPoses.get(mesh.parent);
+        if (!pos) return null;
+        return (
+          <group key={mesh.id} position={pos}>
             <STLMesh
               mesh={mesh}
-              color={color}
-              opacity={0.85}
-              onPointerOver={() => setHovered(true)}
-              onPointerOut={() => setHovered(false)}
-              onClick={() => onSelect(isSelected ? null : bodyId)}
+              color={selected === mesh.parent ? "#ff6600" : "#3399ff"}
+              onClick={() => onSelect(selected === mesh.parent ? null : mesh.parent)}
             />
           </group>
-        ))
-      ) : (
-        <Box args={[0.14 * scale, 0.14 * scale, 0.14 * scale]}
-          onPointerOver={() => setHovered(true)}
-          onPointerOut={() => setHovered(false)}
-          onClick={() => onSelect(isSelected ? null : bodyId)}>
-          <meshStandardMaterial color={color} transparent opacity={0.85} />
-        </Box>
-      )}
+        );
+      })}
 
       {/* Sites */}
-      {showSites && sites.map(site => (
-        <group key={site.id} position={new THREE.Vector3(site.offset[0], site.offset[1], site.offset[2])}>
-          <Sphere args={[0.005, 6, 6]}>
+      {showSites && scene.sites.map(site => {
+        const pos = worldPoses.get(site.parent);
+        if (!pos) return null;
+        return (
+          <mesh key={site.id} position={pos}>
+            <sphereGeometry args={[0.005, 6, 6]} />
             <meshStandardMaterial color="#ff4444" emissive="#ff4444" emissiveIntensity={0.3} />
-          </Sphere>
-        </group>
-      ))}
+          </mesh>
+        );
+      })}
 
-      {/* Joint indicator */}
-      {jointByChild.has(bodyId) && (
-        <Sphere args={[0.02, 8, 8]}>
-          <meshStandardMaterial color="#00ff00" transparent opacity={0.5} />
-        </Sphere>
-      )}
-
-      {/* Children */}
-      {children.map(id => (
-        <BodyGroup key={id} bodyId={id} bodyMap={bodyMap} childrenMap={childrenMap}
-          jointByChild={jointByChild} meshesByBody={meshesByBody} sitesByBody={sitesByBody}
-          selected={selected} onSelect={onSelect} showSites={showSites} />
+      {/* Joint lines */}
+      {jointLines.map(([a, b], i) => (
+        <Line key={i} points={[a, b]} color="#666" lineWidth={1} />
       ))}
     </group>
   );
 }
 
-// ── World positions ────────────────────────────────────────────────────────
+// ── World positions (O(n) BFS) ──────────────────────────────────────────
 
-function computeWorldPositions(scene: SceneData): Map<number, THREE.Vector3> {
+function computeWorldPositions(
+  scene: SceneData,
+  bodyMap: Map<number, BodyInfo>,
+  childrenMap: Map<number, number[]>,
+): Map<number, THREE.Vector3> {
   const m = new Map<number, THREE.Vector3>();
-  const bodyMap = new Map<number, BodyInfo>();
-  for (const b of scene.bodies) bodyMap.set(b.id, b);
-
-  const visited = new Set<number>();
   const queue: number[] = [];
 
+  // Find roots
   for (const b of scene.bodies) {
     if (b.parent_id === null) {
+      const t = b.transform.translation;
+      m.set(b.id, new THREE.Vector3(t[0], t[1], t[2]));
       queue.push(b.id);
-      visited.add(b.id);
     }
   }
 
+  // BFS using childrenMap — O(n) total
   while (queue.length > 0) {
     const id = queue.shift()!;
-    const body = bodyMap.get(id);
-    if (!body) continue;
-
-    const t = body.transform.translation;
-    const r = body.transform.rotation;
-    const pos = new THREE.Vector3(t[0], t[1], t[2]);
-    const quat = new THREE.Quaternion(r[1], r[2], r[3], r[0]);
-
-    const parentId = body.parent_id;
-    if (parentId !== null && parentId !== 0) {
-      const parentPos = m.get(parentId);
-      if (parentPos) {
-        pos.applyQuaternion(quat);
-        pos.add(parentPos);
-      }
-    }
-
-    m.set(id, pos);
-
-    for (const b of scene.bodies) {
-      if (b.parent_id === id && !visited.has(b.id)) {
-        visited.add(b.id);
-        queue.push(b.id);
-      }
+    const parentPos = m.get(id)!;
+    const children = childrenMap.get(id) || [];
+    for (const childId of children) {
+      const child = bodyMap.get(childId);
+      if (!child) continue;
+      const t = child.transform.translation;
+      const r = child.transform.rotation;
+      const pos = new THREE.Vector3(t[0], t[1], t[2]);
+      const quat = new THREE.Quaternion(r[1], r[2], r[3], r[0]);
+      pos.applyQuaternion(quat);
+      pos.add(parentPos);
+      m.set(childId, pos);
+      queue.push(childId);
     }
   }
 
