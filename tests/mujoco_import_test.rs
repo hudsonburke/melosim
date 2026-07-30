@@ -1,3 +1,5 @@
+#![cfg(feature = "mujoco")]
+
 use melosim::importer::mujoco::import_mjcf;
 use std::path::Path;
 use std::process::Command;
