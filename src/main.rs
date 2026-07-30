@@ -1,8 +1,7 @@
 use melosim::components::*;
 // use melosim::id::EntityID;
 use melosim::math::{Transform, Vec3};
-use melosim::system::SystemRegistry;
-use melosim::validate;
+use melosim::systems;
 use melosim::world::World;
 
 // ── Main ──
@@ -207,23 +206,9 @@ fn main() {
         },
     );
 
-    // ── Register and run validation systems ──
-    let mut registry = SystemRegistry::new();
-    registry.add("validate_hinge", |w| validate::validate_all::<HingeJoint>(w));
-    registry.add("validate_slide", |w| validate::validate_all::<SlideJoint>(w));
-    registry.add("validate_ball", |w| validate::validate_all::<BallJoint>(w));
-    registry.add("validate_free", |w| validate::validate_all::<FreeJoint>(w));
-    registry.add("validate_fixed", |w| validate::validate_all::<FixedJoint>(w));
-    registry.add("validate_universal", |w| validate::validate_all::<UniversalJoint>(w));
-    registry.add("validate_custom", |w| validate::validate_all::<CustomJoint>(w));
-    registry.add("validate_coordinate", |w| validate::validate_all::<JointCoordinate>(w));
-    registry.add("validate_coordinate_effect", |w| validate::validate_all::<CoordinateEffect>(w));
-    registry.add("validate_spatial_transform", |w| validate::validate_all::<SpatialTransform>(w));
-    registry.add("validate_frame", |w| validate::validate_all::<Frame>(w));
-    registry.add("validate_site", |w| validate::validate_all::<Site>(w));
-    registry.add("validate_coordinate_actuator", |w| validate::validate_all::<CoordinateActuator>(w));
-    registry.add("print_errors", validate::print_errors);
-    registry.run(&mut world);
+    // ── Run systems (validation, etc.) ──
+    systems::run_systems(&mut world);
+    systems::print_errors(&mut world);
 
     println!("\nBuild World:\n  {:?}", world);
     println!("  component count: {}", world.components.len());

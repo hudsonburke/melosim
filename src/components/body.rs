@@ -23,8 +23,9 @@ pub struct Site {
 
 // ── Validation ────────────────────────────────────────
 
-use super::{Validate, InertialProperties};
+use super::Validate;
 use crate::world::World;
+use crate::systems::{System, validate_all};
 
 impl Validate for Frame {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
@@ -45,3 +46,6 @@ impl Validate for Site {
         }
     }
 }
+
+inventory::submit! { System::new("validate_frame", |w| validate_all::<Frame>(w)) }
+inventory::submit! { System::new("validate_site", |w| validate_all::<Site>(w)) }

@@ -39,7 +39,7 @@ fn main() {
     println!();
 
     // Step 1: Import
-    let world = if from_json {
+    let mut world = if from_json {
         println!("[1/3] Importing model from JSON fixture...");
         match melosim::importer::opensim::load_opensim_json(input_arg) {
             Ok(model) => {

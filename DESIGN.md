@@ -287,6 +287,127 @@ Import pipeline:
 │   └── import_opensim_wrap()       ← individual: spawns WrapGeom entity
 ```
 
+## Systems and Plugins
+
+melosim uses a decentralized plugin system based on the `inventory` crate. Systems are named functions that operate on the World. Plugins register systems at link time — no central list, no registration code in core.
+
+### The System struct
+
+```rust
+// src/systems.rs
+pub struct System {
+    pub name: &'static str,
+    pub run: fn(&mut World),
+}
+
+inventory::collect!(System);
+
+pub fn run_systems(world: &mut World) {
+    for system in inventory::iter::<System> {
+        (system.run)(world);
+    }
+}
+```
+
+### Registering a system
+
+Any crate in the workspace (or a downstream dependency) can register a system:
+
+```rust
+use melosim::systems::{System, validate_all};
+use melosim::components::*;
+
+fn my_system(world: &mut World) {
+    // ... operate on components
+}
+
+inventory::submit! {
+    System::new("my_system", my_system)
+}
+```
+
+The `inventory::submit!` macro runs at link time. Importing the crate is enough — no `registry.add(...)` call needed.
+
+### Running systems
+
+```rust
+// In the app crate
+world.run_systems();  // runs all registered systems
+// or
+crate::systems::run_systems(&mut world);
+```
+
+### Current systems
+
+| System | Registered in | Purpose |
+|---|---|---|
+| `validate_hinge` | `components/joint.rs` | Check HingeJoint body references |
+| `validate_slide` | `components/joint.rs` | Check SlideJoint body references |
+| `validate_ball` | `components/joint.rs` | Check BallJoint body references |
+| `validate_free` | `components/joint.rs` | Check FreeJoint body references |
+| `validate_fixed` | `components/joint.rs` | Check FixedJoint body references |
+| `validate_universal` | `components/joint.rs` | Check UniversalJoint body references |
+| `validate_custom` | `components/joint.rs` | Check CustomJoint body + coordinate references |
+| `validate_coordinate` | `components/coordinate.rs` | Check JointCoordinate range validity |
+| `validate_coordinate_effect` | `components/coordinate.rs` | Check CoordinateEffect references |
+| `validate_spatial_transform` | `components/coordinate.rs` | Check SpatialTransform references |
+| `validate_frame` | `components/body.rs` | Check Frame parent references |
+| `validate_site` | `components/body.rs` | Check Site parent references |
+| `validate_coordinate_actuator` | `components/actuator.rs` | Check CoordinateActuator references |
+
+All validation systems use the generic `validate_all::<T>()` helper, which iterates all instances of a component type and calls its `Validate` impl.
+
+### Adding a plugin
+
+To add a new system (e.g., deformation, rendering, FK):
+
+1. Define your component types (if any)
+2. Implement `Validate` on them (optional)
+3. Write your system function
+4. Register with `inventory::submit!`
+5. Import the crate in your app
+
+```rust
+// In melosim-deformation/src/lib.rs
+use melosim::prelude::*;
+
+#[derive(Clone, Debug)]
+pub struct Deformable {
+    pub youngs_modulus: f64,
+    pub poissons_ratio: f64,
+}
+
+fn deformation_system(world: &mut World) {
+    for (entity, deformable) in world.iter::<Deformable>() {
+        // ... compute deformation
+    }
+}
+
+inventory::submit! {
+    System::new("deformation", deformation_system)
+}
+```
+
+```rust
+// In the app
+crate::melosim_deformation;  // import triggers registration
+world.run_systems();          // runs deformation + validation + everything else
+```
+
+### Validation
+
+Validation is a specific kind of system. Components implement the `Validate` trait to define their invariants:
+
+```rust
+pub trait Validate {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String>;
+}
+```
+
+The generic `validate_all::<T>()` function iterates all instances of T and collects errors into the world's error resource. Each component module registers its validator via `inventory::submit!`.
+
+`world.validate()` calls `run_systems()` and returns accumulated errors. This is the primary API for tests and the CLI.
+
 ## Frontend Architecture
 
 ### Current state (prototype)

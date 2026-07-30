@@ -22,6 +22,7 @@ pub struct CoordinateActuator {
 
 use super::{Validate, JointCoordinate};
 use crate::world::World;
+use crate::systems::{System, validate_all};
 
 impl Validate for CoordinateActuator {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
@@ -35,3 +36,5 @@ impl Validate for CoordinateActuator {
         }
     }
 }
+
+inventory::submit! { System::new("validate_coordinate_actuator", |w| validate_all::<CoordinateActuator>(w)) }

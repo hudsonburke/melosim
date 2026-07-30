@@ -93,6 +93,7 @@ pub struct CustomJoint {
 
 use super::{Validate, InertialProperties};
 use crate::world::World;
+use crate::systems::{System, validate_all};
 
 fn check_body(world: &World, entity: EntityID, label: &str, body: EntityID) -> Option<String> {
     if world.get::<InertialProperties>(body).is_none() {
@@ -138,3 +139,11 @@ impl Validate for CustomJoint {
         e
     }
 }
+
+inventory::submit! { System::new("validate_hinge", |w| validate_all::<HingeJoint>(w)) }
+inventory::submit! { System::new("validate_slide", |w| validate_all::<SlideJoint>(w)) }
+inventory::submit! { System::new("validate_ball", |w| validate_all::<BallJoint>(w)) }
+inventory::submit! { System::new("validate_free", |w| validate_all::<FreeJoint>(w)) }
+inventory::submit! { System::new("validate_fixed", |w| validate_all::<FixedJoint>(w)) }
+inventory::submit! { System::new("validate_universal", |w| validate_all::<UniversalJoint>(w)) }
+inventory::submit! { System::new("validate_custom", |w| validate_all::<CustomJoint>(w)) }

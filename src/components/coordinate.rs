@@ -90,6 +90,7 @@ pub struct SpatialTransform {
 
 use super::{Validate, CustomJoint, HingeJoint, UniversalJoint};
 use crate::world::World;
+use crate::systems::{System, validate_all};
 
 impl Validate for JointCoordinate {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
@@ -147,3 +148,7 @@ impl Validate for SpatialTransform {
         e
     }
 }
+
+inventory::submit! { System::new("validate_coordinate", |w| validate_all::<JointCoordinate>(w)) }
+inventory::submit! { System::new("validate_coordinate_effect", |w| validate_all::<CoordinateEffect>(w)) }
+inventory::submit! { System::new("validate_spatial_transform", |w| validate_all::<SpatialTransform>(w)) }

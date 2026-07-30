@@ -24,7 +24,7 @@ fn test_myoelbow_import() {
 
     let model_path = "tests/fixtures/myo_sim/elbow/myoelbow_1dof6muscles.xml";
 
-    let (world, _body_map) = import_mjcf(model_path)
+    let (mut world, _body_map) = import_mjcf(model_path)
         .expect("Failed to import myoelbow MJCF");
 
     // ── Bodies ──

@@ -165,20 +165,7 @@ impl World {
     // ── Validation ──
 
     pub fn validate(&mut self) -> Vec<String> {
-        use crate::validate::validate_all;
-        validate_all::<HingeJoint>(self);
-        validate_all::<SlideJoint>(self);
-        validate_all::<BallJoint>(self);
-        validate_all::<FreeJoint>(self);
-        validate_all::<FixedJoint>(self);
-        validate_all::<UniversalJoint>(self);
-        validate_all::<CustomJoint>(self);
-        validate_all::<JointCoordinate>(self);
-        validate_all::<CoordinateEffect>(self);
-        validate_all::<SpatialTransform>(self);
-        validate_all::<Frame>(self);
-        validate_all::<Site>(self);
-        validate_all::<CoordinateActuator>(self);
+        crate::systems::run_systems(self);
         self.get_resource::<Vec<String>>()
             .cloned()
             .unwrap_or_default()
