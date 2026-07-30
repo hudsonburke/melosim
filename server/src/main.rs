@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 
 use axum::{
-    extract::{State, Path},
+    body::Bytes,
+    extract::{DefaultBodyLimit, State, Path},
     http::StatusCode,
     response::Json,
     routing::{get, post},
@@ -18,7 +19,15 @@ use tower_http::cors::{Any, CorsLayer};
 
 struct SharedWorld {
     world: Mutex<World>,
-    mesh_dir: PathBuf,
+    mesh_dir: Mutex<PathBuf>,
+}
+
+fn upload_root() -> PathBuf {
+    std::env::temp_dir().join("melosim_uploads")
+}
+
+fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
+    (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: msg.into() }))
 }
 unsafe impl Send for SharedWorld {}
 unsafe impl Sync for SharedWorld {}
@@ -135,22 +144,31 @@ fn resolve_mesh_path(mesh_dir: &PathBuf, mesh_name: &str) -> Option<String> {
     }
 
     // Asset names may embed geom prefixes ("humerus_geom_1_humerus") while the
-    // file is named by the plain bone ("humerus.stl"). Fall back to a file
-    // whose stem is a "_"-delimited suffix of the asset name.
-    // ponytail: O(dir) scan per unresolved mesh, first arbitrary match wins;
+    // file is named by the plain bone ("humerus.stl"), and uploaded folder
+    // drops nest meshes in subdirectories. Fall back to a recursive search
+    // for a file whose stem equals the asset name or is a "_"-delimited
+    // suffix of it; returns the path relative to mesh_dir.
+    // ponytail: recursive scan per unresolved mesh, first match wins;
     // switch to an explicit asset->file map if collisions ever matter.
-    if let Ok(entries) = std::fs::read_dir(mesh_dir) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stem) = fname.rsplit_once('.').map(|(s, _)| s) {
-                if mesh_name.len() > stem.len() && mesh_name.ends_with(&format!("_{stem}")) {
-                    return Some(fname);
-                }
-            }
+    find_mesh_file(mesh_dir, mesh_name)
+        .and_then(|p| p.strip_prefix(mesh_dir).ok().map(|r| r.to_string_lossy().into_owned()))
+}
+
+fn find_mesh_file(dir: &std::path::Path, mesh_name: &str) -> Option<PathBuf> {
+    let mut subdirs = Vec::new();
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            subdirs.push(p);
+            continue;
+        }
+        let fname = entry.file_name().to_string_lossy().into_owned();
+        let stem = fname.rsplit_once('.').map(|(s, _)| s).unwrap_or(&fname);
+        if stem == mesh_name || (mesh_name.len() > stem.len() && mesh_name.ends_with(&format!("_{stem}"))) {
+            return Some(p);
         }
     }
-
-    None
+    subdirs.into_iter().find_map(|d| find_mesh_file(&d, mesh_name))
 }
 
 fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Scene {
@@ -403,7 +421,7 @@ struct ErrorResponse {
 async fn get_scene(State(state): State<AppState>) -> Json<Scene> {
     let world = state.world.lock().unwrap();
     let mesh_base_url = "/meshes";
-    Json(world_to_scene(&world, mesh_base_url, &state.mesh_dir))
+    Json(world_to_scene(&world, mesh_base_url, &state.mesh_dir.lock().unwrap()))
 }
 
 async fn post_attach_mesh(
@@ -475,23 +493,85 @@ async fn post_import(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let mut world = state.world.lock().unwrap();
     
-    match req.format.as_str() {
-        "mjcf" => {
-            let (imported, _mapping) = melosim::importer::mujoco::import_mjcf(&req.path)
-                .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
-            *world = imported;
-            Ok(Json(serde_json::json!({
-                "status": "ok",
-                "entities": world.next_id
-            })))
+    let imported = match req.format.as_str() {
+        "mjcf" => melosim::importer::mujoco::import_mjcf(&req.path)
+            .map_err(|e| {
+                let mut msg = e;
+                if msg.contains("Error opening file") {
+                    msg.push_str(
+                        " — a referenced file is missing on the server. MuJoCo resolves <include> \
+                         and mesh paths relative to the .xml on disk, so drag in the whole model \
+                         FOLDER (e.g. myo_sim/, not arm/ alone or loose files) to bring them along.",
+                    );
+                }
+                bad_request(msg)
+            })?
+            .0,
+        // No native .osim parser: extract via scripts/extract_opensim.py,
+        // which needs the Python `opensim` package on this machine.
+        "osim" => {
+            let out_path = std::env::temp_dir().join(format!("melosim_extract_{}.json", std::process::id()));
+            let output = std::process::Command::new("python3")
+                .args(["scripts/extract_opensim.py", &req.path, &out_path.to_string_lossy()])
+                .output()
+                .map_err(|e| bad_request(format!("Failed to run extractor: {e}")))?;
+            if !output.status.success() {
+                let stderr: String = String::from_utf8_lossy(&output.stderr).chars().take(400).collect();
+                return Err(bad_request(format!(
+                    "OpenSim extraction failed (requires the Python `opensim` package). \
+                     Run scripts/extract_opensim.py model.osim model.json and import the .json instead. {stderr}"
+                )));
+            }
+            let json = std::fs::read_to_string(&out_path).map_err(|e| bad_request(e.to_string()))?;
+            import_osim_json(&json).map_err(bad_request)?
         }
-        _ => Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: format!("Unsupported format: {}", req.format),
-            }),
-        )),
+        // Extracted OpenSim JSON (from scripts/extract_opensim.py)
+        "json" => import_osim_json(&std::fs::read_to_string(&req.path).map_err(|e| bad_request(e.to_string()))?)
+            .map_err(bad_request)?,
+        _ => return Err(bad_request(format!("Unsupported format: {}", req.format))),
+    };
+
+    *world = imported;
+
+    // Uploaded folder drops carry their own assets — resolve meshes there.
+    let upload_root = upload_root();
+    if std::path::Path::new(&req.path).starts_with(&upload_root) {
+        *state.mesh_dir.lock().unwrap() = upload_root;
     }
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "entities": world.next_id
+    })))
+}
+
+fn import_osim_json(json: &str) -> Result<World, String> {
+    let data: melosim::importer::opensim::OpenSimModelData =
+        serde_json::from_str(json).map_err(|e| format!("Invalid OpenSim JSON: {e}"))?;
+    let mut world = World::new();
+    melosim::importer::opensim::import_opensim_model(&mut world, &data)
+        .map_err(|errs| errs.join("; "))?;
+    Ok(world)
+}
+
+// ── File upload (drag-and-drop) ───────────────────────
+
+async fn post_upload(
+    Path(rel): Path<String>,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let rel_path = std::path::Path::new(&rel);
+    if rel_path.is_absolute()
+        || rel_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(bad_request("Invalid path"));
+    }
+    let dest = upload_root().join(rel_path);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| bad_request(e.to_string()))?;
+    }
+    std::fs::write(&dest, &body).map_err(|e| bad_request(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "path": dest.to_string_lossy() })))
 }
 
 // ── Mesh file serving ─────────────────────────────────
@@ -500,7 +580,7 @@ async fn serve_mesh(
     State(state): State<AppState>,
     Path(path): Path<String>,
 ) -> Result<Vec<u8>, (StatusCode, String)> {
-    let mesh_dir = &state.mesh_dir;
+    let mesh_dir = state.mesh_dir.lock().unwrap();
     let file_path = mesh_dir.join(&path);
     
     if path.contains("..") {
@@ -524,7 +604,7 @@ async fn main() {
     let world = World::new();
     let state: AppState = Arc::new(SharedWorld {
         world: Mutex::new(world),
-        mesh_dir,
+        mesh_dir: Mutex::new(mesh_dir),
     });
 
     let cors = CorsLayer::new()
@@ -540,6 +620,7 @@ async fn main() {
         .route("/attach_body", post(post_attach_body))
         .route("/body_builder", post(post_body_builder))
         .route("/import", post(post_import))
+        .route("/upload/{*path}", post(post_upload).layer(DefaultBodyLimit::disable()))
         .route("/meshes/{*path}", get(serve_mesh))
         .fallback_service(tower_http::services::ServeDir::new(&static_dir))
         .layer(cors)

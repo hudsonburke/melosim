@@ -363,12 +363,94 @@ Import pipeline:
 │   └── import_opensim_wrap()       ← individual: spawns WrapGeom entity
 ```
 
-## What's Next
+## Frontend Architecture
 
-1. Write FK solver on FlatWorld
-2. Write MuJoCo importer (using mujoco-rs)
+### Current state (prototype)
+
+The current frontend is a React + R3F (React Three Fiber) + TypeScript prototype served by the axum server. It renders meshes, joint lines, muscle paths, and site points with orbit controls and click-to-select. The `server/src/main.rs` JSON API serves a `Scene` snapshot; the frontend consumes it and renders via three.js.
+
+This prototype validated the data pipeline (import → JSON → display) and exposed several issues in the transform chain (FK math, MuJoCo mesh frame corrections, color passthrough) that are now fixed. It is not the target architecture.
+
+### Target architecture: egui + three-d + eframe (pure Rust)
+
+The application is becoming a biomechanics workbench where behavior is fully domain-specific — importing models, attaching exoskeleton parts, routing cables through wrapping surfaces, editing parameters, exporting for simulation. The 3D viewport is a thin display layer; the hard parts are all custom domain logic that any framework would require you to write.
+
+**Stack:**
+- **eframe** — cross-platform window shell (native GL on desktop, WebGL2/WASM in browser)
+- **egui** — immediate-mode UI panels (body properties, joint parameters, muscle editors, import/export controls). De facto standard for Rust engineering tools.
+- **three-d** — 3D viewport rendered to an offscreen texture, displayed in egui via `egui::Image`. Provides mesh rendering, line/point primitives, orbit camera, and ray picking.
+
+```
+┌─────────────────────────────────┐
+│          eframe window          │
+│  ┌──────────┬─────────────────┐ │
+│  │  egui    │    three-d      │ │
+│  │  panels  │    viewport     │ │
+│  │          │                 │ │
+│  │  body    │  ┌─gizmo────┐  │ │
+│  │  props   │  │  mesh    │  │ │
+│  │  joints  │  │  lines   │  │ │
+│  │  import  │  │  points  │  │ │
+│  │  export  │  └──────────┘  │ │
+│  └──────────┴─────────────────┘ │
+└─────────────────────────────────┘
+```
+
+**Why not Dioxus:** Dioxus is a webview-based UI framework — it renders DOM. It does not provide a canvas primitive for 3D rendering. Embedding a native GL viewport alongside a Dioxus webview means fighting both frameworks. eframe already solves the same problem (cross-platform UI + 3D viewport in one window) with native GL integration.
+
+**Why not Bevy:** Bevy is a game engine with its own ECS, scene graph, and rendering pipeline. melosim already has its own ECS and data model — running two ECS worlds adds complexity without solving the actual problem. The viewport is ~200 lines of rendering code, not a game.
+
+**Why not R3F (current prototype):** R3F + drei has the best 3D editor ecosystem (TransformControls, loaders, orbit controls). But our workflow's 3D features are thin — orbit camera, click-select, mesh/line/point rendering. The heavy lifting (exoskeleton attachment, cable routing, parameter scaling, MJCF export) is custom domain code that any framework requires you to write. The ecosystem advantage doesn't offset the cost of maintaining a Rust core + TypeScript frontend with duplicate types.
+
+### What three-d provides
+
+| Need | three-d | You write |
+|---|---|---|
+| Render STL meshes | `stl_io` + `CpuMesh` (~25 lines) | — |
+| Render OBJ meshes | `three-d-io` built-in | — |
+| Line segments (joints, muscles, cables) | `CpuMesh::line_segments` | — |
+| Points (sites) | `Points` marker | — |
+| Orbit camera | `OrbitControl` | — |
+| Click to select | ray pick utility (~30 lines) | — |
+| Render to egui texture | `RenderTarget::from_color_and_depth` (~20 lines glue) | — |
+
+### What you write
+
+| Feature | Complexity |
+|---|---|
+| Exoskeleton attachment tool | Custom interaction (~80 lines) + domain math |
+| Cable/tendon routing through wrapping surfaces | Core algorithm — viewport just shows it |
+| Body property editing (mass, inertia, com) | egui form fields (~20 lines) |
+| Joint parameter editing | egui sliders (~30 lines) |
+| MJCF/OSIM export | Pure Rust, no 3D involvement |
+| Undo/redo | Custom (~100 lines) |
+| Grid | Simple quad (~20 lines) |
+| Selection highlight | Traverse mesh, set material (~10 lines) |
+| Transform gizmo (if needed) | Write custom — domain-constrained, not generic |
+
+### Desktop and web
+
+- **Desktop (primary):** eframe compiles to a native window with GL context. File dialogs via `rfd` crate. Real file paths on drag-drop — no upload endpoint needed. The entire `/upload` endpoint and folder-traversal JS from the prototype disappears.
+- **Web (embed):** eframe compiles to WASM. The result renders in a `<canvas>` element with egui panels and three-d viewport together. Embeddable via `<iframe>` or mounted WASM module.
+
+### Migration path
+
+The current R3F prototype serves as the interactive reference — it validated the data pipeline, exposed transform bugs, and proved the Scene JSON format. The migration to Rust-native UI follows the natural progression:
+
+1. **Now:** egui panels reading from the melosim World directly (no JSON, no HTTP)
+2. **Then:** three-d viewport rendering meshes/lines/points from ECS components
+3. **Then:** domain tools (attach, route, export) built on egui interaction + custom 3D picking
+4. **Finally:** remove the axum server and R3F frontend (or keep server for remote/shared use)
+
+The server (`server/src/main.rs`) remains useful for remote access or multi-user scenarios even after the desktop app ships. The Scene JSON format is the wire protocol between them.
+
+## Next Steps
+
+1. ✅ Write MuJoCo importer (using mujoco-rs)
+2. Write FK solver on FlatWorld
 3. Write MuJoCo exporter
-4. Write OpenSim exporter (in progress — structural output works, dead code cleanup pending)
+4. Write OpenSim exporter (structural output works, dead code cleanup pending)
+5. Begin egui + three-d desktop app (see Frontend Architecture)
 
 ## Future Considerations
 

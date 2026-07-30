@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       '/scene': `http://localhost:${API_PORT}`,
       '/import': `http://localhost:${API_PORT}`,
+      '/upload': `http://localhost:${API_PORT}`,
       '/meshes': `http://localhost:${API_PORT}`,
       '/attach_mesh': `http://localhost:${API_PORT}`,
       '/attach_body': `http://localhost:${API_PORT}`,

@@ -6,6 +6,46 @@ import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
+const MODEL_EXT = /\.(xml|osim|json)$/i;
+
+// ── Drag-and-drop helpers ─────────────────────────────
+
+interface DroppedFile {
+  file: File;
+  path: string; // relative path, preserving dropped folder structure
+}
+
+async function walkEntry(entry: any, prefix: string, out: DroppedFile[]): Promise<void> {
+  if (entry.isFile) {
+    await new Promise<void>((res, rej) =>
+      entry.file((f: File) => { out.push({ file: f, path: prefix + f.name }); res(); }, rej),
+    );
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    // readEntries returns at most 100 entries per call (Chrome) — loop until empty
+    let batch: any[];
+    do {
+      batch = await new Promise<any[]>((res, rej) => reader.readEntries(res, rej));
+      for (const e of batch) await walkEntry(e, prefix + entry.name + "/", out);
+    } while (batch.length > 0);
+  }
+}
+
+async function collectDropped(items: DataTransferItemList): Promise<DroppedFile[]> {
+  const out: DroppedFile[] = [];
+  const tasks: Promise<void>[] = [];
+  for (const item of Array.from(items)) {
+    const entry = (item as any).webkitGetAsEntry?.();
+    if (entry) tasks.push(walkEntry(entry, "", out));
+    else {
+      const f = item.getAsFile();
+      if (f) out.push({ file: f, path: f.name });
+    }
+  }
+  await Promise.all(tasks);
+  return out;
+}
+
 export default function App() {
   const [scene, setScene] = useState<SceneData | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -13,6 +53,7 @@ export default function App() {
   const [showSites, setShowSites] = useState(false);
   const [showMuscles, setShowMuscles] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fetchMs, setFetchMs] = useState<number | null>(null);
 
@@ -45,6 +86,34 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchScene]);
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    try {
+      setLoading(true);
+      const files = await collectDropped(e.dataTransfer.items);
+      // Pick the shallowest model file (e.g. myoarm.xml over included XMLs)
+      const model = files
+        .filter((f) => MODEL_EXT.test(f.path))
+        .sort((a, b) => a.path.split("/").length - b.path.split("/").length || a.path.localeCompare(b.path))[0];
+      if (!model) throw new Error("No model file (.xml, .osim, .json) in drop");
+      // Upload everything, preserving relative paths so MJCF includes/meshdir resolve
+      const uploaded = new Map<string, string>();
+      for (const f of files) {
+        const url = `${API_BASE}/upload/${f.path.split("/").map(encodeURIComponent).join("/")}`;
+        const res = await fetch(url, { method: "POST", body: f.file });
+        if (!res.ok) throw new Error(`Upload failed: ${f.path}`);
+        uploaded.set(f.path, (await res.json()).path);
+      }
+      const lower = model.path.toLowerCase();
+      const format = lower.endsWith(".xml") ? "mjcf" : lower.endsWith(".osim") ? "osim" : "json";
+      await handleImport(uploaded.get(model.path)!, format);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setLoading(false);
+    }
+  };
+
   const handleImport = async (path: string, format: string) => {
     try {
       setLoading(true);
@@ -67,7 +136,17 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <div className="viewport">
+      <div
+        className="viewport"
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+      >
+        {dragging && (
+          <div className="loading" style={{ position: "absolute", inset: 0, zIndex: 20, pointerEvents: "none" }}>
+            Drop MJCF (.xml), extracted OpenSim JSON (.json), or a model folder
+          </div>
+        )}
         {loading && !scene ? (
           <div className="loading">Loading model...</div>
         ) : (

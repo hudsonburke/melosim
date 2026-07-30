@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid } from "@react-three/drei";
 import * as THREE from "three";
@@ -53,54 +53,74 @@ export default function Scene({ scene, onSelect, selected, showSites, showMuscle
   );
 }
 
-// ── Async STL mesh (non-blocking) ────────────────────────────────────────
+// ── Async mesh (STL/OBJ, non-blocking) ───────────────────────────────────
 
-function AsyncSTLMesh({ mesh, highlight, onClick }: {
+function AsyncMesh({ mesh, highlight, onClick }: {
   mesh: MeshInfo;
   highlight: boolean;
   onClick?: () => void;
 }) {
-  const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
-  const startTime = useRef(Date.now());
+  const [object, setObject] = useState<THREE.Object3D | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    const isObj = mesh.url.toLowerCase().endsWith(".obj");
     log(`Loading mesh: ${mesh.url}`);
-    import("three/examples/jsm/loaders/STLLoader.js").then(({ STLLoader }) => {
-      const loader = new STLLoader();
+    // Static import paths so Vite can bundle both loaders
+    const load = isObj
+      ? import("three/examples/jsm/loaders/OBJLoader.js")
+      : import("three/examples/jsm/loaders/STLLoader.js");
+    load.then((mod: any) => {
+      const loader = isObj ? new mod.OBJLoader() : new mod.STLLoader();
       loader.load(
         mesh.url,
-        (geo) => {
-          if (cancelled) { geo.dispose(); return; }
-          const elapsed = Date.now() - startTime.current;
-          log(`Mesh loaded in ${elapsed}ms: ${mesh.url} (${(geo.attributes.position.count)} verts)`);
-          // STL vertices are already in body-local model coordinates — use as-is.
-          setGeometry(geo);
+        (loaded: any) => {
+          if (cancelled) return;
+          const c = mesh.color ?? [0.2, 0.6, 1.0];
+          const material = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(c[0], c[1], c[2]),
+            transparent: true,
+            opacity: mesh.opacity ?? 0.85,
+          });
+          let obj: THREE.Object3D;
+          if (isObj) {
+            obj = loaded as THREE.Object3D; // OBJLoader returns a Group
+            obj.traverse((o) => { if ((o as any).isMesh) (o as any).material = material; });
+          } else {
+            obj = new THREE.Mesh(loaded as THREE.BufferGeometry, material);
+          }
+          setObject(obj);
         },
         undefined,
-        (err) => {
-          log(`Mesh FAILED: ${mesh.url} — ${err}`);
-        },
+        (err: any) => log(`Mesh FAILED: ${mesh.url} — ${err}`),
       );
     });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesh.url]);
 
-  if (!geometry) return null;
+  // Selection highlight (materials are baked at load, so recolor in place)
+  useEffect(() => {
+    if (!object) return;
+    const c = mesh.color ?? [0.2, 0.6, 1.0];
+    const color = highlight ? new THREE.Color("#ff6600") : new THREE.Color(c[0], c[1], c[2]);
+    object.traverse((o) => {
+      const m = (o as any).material as THREE.MeshStandardMaterial | undefined;
+      if ((o as any).isMesh && m) m.color.copy(color);
+    });
+  }, [object, highlight, mesh.color]);
+
+  if (!object) return null;
 
   const r = mesh.rotation ?? [1, 0, 0, 0];
-  const c = mesh.color ?? [0.2, 0.6, 1.0];
-  const color = highlight ? "#ff6600" : new THREE.Color(c[0], c[1], c[2]);
   return (
-    <mesh
-      geometry={geometry}
+    <primitive
+      object={object}
       onClick={onClick}
       position={mesh.offset}
       quaternion={new THREE.Quaternion(r[1], r[2], r[3], r[0])}
       scale={mesh.scale ?? [1, 1, 1]}
-    >
-      <meshStandardMaterial color={color} transparent opacity={mesh.opacity ?? 0.85} />
-    </mesh>
+    />
   );
 }
 
@@ -224,7 +244,7 @@ function ModelRenderer({ scene, selected, onSelect, showSites, showMuscles }: {
         if (!pose) return null;
         return (
           <group key={mesh.id} position={pose.pos} quaternion={pose.quat}>
-            <AsyncSTLMesh
+            <AsyncMesh
               mesh={mesh}
               highlight={selected === mesh.parent}
               onClick={() => onSelect(selected === mesh.parent ? null : mesh.parent)}

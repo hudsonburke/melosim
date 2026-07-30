@@ -2,7 +2,8 @@
 .mujoco/
 .x86-pip-ready
 .venv/
-tests/fixtures/myo_sim/
+tests/fixtures/
 Rajagopal2015.osim
 opensim.log
 roundtrip_rajagopal.osim
+
