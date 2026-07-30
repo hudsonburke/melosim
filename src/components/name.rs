@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A human-readable name for any entity.
 ///
 /// Names are metadata — used for import/export, logging, and debugging.
-/// Solvers never access names during simulation. FlatWorld does not carry them.
+/// Solvers never access names during simulation.
 ///
 /// Attach to any entity that needs identity:
 /// ```ignore

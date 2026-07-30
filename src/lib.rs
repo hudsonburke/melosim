@@ -1,6 +1,5 @@
 pub mod components;
 pub mod exporter;
-pub mod flat;
 pub mod id;
 pub mod importer;
 pub mod math;

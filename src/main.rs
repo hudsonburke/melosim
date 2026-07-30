@@ -5,23 +5,9 @@ use melosim::system::SystemRegistry;
 use melosim::validate;
 use melosim::world::World;
 
-// ── Example: Custom joint from a downstream crate ─────
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct PrismaticJoint {
-    body_a: EntityID,
-    body_b: EntityID,
-    limits: Option<JointLimits>,
-    axis: [f64; 3],
-}
-
-#[allow(dead_code)]
-fn prismatic_system(_world: &mut World) {}
-
-// ── Main ──────────────────────────────────────────────
+// ── Main ──
 
 fn main() {
-    // ── Phase 1: Build World (extensible, dynamic) ──
     let mut world = World::new();
 
     // ── Bodies ──
@@ -170,36 +156,4 @@ fn main() {
 
     println!("\nBuild World:\n  {:?}", world);
     println!("  component count: {}", world.components.len());
-
-    // ── Phase 2: Freeze → FlatWorld (dense, GPU-ready) ──
-    let flat = world.freeze();
-
-    println!("\nFlatWorld snapshot:");
-    println!("  {:?}", flat);
-
-    // Demonstrate dense indexing on new types
-    if let Some(knee_cj) = &flat.custom_joints[knee.0 as usize] {
-        println!("\nCustomJoint at index {}:", knee.0);
-        println!("  body_a={:?}, coordinates: {} DOFs", knee_cj.body_a.0, knee_cj.coordinates.len());
-    }
-    if let Some(coord) = &flat.coordinates[knee_flexion.0 as usize] {
-        println!("  Coordinate range [{}, {}]", coord.range_min, coord.range_max);
-    }
-    if let Some(effect) = &flat.coordinate_effects[flex_effect.0 as usize] {
-        println!("  Effect: {:?} via {:?}", effect.component, effect.function);
-    }
-
-    // ── Custom type example (downstream) ──
-    let prismatic = world.spawn();
-    world.attach(prismatic, PrismaticJoint {
-        body_a: pelvis,
-        body_b: femur,
-        limits: None,
-        axis: [0.0, 1.0, 0.0],
-    });
-
-    let flat2 = world.freeze();
-    println!("\nFlatWorld with custom prismatic:");
-    println!("  {:?}", flat2);
-    println!("  extensions: {} types registered", flat2.extensions.len());
 }

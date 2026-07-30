@@ -11,7 +11,7 @@
 //
 // The importer is designed to be built incrementally:
 //   1. Start with one joint type (PinJoint) + two bodies
-//   2. Verify round-trip (JSON → World → validate → freeze)
+//   2. Verify round-trip (JSON → World → validate)
 //   3. Add more component types iteratively
 
 use serde::Deserialize;

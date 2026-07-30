@@ -91,87 +91,11 @@ registry.run(&mut world);
 
 Each system reads ONLY the concrete types it needs. The registry iterates systems in order. Adding a new component type = add a struct + write a system + register it. No changes to World, no changes to existing systems, no trait objects.
 
-## Two-Phase Architecture: Build → Freeze → Simulate
-
-melosim operates in two distinct phases that solve opposite requirements:
-
-### Phase 1: Build World (extensible, dynamic)
-
-The Build World is the authoring environment. Importers, validators, editors, and downstream plugins all operate here. New component types can be added at any time without modifying melosim core.
-
-```rust
-let mut world = World::new();
-let entity = world.spawn();
-world.attach(entity, HingeJoint { ... });
-// Downstream crate adds a custom model:
-let neuron = world.spawn();
-world.attach(neuron, MyCustomNeuron { ... });
-```
-
-- Storage: AnyMap of `Vec<Option<T>>` (dense arrays, type-erased)
-- Entity IDs: `EntityID(u32)` — direct index into Vecs
-- Extensibility: any `'static` type, zero World changes
-- Mutation: full (spawn, attach, remove, update)
-- Systems: validation, import, export, editing
-
-### Phase 2: FlatWorld (dense, GPU-ready)
-
-The FlatWorld is the simulation snapshot. After building and validating the model, `freeze()` copies each known component type's Vec from the World's AnyMap into named fields for zero-hash access during simulation.
-
-```rust
-let flat = world.freeze();
-// flat.inertials[id.0 as usize] — single load, zero hash lookups
-// &flat.custom_joints — direct slice, no indirection
-```
-
-- Storage: Named `Vec<Option<T>>` fields on FlatWorld struct
-- Entity IDs: `EntityID(u32)` — direct index into parallel arrays
-- Extensibility: custom types in `extensions: AnyMap<Vec<Option<T>>>`
-- Cross-type join: `flat.frames[hinge.body_a.0 as usize]` — single load
-- GPU extraction: `&flat.inertials` is `&[Option<InertialProperties>]`
-- Mutation: immutable after freeze (copy-on-write for state updates)
-
-### Freeze contract
-
-The `freeze()` method clones each known component type's `Vec<Option<T>>` from the World's AnyMap into FlatWorld's named fields. Because the World already stores at dense EntityID indices, no index translation is needed (no more `collect_dense` slot-index extraction).
-
-Known component types are extracted explicitly by freeze. Custom types are not collected automatically — add them to `flat.extensions.insert::<Vec<Option<MyType>>>(...)` after freeze if needed.
-
-```rust
-pub fn freeze(&self) -> FlatWorld {
-    FlatWorld {
-        inertials: extract::<InertialProperties>(self),
-        frames: extract::<Frame>(self),
-        hinge_joints: extract::<HingeJoint>(self),
-        // ... one per known type
-        num_entities: self.next_id,
-    }
-}
-
-fn extract<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
-    world.components.get::<ComponentStorage<T>>()
-        .cloned().unwrap_or_default()
-}
-```
-
-### When to use which
-
-| Operation | Use |
-|---|---|
-| Importing a model (OpenSim, MJCF) | Build World |
-| Editing (add/remove bodies, muscles) | Build World |
-| Validation | Build World |
-| Forward kinematics | FlatWorld |
-| Muscle force computation | FlatWorld |
-| Warp/GPU integration | FlatWorld (zero-copy slices) |
-| Serialization/save | Build World (serde-native) |
-| Export to OpenSim/MJCF | Build World |
-
 ### Core Components
 
 | Component | Fields | Read by |
 |---|---|---|
-| `Name` | value (String) | Import/export, logging, debugging (metadata only — never in FlatWorld) |
+| `Name` | value (String) | Import/export, logging, debugging (metadata only — not needed for simulation) |
 | `InertialProperties` | mass, com, inertia | Rigid body solver |
 | `Frame` | parent, transform | All systems (parent-relative transforms) |
 | `Site` | parent, offset | Marker/anatomical landmarks (name from Name component) |
@@ -447,10 +371,10 @@ The server (`server/src/main.rs`) remains useful for remote access or multi-user
 ## Next Steps
 
 1. ✅ Write MuJoCo importer (using mujoco-rs)
-2. Write FK solver on FlatWorld
-3. Write MuJoCo exporter
-4. Write OpenSim exporter (structural output works, dead code cleanup pending)
-5. Begin egui + three-d desktop app (see Frontend Architecture)
+2. Write MuJoCo exporter
+3. Write OpenSim exporter (structural output works, dead code cleanup pending)
+4. Begin egui + three-d desktop app (see Frontend Architecture)
+5. FK solver (when simulation work begins)
 
 ## Future Considerations
 
@@ -460,11 +384,11 @@ Shipyard (by Catherine West / kyren) provides component queries, generational en
 
 **What Shipyard would add:** Combined component iteration (`View<A>` + `View<B>` filter to entities with both), generational safety on entity deletion, better iteration (sparse sets skip Nones), and workloads for system scheduling.
 
-**What it would cost:** Opaque EntityId (not u32) breaks direct FlatWorld indexing — a freeze extraction step becomes required. Derive macros on all components. Closure-based `run()` API changes how systems are written. Double indirection for lookup (sparse array → dense array). The freeze pattern goes from trivial Vec clone to custom extraction from Shipyard's internal sparse sets.
+**What it would cost:** Opaque EntityId (not u32) breaks direct Vec indexing. Derive macros on all components. Closure-based `run()` API changes how systems are written. Double indirection for lookup (sparse array → dense array).
 
 **Why we're not adopting it now:** At 200-entity biomechanics models with static entity sets and explicit cross-entity references (HingeJoint.body_a, Frame.parent), manual iteration with `world.get::<T>(entity)` lookups is simple, fast, and debuggable. Shipyard's query power shines at 10K+ entities with dynamic component addition/removal during simulation.
 
-**When to reconsider:** If the FK solver or muscle force solver develops complex multi-component iteration patterns that manual iteration can't express cleanly, or if parallel system execution becomes necessary for solver performance, revisit Shipyard. The migration scope is comparable to the SlotMap → Vec<Option<T>> refactor (~20 source files, ~2-3 focused sessions). Keep explicit cross-entity references (components store EntityID fields) — this makes the migration cleaner since you're replacing storage and iteration, not rearchitecting entity relationships.
+**When to reconsider:** If the FK solver or muscle force solver develops complex multi-component iteration patterns that manual iteration can't express cleanly, or if parallel system execution becomes necessary for solver performance, revisit Shipyard. Keep explicit cross-entity references (components store EntityID fields) — this makes any future migration cleaner since you're replacing storage and iteration, not rearchitecting entity relationships.
 
 ### SparseSet storage
 

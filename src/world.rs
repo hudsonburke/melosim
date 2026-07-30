@@ -1,5 +1,4 @@
 use crate::components::*;
-use crate::flat::FlatWorld;
 use crate::id::EntityID;
 use crate::math::*;
 use anymap2::AnyMap;
@@ -253,50 +252,6 @@ impl World {
         self.resources.entry::<T>().or_insert_with(T::default)
     }
 
-    // ── Freeze: Build World → FlatWorld ──
-
-    /// Freeze the current World into a FlatWorld for simulation.
-    ///
-    /// Each known component type's storage Vec is cloned directly
-    /// (already indexed by EntityID, so no translation needed).
-    ///
-    /// Custom types are NOT collected automatically. After freeze, add them:
-    /// ```rust
-    /// # use melosim::world::World;
-    /// # let mut world = World::new();
-    /// # let e = world.spawn();
-    /// # world.attach(e, melosim::components::InertialProperties {
-    /// #     mass: 1.0, com: [0.0; 3], inertia: [0.0; 6],
-    /// # });
-    /// # world.attach(e, melosim::components::Name { value: "test".into() });
-    /// let mut flat = world.freeze();
-    /// flat.extensions.insert::<Vec<Option<f64>>>(vec![None, Some(3.14)]);
-    /// ```
-    pub fn freeze(&self) -> FlatWorld {
-        FlatWorld {
-            inertials: extract::<InertialProperties>(self),
-            frames: extract::<Frame>(self),
-            sites: extract::<Site>(self),
-            hinge_joints: extract::<HingeJoint>(self),
-            slide_joints: extract::<SlideJoint>(self),
-            ball_joints: extract::<BallJoint>(self),
-            free_joints: extract::<FreeJoint>(self),
-            fixed_joints: extract::<FixedJoint>(self),
-            universal_joints: extract::<UniversalJoint>(self),
-            custom_joints: extract::<CustomJoint>(self),
-            coordinates: extract::<JointCoordinate>(self),
-            coordinate_effects: extract::<CoordinateEffect>(self),
-            spatial_transforms: extract::<SpatialTransform>(self),
-            muscles: extract::<Muscle>(self),
-            millard_params: extract::<Millard2012Params>(self),
-            wraps: extract::<WrapGeom>(self),
-            display_geoms: extract::<DisplayGeometry>(self),
-            coordinate_actuators: extract::<CoordinateActuator>(self),
-            extensions: AnyMap::new(),
-            num_entities: self.next_id,
-        }
-    }
-
     // ── Validation ──
 
     pub fn validate(&self) -> Vec<String> {
@@ -524,14 +479,4 @@ impl BodyBuilder {
 
         Some(entity)
     }
-}
-
-// ── Helper: extract component Vec from World ──
-
-fn extract<T: Clone + 'static>(world: &World) -> Vec<Option<T>> {
-    world
-        .components
-        .get::<ComponentStorage<T>>()
-        .cloned()
-        .unwrap_or_default()
 }
