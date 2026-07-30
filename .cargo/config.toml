@@ -1,0 +1,4 @@
+[env]
+# mujoco-rs build script uses this to find/download MuJoCo.
+# "relative = true" resolves against the workspace root.
+MUJOCO_DOWNLOAD_DIR = { value = ".mujoco", relative = true }

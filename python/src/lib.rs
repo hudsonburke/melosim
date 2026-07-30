@@ -559,8 +559,9 @@ fn import_osim(_py: Python<'_>, path: &str) -> PyResult<String> {
     // Build coordinate name → EntityID map from imported coordinate entities
     let mut coord_name_map: std::collections::HashMap<String, EntityID> =
         std::collections::HashMap::new();
-    for (key, coord) in world.iter::<JointCoordinate>() {
-        coord_name_map.insert(coord.name.clone(), key);
+    for (key, _coord) in world.iter::<JointCoordinate>() {
+        let name = world.get::<Name>(key).map(|n| n.value.clone()).unwrap_or_default();
+        coord_name_map.insert(name, key);
     }
 
     // Extract markers
