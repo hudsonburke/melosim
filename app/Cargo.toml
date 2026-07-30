@@ -3,10 +3,11 @@ name = "melosim-app"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "melosim-app"
+path = "src/main.rs"
+
 [dependencies]
 melosim = { path = ".." }
-eframe = "0.35.0"
-egui = "0.35.0"
 inventory = "0.3"
-serde_json = "1.0.151"
-three-d = "0.19.0"
+three-d = { version = "0.19.0", features = ["egui-gui"] }
