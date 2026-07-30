@@ -2249,6 +2249,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "inventory",
+ "melosim",
  "serde_json",
  "three-d",
 ]
