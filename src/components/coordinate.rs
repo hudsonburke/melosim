@@ -85,3 +85,65 @@ pub struct SpatialTransform {
     /// EntityIDs of the CoordinateEffect components making up this transform.
     pub effects: Vec<EntityID>,
 }
+
+// ── Validation ────────────────────────────────────────
+
+use super::{Validate, CustomJoint, HingeJoint, UniversalJoint};
+use crate::world::World;
+
+impl Validate for JointCoordinate {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        let mut e = Vec::new();
+        if self.clamped && self.range_min > self.range_max {
+            let name = world.get::<super::Name>(entity).map(|n| n.value.clone()).unwrap_or_default();
+            e.push(format!(
+                "{:?} JointCoordinate '{}' has invalid range [{},{}]",
+                entity.0, name, self.range_min, self.range_max
+            ));
+        }
+        e
+    }
+}
+
+impl Validate for CoordinateEffect {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        let mut e = Vec::new();
+        if world.get::<JointCoordinate>(self.coordinate).is_none() {
+            e.push(format!(
+                "{:?} CoordinateEffect references missing coordinate {:?}",
+                entity.0, self.coordinate.0
+            ));
+        }
+        if world.get::<CustomJoint>(self.joint).is_none()
+            && world.get::<HingeJoint>(self.joint).is_none()
+            && world.get::<UniversalJoint>(self.joint).is_none()
+        {
+            e.push(format!(
+                "{:?} CoordinateEffect references missing joint {:?}",
+                entity.0, self.joint.0
+            ));
+        }
+        e
+    }
+}
+
+impl Validate for SpatialTransform {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        let mut e = Vec::new();
+        if world.get::<CustomJoint>(self.joint).is_none() {
+            e.push(format!(
+                "{:?} SpatialTransform references missing CustomJoint {:?}",
+                entity.0, self.joint.0
+            ));
+        }
+        for (i, effect_key) in self.effects.iter().enumerate() {
+            if world.get::<CoordinateEffect>(*effect_key).is_none() {
+                e.push(format!(
+                    "{:?} SpatialTransform effect[{}] {:?} references missing CoordinateEffect",
+                    entity.0, i, effect_key.0
+                ));
+            }
+        }
+        e
+    }
+}

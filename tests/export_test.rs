@@ -182,7 +182,7 @@ fn test_attach_mesh() {
 }
 
 #[test]
-fn test_body_builder() {
+fn test_body_construction() {
     let mut world = World::new();
 
     // Create a forearm body
@@ -198,15 +198,22 @@ fn test_body_builder() {
     });
     world.attach(forearm, Name { value: "r_forearm".into() });
 
-    // Build a cuff with mass and mesh
-    let cuff = world.body_builder("r_forearm")
-        .name("arm_cuff")
-        .mesh("assets/cuff.stl")
-        .mass(0.5)
-        .offset(Vec3::new(0.0, 0.0, -0.15))
-        .color([0.8, 0.2, 0.1])
-        .build(&mut world)
-        .expect("should find parent");
+    // Build a cuff with mass and mesh using generic attach
+    let cuff = world.spawn();
+    world.attach(cuff, InertialProperties {
+        mass: 0.5,
+        com: [0.0; 3],
+        inertia: [0.0; 6],
+    });
+    world.attach(cuff, Frame {
+        parent: forearm,
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, -0.15),
+            rotation: Quaternion::default(),
+        },
+    });
+    world.attach(cuff, Name { value: "arm_cuff".into() });
+    world.attach(cuff, MeshGeometry { mesh: "assets/cuff.stl".into() });
 
     // Verify all components
     let inertial = world.get::<InertialProperties>(cuff).expect("cuff should have InertialProperties");

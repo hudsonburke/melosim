@@ -17,3 +17,21 @@ pub struct CoordinateActuator {
     /// Maximum control signal (default: 1.0).
     pub max_control: f64,
 }
+
+// ── Validation ────────────────────────────────────────
+
+use super::{Validate, JointCoordinate};
+use crate::world::World;
+
+impl Validate for CoordinateActuator {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        if world.get::<JointCoordinate>(self.coordinate).is_none() {
+            vec![format!(
+                "{:?} CoordinateActuator references missing coordinate {:?}",
+                entity.0, self.coordinate.0
+            )]
+        } else {
+            Vec::new()
+        }
+    }
+}

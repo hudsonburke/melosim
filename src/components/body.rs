@@ -20,3 +20,28 @@ pub struct Site {
     pub parent: EntityID,
     pub offset: Vec3,
 }
+
+// ── Validation ────────────────────────────────────────
+
+use super::{Validate, InertialProperties};
+use crate::world::World;
+
+impl Validate for Frame {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        if world.get::<InertialProperties>(self.parent).is_none() {
+            vec![format!("Frame {:?} references missing parent {:?}", entity.0, self.parent.0)]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+impl Validate for Site {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        if world.get::<InertialProperties>(self.parent).is_none() {
+            vec![format!("Site {:?} references missing parent {:?}", entity.0, self.parent.0)]
+        } else {
+            Vec::new()
+        }
+    }
+}

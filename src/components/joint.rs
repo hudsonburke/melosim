@@ -88,3 +88,53 @@ pub struct CustomJoint {
     /// Each is an EntityID referencing a JointCoordinate component.
     pub coordinates: Vec<EntityID>,
 }
+
+// ── Validation ────────────────────────────────────────
+
+use super::{Validate, InertialProperties};
+use crate::world::World;
+
+fn check_body(world: &World, entity: EntityID, label: &str, body: EntityID) -> Option<String> {
+    if world.get::<InertialProperties>(body).is_none() {
+        Some(format!("{:?} {} references missing body {:?}", entity.0, label, body.0))
+    } else {
+        None
+    }
+}
+
+macro_rules! impl_validate_body_refs {
+    ($ty:ident) => {
+        impl Validate for $ty {
+            fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+                let mut e = Vec::new();
+                if let Some(err) = check_body(world, entity, "body_a", self.body_a) { e.push(err); }
+                if let Some(err) = check_body(world, entity, "body_b", self.body_b) { e.push(err); }
+                e
+            }
+        }
+    };
+}
+
+impl_validate_body_refs!(HingeJoint);
+impl_validate_body_refs!(SlideJoint);
+impl_validate_body_refs!(BallJoint);
+impl_validate_body_refs!(FreeJoint);
+impl_validate_body_refs!(FixedJoint);
+impl_validate_body_refs!(UniversalJoint);
+
+impl Validate for CustomJoint {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+        let mut e = Vec::new();
+        if let Some(err) = check_body(world, entity, "body_a", self.body_a) { e.push(err); }
+        if let Some(err) = check_body(world, entity, "body_b", self.body_b) { e.push(err); }
+        for (i, coord_key) in self.coordinates.iter().enumerate() {
+            if world.get::<super::JointCoordinate>(*coord_key).is_none() {
+                e.push(format!(
+                    "{:?} CustomJoint coordinate[{}] {:?} references missing JointCoordinate",
+                    entity.0, i, coord_key.0
+                ));
+            }
+        }
+        e
+    }
+}

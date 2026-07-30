@@ -1,5 +1,5 @@
 use melosim::components::*;
-use melosim::id::EntityID;
+// use melosim::id::EntityID;
 use melosim::math::{Transform, Vec3};
 use melosim::system::SystemRegistry;
 use melosim::validate;
@@ -12,145 +12,216 @@ fn main() {
 
     // ── Bodies ──
     let ground = world.spawn();
-    world.attach(ground, InertialProperties {
-        mass: 0.0,
-        com: [0.0, 0.0, 0.0],
-        inertia: [0.0; 6],
-    });
-    world.attach(ground, Name { value: "ground".into() });
+    world.attach(
+        ground,
+        InertialProperties {
+            mass: 0.0,
+            com: [0.0, 0.0, 0.0],
+            inertia: [0.0; 6],
+        },
+    );
+    world.attach(
+        ground,
+        Name {
+            value: "ground".into(),
+        },
+    );
     let ground_frame = world.spawn();
-    world.attach(ground_frame, Frame {
-        parent: ground,
-        transform: Transform::default(),
-    });
+    world.attach(
+        ground_frame,
+        Frame {
+            parent: ground,
+            transform: Transform::default(),
+        },
+    );
 
     let pelvis = world.spawn();
-    world.attach(pelvis, InertialProperties {
-        mass: 11.78,
-        com: [0.0, 0.0, 0.0],
-        inertia: [0.18, 0.22, 0.20, 0.0, 0.0, 0.0],
-    });
-    world.attach(pelvis, Name { value: "pelvis".into() });
+    world.attach(
+        pelvis,
+        InertialProperties {
+            mass: 11.78,
+            com: [0.0, 0.0, 0.0],
+            inertia: [0.18, 0.22, 0.20, 0.0, 0.0, 0.0],
+        },
+    );
+    world.attach(
+        pelvis,
+        Name {
+            value: "pelvis".into(),
+        },
+    );
     let pelvis_frame = world.spawn();
-    world.attach(pelvis_frame, Frame {
-        parent: ground,
-        transform: Transform::default(),
-    });
+    world.attach(
+        pelvis_frame,
+        Frame {
+            parent: ground,
+            transform: Transform::default(),
+        },
+    );
 
     let femur = world.spawn();
-    world.attach(femur, InertialProperties {
-        mass: 9.3,
-        com: [0.0, -0.17, 0.0],
-        inertia: [0.12, 0.12, 0.02, 0.0, 0.0, 0.0],
-    });
-    world.attach(femur, Name { value: "femur".into() });
+    world.attach(
+        femur,
+        InertialProperties {
+            mass: 9.3,
+            com: [0.0, -0.17, 0.0],
+            inertia: [0.12, 0.12, 0.02, 0.0, 0.0, 0.0],
+        },
+    );
+    world.attach(
+        femur,
+        Name {
+            value: "femur".into(),
+        },
+    );
     let femur_frame = world.spawn();
-    world.attach(femur_frame, Frame {
-        parent: pelvis,
-        transform: Transform::default(),
-    });
+    world.attach(
+        femur_frame,
+        Frame {
+            parent: pelvis,
+            transform: Transform::default(),
+        },
+    );
 
     // ── Simple joints ──
     let pelvis_free = world.spawn();
-    world.attach(pelvis_free, FreeJoint {
-        body_a: ground,
-        body_b: pelvis,
-        limits: None,
-    });
+    world.attach(
+        pelvis_free,
+        FreeJoint {
+            body_a: ground,
+            body_b: pelvis,
+            limits: None,
+        },
+    );
 
     let hip = world.spawn();
-    world.attach(hip, HingeJoint {
-        body_a: pelvis,
-        body_b: femur,
-        limits: Some(JointLimits { lower: -2.0, upper: 0.5 }),
-        axis: [1.0, 0.0, 0.0],
-    });
+    world.attach(
+        hip,
+        HingeJoint {
+            body_a: pelvis,
+            body_b: femur,
+            limits: Some(JointLimits {
+                lower: -2.0,
+                upper: 0.5,
+            }),
+            axis: [1.0, 0.0, 0.0],
+        },
+    );
 
     // ── UniversalJoint (e.g., lumbar spine) ──
     let lumbar = world.spawn();
-    world.attach(lumbar, UniversalJoint {
-        body_a: pelvis,
-        body_b: femur,
-        limits: Some(JointLimits { lower: -0.5, upper: 0.5 }),
-        axis1: [1.0, 0.0, 0.0],
-        axis2: [0.0, 1.0, 0.0],
-    });
+    world.attach(
+        lumbar,
+        UniversalJoint {
+            body_a: pelvis,
+            body_b: femur,
+            limits: Some(JointLimits {
+                lower: -0.5,
+                upper: 0.5,
+            }),
+            axis1: [1.0, 0.0, 0.0],
+            axis2: [0.0, 1.0, 0.0],
+        },
+    );
 
     // ── CustomJoint (e.g., knee with coupled motion) ──
     // 1. Create coordinate entities
     let knee_flexion = world.spawn();
-    world.attach(knee_flexion, JointCoordinate {
-        range_min: -2.0,
-        range_max: 0.0,
-        default_value: 0.0,
-        stiffness: 0.0,
-        damping: 0.0,
-        clamped: true,
-        locked: false,
-        prescribed_function: None,
-    });
-    world.attach(knee_flexion, Name { value: "knee_flexion".into() });
+    world.attach(
+        knee_flexion,
+        JointCoordinate {
+            range_min: -2.0,
+            range_max: 0.0,
+            default_value: 0.0,
+            stiffness: 0.0,
+            damping: 0.0,
+            clamped: true,
+            locked: false,
+            prescribed_function: None,
+        },
+    );
+    world.attach(
+        knee_flexion,
+        Name {
+            value: "knee_flexion".into(),
+        },
+    );
 
     // 2. Create the CustomJoint referencing those coordinates
     let knee = world.spawn();
-    world.attach(knee, CustomJoint {
-        body_a: femur,
-        body_b: pelvis,
-        limits: None,
-        coordinates: vec![knee_flexion],
-    });
+    world.attach(
+        knee,
+        CustomJoint {
+            body_a: femur,
+            body_b: pelvis,
+            limits: None,
+            coordinates: vec![knee_flexion],
+        },
+    );
 
     // 3. Create CoordinateEffects mapping coordinates to transform components
     let flex_effect = world.spawn();
-    world.attach(flex_effect, CoordinateEffect {
-        coordinate: knee_flexion,
-        joint: knee,
-        component: TransformComponent::RotationY,
-        function: JointFunction::Linear {
-            slope: -1.0,
-            intercept: 0.0,
+    world.attach(
+        flex_effect,
+        CoordinateEffect {
+            coordinate: knee_flexion,
+            joint: knee,
+            component: TransformComponent::RotationY,
+            function: JointFunction::Linear {
+                slope: -1.0,
+                intercept: 0.0,
+            },
         },
-    });
+    );
 
     let ap_translate = world.spawn();
-    world.attach(ap_translate, CoordinateEffect {
-        coordinate: knee_flexion,
-        joint: knee,
-        component: TransformComponent::TranslationX,
-        function: JointFunction::Polynomial {
-            coefficients: vec![0.002, -0.015, 0.0, 0.0],
+    world.attach(
+        ap_translate,
+        CoordinateEffect {
+            coordinate: knee_flexion,
+            joint: knee,
+            component: TransformComponent::TranslationX,
+            function: JointFunction::Polynomial {
+                coefficients: vec![0.002, -0.015, 0.0, 0.0],
+            },
         },
-    });
+    );
 
     // 4. Create SpatialTransform grouping the effects
     let knee_transform = world.spawn();
-    world.attach(knee_transform, SpatialTransform {
-        joint: knee,
-        effects: vec![flex_effect, ap_translate],
-    });
+    world.attach(
+        knee_transform,
+        SpatialTransform {
+            joint: knee,
+            effects: vec![flex_effect, ap_translate],
+        },
+    );
 
     // ── Site (muscle attachment point) ──
     let asis = world.spawn();
-    world.attach(asis, Site {
-        parent: pelvis,
-        offset: Vec3::new(0.01, 0.02, 0.13),
-    });
+    world.attach(
+        asis,
+        Site {
+            parent: pelvis,
+            offset: Vec3::new(0.01, 0.02, 0.13),
+        },
+    );
 
     // ── Register and run validation systems ──
     let mut registry = SystemRegistry::new();
-    registry.add("validate_hinge", validate::validate_hinge);
-    registry.add("validate_slide", validate::validate_slide);
-    registry.add("validate_ball", validate::validate_ball);
-    registry.add("validate_free", validate::validate_free);
-    registry.add("validate_fixed", validate::validate_fixed);
-    registry.add("validate_universal", validate::validate_universal);
-    registry.add("validate_custom", validate::validate_custom);
-    registry.add("validate_coordinate", validate::validate_coordinate);
-    registry.add("validate_coordinate_effect", validate::validate_coordinate_effect);
-    registry.add("validate_spatial_transform", validate::validate_spatial_transform);
-    registry.add("validate_frame", validate::validate_frame);
-    registry.add("validate_site", validate::validate_site);
-    registry.add("validate_coordinate_actuator", validate::validate_coordinate_actuator);
+    registry.add("validate_hinge", |w| validate::validate_all::<HingeJoint>(w));
+    registry.add("validate_slide", |w| validate::validate_all::<SlideJoint>(w));
+    registry.add("validate_ball", |w| validate::validate_all::<BallJoint>(w));
+    registry.add("validate_free", |w| validate::validate_all::<FreeJoint>(w));
+    registry.add("validate_fixed", |w| validate::validate_all::<FixedJoint>(w));
+    registry.add("validate_universal", |w| validate::validate_all::<UniversalJoint>(w));
+    registry.add("validate_custom", |w| validate::validate_all::<CustomJoint>(w));
+    registry.add("validate_coordinate", |w| validate::validate_all::<JointCoordinate>(w));
+    registry.add("validate_coordinate_effect", |w| validate::validate_all::<CoordinateEffect>(w));
+    registry.add("validate_spatial_transform", |w| validate::validate_all::<SpatialTransform>(w));
+    registry.add("validate_frame", |w| validate::validate_all::<Frame>(w));
+    registry.add("validate_site", |w| validate::validate_all::<Site>(w));
+    registry.add("validate_coordinate_actuator", |w| validate::validate_all::<CoordinateActuator>(w));
     registry.add("print_errors", validate::print_errors);
     registry.run(&mut world);
 

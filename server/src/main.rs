@@ -1,13 +1,13 @@
-use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use axum::{
+    Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, State, Path},
+    extract::{DefaultBodyLimit, Path, State},
     http::StatusCode,
     response::Json,
     routing::{get, post},
-    Router,
 };
 use melosim::components::*;
 use melosim::math::{Quaternion, Vec3};
@@ -27,7 +27,10 @@ fn upload_root() -> PathBuf {
 }
 
 fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
-    (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: msg.into() }))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse { error: msg.into() }),
+    )
 }
 unsafe impl Send for SharedWorld {}
 unsafe impl Sync for SharedWorld {}
@@ -128,13 +131,13 @@ struct MeshInfo {
 /// Tries common extensions: .stl, .obj, .vtk, .vtp
 fn resolve_mesh_path(mesh_dir: &PathBuf, mesh_name: &str) -> Option<String> {
     let extensions = [".stl", ".obj", ".vtk", ".vtp", ".ply"];
-    
+
     // Try the name as-is first
     let path = mesh_dir.join(mesh_name);
     if path.exists() {
         return Some(mesh_name.to_string());
     }
-    
+
     // Try with extensions
     for ext in &extensions {
         let path_with_ext = mesh_dir.join(format!("{}{}", mesh_name, ext));
@@ -150,8 +153,11 @@ fn resolve_mesh_path(mesh_dir: &PathBuf, mesh_name: &str) -> Option<String> {
     // suffix of it; returns the path relative to mesh_dir.
     // ponytail: recursive scan per unresolved mesh, first match wins;
     // switch to an explicit asset->file map if collisions ever matter.
-    find_mesh_file(mesh_dir, mesh_name)
-        .and_then(|p| p.strip_prefix(mesh_dir).ok().map(|r| r.to_string_lossy().into_owned()))
+    find_mesh_file(mesh_dir, mesh_name).and_then(|p| {
+        p.strip_prefix(mesh_dir)
+            .ok()
+            .map(|r| r.to_string_lossy().into_owned())
+    })
 }
 
 fn find_mesh_file(dir: &std::path::Path, mesh_name: &str) -> Option<PathBuf> {
@@ -164,11 +170,15 @@ fn find_mesh_file(dir: &std::path::Path, mesh_name: &str) -> Option<PathBuf> {
         }
         let fname = entry.file_name().to_string_lossy().into_owned();
         let stem = fname.rsplit_once('.').map(|(s, _)| s).unwrap_or(&fname);
-        if stem == mesh_name || (mesh_name.len() > stem.len() && mesh_name.ends_with(&format!("_{stem}"))) {
+        if stem == mesh_name
+            || (mesh_name.len() > stem.len() && mesh_name.ends_with(&format!("_{stem}")))
+        {
             return Some(p);
         }
     }
-    subdirs.into_iter().find_map(|d| find_mesh_file(&d, mesh_name))
+    subdirs
+        .into_iter()
+        .find_map(|d| find_mesh_file(&d, mesh_name))
 }
 
 fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Scene {
@@ -180,7 +190,10 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
 
     // Bodies
     for (eid, inertial) in world.iter::<InertialProperties>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         let frame = world.get::<Frame>(eid);
         bodies.push(BodyInfo {
             id: eid.0,
@@ -189,9 +202,24 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
             com: inertial.com,
             parent_id: frame.map(|f| f.parent.0),
             transform: TransformInfo {
-                translation: frame.map(|f| [f.transform.translation.x, f.transform.translation.y, f.transform.translation.z])
+                translation: frame
+                    .map(|f| {
+                        [
+                            f.transform.translation.x,
+                            f.transform.translation.y,
+                            f.transform.translation.z,
+                        ]
+                    })
                     .unwrap_or([0.0; 3]),
-                rotation: frame.map(|f| [f.transform.rotation.w, f.transform.rotation.x, f.transform.rotation.y, f.transform.rotation.z])
+                rotation: frame
+                    .map(|f| {
+                        [
+                            f.transform.rotation.w,
+                            f.transform.rotation.x,
+                            f.transform.rotation.y,
+                            f.transform.rotation.z,
+                        ]
+                    })
                     .unwrap_or([1.0, 0.0, 0.0, 0.0]),
             },
         });
@@ -199,7 +227,10 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
 
     // Joints
     for (eid, hinge) in world.iter::<HingeJoint>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         joints.push(JointInfo {
             id: eid.0,
             name,
@@ -207,11 +238,17 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
             body_a: hinge.body_a.0,
             body_b: hinge.body_b.0,
             axis: Some(hinge.axis),
-            limits: hinge.limits.as_ref().map(|l| LimitInfo { lower: l.lower, upper: l.upper }),
+            limits: hinge.limits.as_ref().map(|l| LimitInfo {
+                lower: l.lower,
+                upper: l.upper,
+            }),
         });
     }
     for (eid, slide) in world.iter::<SlideJoint>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         joints.push(JointInfo {
             id: eid.0,
             name,
@@ -219,11 +256,17 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
             body_a: slide.body_a.0,
             body_b: slide.body_b.0,
             axis: Some(slide.axis),
-            limits: slide.limits.as_ref().map(|l| LimitInfo { lower: l.lower, upper: l.upper }),
+            limits: slide.limits.as_ref().map(|l| LimitInfo {
+                lower: l.lower,
+                upper: l.upper,
+            }),
         });
     }
     for (eid, ball) in world.iter::<BallJoint>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         joints.push(JointInfo {
             id: eid.0,
             name,
@@ -231,11 +274,17 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
             body_a: ball.body_a.0,
             body_b: ball.body_b.0,
             axis: None,
-            limits: ball.limits.as_ref().map(|l| LimitInfo { lower: l.lower, upper: l.upper }),
+            limits: ball.limits.as_ref().map(|l| LimitInfo {
+                lower: l.lower,
+                upper: l.upper,
+            }),
         });
     }
     for (eid, free) in world.iter::<FreeJoint>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         joints.push(JointInfo {
             id: eid.0,
             name,
@@ -249,7 +298,10 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
 
     // Muscles
     for (eid, _muscle) in world.iter::<Muscle>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         let params = world.get::<Millard2012Params>(eid);
         muscles.push(MuscleInfo {
             id: eid.0,
@@ -263,17 +315,23 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
     // Muscle paths
     let mut muscle_paths = Vec::new();
     for (_eid, path) in world.iter::<MusclePath>() {
-        let muscle_name = world.get::<Name>(path.muscle)
+        let muscle_name = world
+            .get::<Name>(path.muscle)
             .map(|n| n.value.clone())
             .unwrap_or_default();
-        let points: Vec<MusclePathPoint> = path.points.iter().filter_map(|p| {
-            match p {
-                PathPoint::BodyFixed { body, location } => {
-                    Some(MusclePathPoint { body: body.0, location: *location })
+        let points: Vec<MusclePathPoint> = path
+            .points
+            .iter()
+            .filter_map(|p| {
+                match p {
+                    PathPoint::BodyFixed { body, location } => Some(MusclePathPoint {
+                        body: body.0,
+                        location: *location,
+                    }),
+                    _ => None, // Skip Moving points for now
                 }
-                _ => None, // Skip Moving points for now
-            }
-        }).collect();
+            })
+            .collect();
         if !points.is_empty() {
             muscle_paths.push(MusclePathInfo {
                 muscle_id: path.muscle.0,
@@ -285,7 +343,10 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
 
     // Sites
     for (eid, site) in world.iter::<Site>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         sites.push(SiteInfo {
             id: eid.0,
             name,
@@ -299,9 +360,12 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
         if let Some(ref mesh_name) = geom.mesh_file {
             // Try to resolve mesh name to actual file
             if let Some(resolved_path) = resolve_mesh_path(mesh_dir, mesh_name) {
-                let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+                let name = world
+                    .get::<Name>(eid)
+                    .map(|n| n.value.clone())
+                    .unwrap_or_default();
                 let url = format!("{}/{}", mesh_base_url, resolved_path);
-                
+
                 meshes.push(MeshInfo {
                     id: eid.0,
                     name,
@@ -329,18 +393,36 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
 
     // Also include MeshGeometry components
     for (eid, mesh_geom) in world.iter::<MeshGeometry>() {
-        let name = world.get::<Name>(eid).map(|n| n.value.clone()).unwrap_or_default();
+        let name = world
+            .get::<Name>(eid)
+            .map(|n| n.value.clone())
+            .unwrap_or_default();
         let frame = world.get::<Frame>(eid);
         let url = format!("{}/{}", mesh_base_url, mesh_geom.mesh);
-        
+
         meshes.push(MeshInfo {
             id: eid.0,
             name,
             parent: frame.map(|f| f.parent.0).unwrap_or(0),
             path: mesh_geom.mesh.clone(),
-            offset: frame.map(|f| [f.transform.translation.x, f.transform.translation.y, f.transform.translation.z])
+            offset: frame
+                .map(|f| {
+                    [
+                        f.transform.translation.x,
+                        f.transform.translation.y,
+                        f.transform.translation.z,
+                    ]
+                })
                 .unwrap_or([0.0; 3]),
-            rotation: frame.map(|f| [f.transform.rotation.w, f.transform.rotation.x, f.transform.rotation.y, f.transform.rotation.z])
+            rotation: frame
+                .map(|f| {
+                    [
+                        f.transform.rotation.w,
+                        f.transform.rotation.x,
+                        f.transform.rotation.y,
+                        f.transform.rotation.z,
+                    ]
+                })
                 .unwrap_or([1.0, 0.0, 0.0, 0.0]),
             url,
             scale: [1.0; 3],
@@ -362,50 +444,6 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
 
 // ── Request / response types ──────────────────────────
 
-#[derive(Deserialize)]
-struct AttachMeshRequest {
-    parent_id: u32,
-    mesh_path: String,
-    name: String,
-    #[serde(default)]
-    offset: [f64; 3],
-}
-
-#[derive(Deserialize)]
-struct AttachBodyRequest {
-    parent_id: u32,
-    name: String,
-    #[serde(default)]
-    mass: f64,
-    #[serde(default)]
-    offset: [f64; 3],
-}
-
-#[derive(Deserialize)]
-struct BodyBuilderRequest {
-    parent_name: String,
-    #[serde(default)]
-    name: String,
-    mesh: Option<String>,
-    #[serde(default)]
-    mass: f64,
-    #[serde(default)]
-    offset: [f64; 3],
-    #[serde(default = "default_rotation")]
-    rotation: [f64; 4],
-    display_color: Option<[f64; 3]>,
-    #[serde(default = "default_opacity")]
-    display_opacity: f64,
-}
-
-fn default_rotation() -> [f64; 4] {
-    [1.0, 0.0, 0.0, 0.0]
-}
-
-fn default_opacity() -> f64 {
-    1.0
-}
-
 #[derive(Serialize)]
 struct EntityResponse {
     entity_id: u32,
@@ -421,64 +459,11 @@ struct ErrorResponse {
 async fn get_scene(State(state): State<AppState>) -> Json<Scene> {
     let world = state.world.lock().unwrap();
     let mesh_base_url = "/meshes";
-    Json(world_to_scene(&world, mesh_base_url, &state.mesh_dir.lock().unwrap()))
-}
-
-async fn post_attach_mesh(
-    State(state): State<AppState>,
-    Json(req): Json<AttachMeshRequest>,
-) -> Result<Json<EntityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.world.lock().unwrap();
-    let parent = melosim::id::EntityID(req.parent_id);
-    let offset = Vec3::from(req.offset);
-    let eid = world.attach_mesh(parent, &req.mesh_path, &req.name, offset);
-    Ok(Json(EntityResponse { entity_id: eid.0 }))
-}
-
-async fn post_attach_body(
-    State(state): State<AppState>,
-    Json(req): Json<AttachBodyRequest>,
-) -> Result<Json<EntityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.world.lock().unwrap();
-    let parent = melosim::id::EntityID(req.parent_id);
-    let offset = Vec3::from(req.offset);
-    let eid = world.attach_body(parent, &req.name, req.mass, offset);
-    Ok(Json(EntityResponse { entity_id: eid.0 }))
-}
-
-async fn post_body_builder(
-    State(state): State<AppState>,
-    Json(req): Json<BodyBuilderRequest>,
-) -> Result<Json<EntityResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let mut world = state.world.lock().unwrap();
-    let mut builder = world.body_builder(&req.parent_name)
-        .name(&req.name)
-        .mass(req.mass)
-        .offset(Vec3::from(req.offset))
-        .rotation(Quaternion {
-            w: req.rotation[0],
-            x: req.rotation[1],
-            y: req.rotation[2],
-            z: req.rotation[3],
-        })
-        .opacity(req.display_opacity);
-
-    if let Some(ref mesh) = req.mesh {
-        builder = builder.mesh(mesh);
-    }
-    if let Some(color) = req.display_color {
-        builder = builder.color(color);
-    }
-
-    match builder.build(&mut world) {
-        Some(eid) => Ok(Json(EntityResponse { entity_id: eid.0 })),
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Parent '{}' not found", req.parent_name),
-            }),
-        )),
-    }
+    Json(world_to_scene(
+        &world,
+        mesh_base_url,
+        &state.mesh_dir.lock().unwrap(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -492,7 +477,7 @@ async fn post_import(
     Json(req): Json<ImportRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let mut world = state.world.lock().unwrap();
-    
+
     let imported = match req.format.as_str() {
         "mjcf" => melosim::importer::mujoco::import_mjcf(&req.path)
             .map_err(|e| {
@@ -562,7 +547,9 @@ async fn post_upload(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let rel_path = std::path::Path::new(&rel);
     if rel_path.is_absolute()
-        || rel_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+        || rel_path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
     {
         return Err(bad_request("Invalid path"));
     }
@@ -582,11 +569,11 @@ async fn serve_mesh(
 ) -> Result<Vec<u8>, (StatusCode, String)> {
     let mesh_dir = state.mesh_dir.lock().unwrap();
     let file_path = mesh_dir.join(&path);
-    
+
     if path.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".into()));
     }
-    
+
     match std::fs::read(&file_path) {
         Ok(data) => Ok(data),
         Err(e) => Err((StatusCode::NOT_FOUND, format!("Mesh not found: {}", e))),
@@ -600,7 +587,7 @@ async fn main() {
     let mesh_dir = std::env::var("MESH_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("meshes"));
-    
+
     let world = World::new();
     let state: AppState = Arc::new(SharedWorld {
         world: Mutex::new(world),
@@ -616,11 +603,11 @@ async fn main() {
 
     let app = Router::new()
         .route("/scene", get(get_scene))
-        .route("/attach_mesh", post(post_attach_mesh))
-        .route("/attach_body", post(post_attach_body))
-        .route("/body_builder", post(post_body_builder))
         .route("/import", post(post_import))
-        .route("/upload/{*path}", post(post_upload).layer(DefaultBodyLimit::disable()))
+        .route(
+            "/upload/{*path}",
+            post(post_upload).layer(DefaultBodyLimit::disable()),
+        )
         .route("/meshes/{*path}", get(serve_mesh))
         .fallback_service(tower_http::services::ServeDir::new(&static_dir))
         .layer(cors)
@@ -629,7 +616,10 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("0.0.0.0:{port}");
     println!("melosim-server listening on {addr}");
-    println!("Mesh directory: {:?}", std::env::var("MESH_DIR").unwrap_or_else(|_| "meshes".into()));
+    println!(
+        "Mesh directory: {:?}",
+        std::env::var("MESH_DIR").unwrap_or_else(|_| "meshes".into())
+    );
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

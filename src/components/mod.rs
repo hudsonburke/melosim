@@ -21,3 +21,15 @@ pub use name::*;
 pub use path::*;
 pub use tendon::*;
 pub use wrap::*;
+
+use crate::id::EntityID;
+use crate::world::World;
+
+/// Validation trait for components that have invariants.
+///
+/// Implement this on a component to define its validation rules.
+/// The generic `validate_all::<T>()` function iterates all instances
+/// and collects errors into the world's error resource.
+pub trait Validate {
+    fn validate(&self, entity: EntityID, world: &World) -> Vec<String>;
+}
