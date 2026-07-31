@@ -318,57 +318,119 @@ fn emit_body_recursive(
 fn emit_body_joints(world: &World, xml: &mut String, body: EntityID, indent: usize) {
     let ind = "  ".repeat(indent + 1);
 
-    // HingeJoint
-    for (key, hinge) in world.iter::<HingeJoint>() {
-        if hinge.body_b == body {
-            let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
-            xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"{} {} {}\"",
-                ind, escape_attr(name), hinge.axis[0], hinge.axis[1], hinge.axis[2]));
-            if let Some(ref lim) = hinge.limits {
-                xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+    for (key, joint) in world.iter::<Joint>() {
+        if joint.body_b != body {
+            continue;
+        }
+        let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
+
+        // Extract axis from the first RotationAboutAxis or TranslationAlongAxis effect
+        let axis = extract_joint_axis(world, key);
+
+        match joint.joint_type {
+            "PinJoint" => {
+                xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"{} {} {}\"",
+                    ind, escape_attr(name), axis[0], axis[1], axis[2]));
+                if let Some(ref lim) = joint.limits {
+                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                }
+                append_joint_dynamics(world, xml, key);
+                xml.push_str("/>\n");
             }
-            // Add damping/stiffness from coordinate if available
-            append_joint_dynamics(world, xml, key);
-            xml.push_str("/>\n");
-        }
-    }
-
-    // SlideJoint
-    for (key, slide) in world.iter::<SlideJoint>() {
-        if slide.body_b == body {
-            let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
-            xml.push_str(&format!("{}<joint name=\"{}\" type=\"slide\" axis=\"{} {} {}\"",
-                ind, escape_attr(name), slide.axis[0], slide.axis[1], slide.axis[2]));
-            if let Some(ref lim) = slide.limits {
-                xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+            "SlideJoint" => {
+                xml.push_str(&format!("{}<joint name=\"{}\" type=\"slide\" axis=\"{} {} {}\"",
+                    ind, escape_attr(name), axis[0], axis[1], axis[2]));
+                if let Some(ref lim) = joint.limits {
+                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                }
+                append_joint_dynamics(world, xml, key);
+                xml.push_str("/>\n");
             }
-            append_joint_dynamics(world, xml, key);
-            xml.push_str("/>\n");
-        }
-    }
-
-    // BallJoint
-    for (key, ball) in world.iter::<BallJoint>() {
-        if ball.body_b == body {
-            let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
-            xml.push_str(&format!("{}<joint name=\"{}\" type=\"ball\"", ind, escape_attr(name)));
-            if let Some(ref lim) = ball.limits {
-                xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+            "BallJoint" => {
+                xml.push_str(&format!("{}<joint name=\"{}\" type=\"ball\"", ind, escape_attr(name)));
+                if let Some(ref lim) = joint.limits {
+                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                }
+                xml.push_str("/>\n");
             }
-            xml.push_str("/>\n");
+            "FreeJoint" => {
+                xml.push_str(&format!("{}<freejoint name=\"{}\"/>\n", ind, escape_attr(name)));
+            }
+            "WeldJoint" => {
+                // MuJoCo has no explicit fixed joint — bodies without joints are fixed
+            }
+            "UniversalJoint" => {
+                // Emit two hinge joints for the two axes
+                let axis2 = extract_joint_axis2(world, key);
+                xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"{} {} {}\"",
+                    ind, escape_attr(name), axis[0], axis[1], axis[2]));
+                if let Some(ref lim) = joint.limits {
+                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                }
+                xml.push_str("/>\n");
+                xml.push_str(&format!("{}<joint name=\"{}_2\" type=\"hinge\" axis=\"{} {} {}\"/>\n",
+                    ind, escape_attr(name), axis2[0], axis2[1], axis2[2]));
+            }
+            "CustomJoint" => {
+                // One hinge per coordinate
+                for (i, coord_key) in joint.coordinates.iter().enumerate() {
+                    let coord_name = world.get::<Name>(*coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
+                    if i == 0 {
+                        xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"0 0 1\"",
+                            ind, escape_attr(coord_name)));
+                    } else {
+                        xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"0 0 1\"",
+                            ind, escape_attr(coord_name)));
+                    }
+                    xml.push_str("/>\n");
+                }
+            }
+            _ => {}
         }
     }
+}
 
-    // FreeJoint
-    for (key, free) in world.iter::<FreeJoint>() {
-        if free.body_b == body {
-            let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
-            xml.push_str(&format!("{}<freejoint name=\"{}\"/>\n", ind, escape_attr(name)));
+/// Extract the axis from a joint's first RotationAboutAxis or TranslationAlongAxis effect.
+fn extract_joint_axis(world: &World, joint_key: EntityID) -> [f64; 3] {
+    for (_st_key, st) in world.iter::<SpatialTransform>() {
+        if st.joint == joint_key {
+            for effect_key in &st.effects {
+                if let Some(effect) = world.get::<CoordinateEffect>(*effect_key) {
+                    match &effect.component {
+                        TransformComponent::RotationAboutAxis(axis)
+                        | TransformComponent::TranslationAlongAxis(axis) => {
+                            return *axis;
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
     }
+    [0.0, 0.0, 1.0] // default
+}
 
-    // FixedJoint (MuJoCo has no explicit fixed joint — bodies without joints are fixed)
-    // No-op: just don't emit a joint element.
+/// Extract the second axis from a joint's effects (for UniversalJoint).
+fn extract_joint_axis2(world: &World, joint_key: EntityID) -> [f64; 3] {
+    let mut found_first = false;
+    for (_st_key, st) in world.iter::<SpatialTransform>() {
+        if st.joint == joint_key {
+            for effect_key in &st.effects {
+                if let Some(effect) = world.get::<CoordinateEffect>(*effect_key) {
+                    match &effect.component {
+                        TransformComponent::RotationAboutAxis(axis) => {
+                            if found_first {
+                                return *axis;
+                            }
+                            found_first = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    [0.0, 1.0, 0.0] // default
 }
 
 /// Append stiffness/damping from JointCoordinate if available.

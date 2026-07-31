@@ -172,34 +172,9 @@ fn emit_body_joints(
     body: EntityID,
     indent: &str,
 ) {
-    let joints: Vec<(EntityID, String)> = world.iter::<HingeJoint>()
+    let joints: Vec<(EntityID, String)> = world.iter::<Joint>()
         .filter(|(_, j)| j.body_b == body)
         .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
-        .chain(
-            world.iter::<SlideJoint>()
-                .filter(|(_, j)| j.body_b == body)
-                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
-        )
-        .chain(
-            world.iter::<BallJoint>()
-                .filter(|(_, j)| j.body_b == body)
-                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
-        )
-        .chain(
-            world.iter::<FreeJoint>()
-                .filter(|(_, j)| j.body_b == body)
-                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
-        )
-        .chain(
-            world.iter::<UniversalJoint>()
-                .filter(|(_, j)| j.body_b == body)
-                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
-        )
-        .chain(
-            world.iter::<CustomJoint>()
-                .filter(|(_, j)| j.body_b == body)
-                .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
-        )
         .collect();
 
     for (_, element) in joints {

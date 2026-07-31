@@ -26,7 +26,7 @@ fn test_mjspec_import() {
         .expect("Failed to import myoelbow via MjSpec");
 
     let n_bodies = world.count::<melosim::components::InertialProperties>();
-    let n_hinge = world.count::<melosim::components::HingeJoint>();
+    let n_hinge = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count();
     let n_sites = world.count::<melosim::components::Site>();
     let n_muscles = world.count::<melosim::components::Muscle>();
     let n_paths = world.count::<melosim::components::MusclePath>();
@@ -78,8 +78,8 @@ fn test_mjspec_lossless_roundtrip() {
         "Body count mismatch after roundtrip"
     );
     assert_eq!(
-        world.count::<melosim::components::HingeJoint>(),
-        world2.count::<melosim::components::HingeJoint>(),
+        world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count(),
+        world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count(),
         "Hinge joint count mismatch"
     );
     assert_eq!(

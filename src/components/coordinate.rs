@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single degree of freedom (generalized coordinate).
 ///
-/// Coordinates are separate entities referenced by CustomJoints
+/// Coordinates are separate entities referenced by Joints
 /// and CoordinateEffects. This allows independent iteration
 /// (e.g., "find all locked coordinates") without touching every joint.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,12 +20,12 @@ pub struct JointCoordinate {
 
 /// Defines how a coordinate affects one component of a spatial transform.
 ///
-/// A CustomJoint's full spatial transform is the composition of all
+/// A Joint's full spatial transform is the composition of all
 /// CoordinateEffects on that joint's coordinates, evaluated at the
-/// current coordinate values. Each effect drives one of the six
-/// transform components (3 rotation, 3 translation).
+/// current coordinate values. Each effect drives one of the transform
+/// components (rotation/translation about axes).
 ///
-/// Example: a knee CustomJoint where flexion (coord0) drives:
+/// Example: a knee Joint where flexion (coord0) drives:
 ///   - RotationY → knee flexion angle (linear, slope=-1.0)
 ///   - TranslationX → coupled AP translation (polynomial)
 ///   - TranslationZ → coupled vertical translation (polynomial)
@@ -43,7 +43,10 @@ pub struct CoordinateEffect {
     pub function: JointFunction,
 }
 
-/// Which of the 6 spatial transform components a CoordinateEffect drives.
+/// Which transform components a CoordinateEffect drives.
+///
+/// Includes the original 6 axis-aligned components plus
+/// arbitrary-axis rotation/translation for general joints.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TransformComponent {
     RotationX,
@@ -52,6 +55,10 @@ pub enum TransformComponent {
     TranslationX,
     TranslationY,
     TranslationZ,
+    /// Rotation about an arbitrary axis [x, y, z].
+    RotationAboutAxis([f64; 3]),
+    /// Translation along an arbitrary axis [x, y, z].
+    TranslationAlongAxis([f64; 3]),
 }
 
 /// Functions that map coordinate values to spatial transform components.
@@ -72,7 +79,7 @@ pub enum JointFunction {
     Polynomial { coefficients: Vec<f64> },
 }
 
-/// Groups the CoordinateEffects that define a CustomJoint's spatial transform.
+/// Groups the CoordinateEffects that define a Joint's spatial transform.
 ///
 /// A convenience grouping — the actual data lives in CoordinateEffect components.
 /// OpenSim's CustomJoint spatial transform has exactly 6 transform components:
@@ -88,7 +95,7 @@ pub struct SpatialTransform {
 
 // ── Validation ────────────────────────────────────────
 
-use super::{CustomJoint, HingeJoint, UniversalJoint, Validate};
+use super::{Joint, Validate};
 use crate::systems::{System, check_exists, check_has, validate_all};
 use crate::world::World;
 

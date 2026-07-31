@@ -38,7 +38,7 @@ fn test_myoelbow_import() {
 
     // ── Joints ──
     // 1 hinge joint: r_elbow_flex
-    let n_hinge = world.count::<melosim::components::HingeJoint>();
+    let n_hinge = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count();
     println!("Hinge joints: {}", n_hinge);
     assert_eq!(n_hinge, 1, "Expected 1 hinge joint (r_elbow_flex)");
 

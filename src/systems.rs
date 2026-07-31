@@ -61,7 +61,7 @@ pub fn check_exists(
 }
 
 /// Check that a referenced entity exists AND has component T.
-/// Use for: HingeJoint.body_a (needs InertialProperties), etc.
+/// Use for: Joint.body_a (needs InertialProperties), etc.
 pub fn check_has<T: 'static>(
     world: &World,
     entity: EntityID,

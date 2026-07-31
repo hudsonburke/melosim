@@ -25,10 +25,10 @@ fn test_myohand_mjspec_roundtrip() {
         .expect("Failed to import myoHand via MjSpec");
 
     let n_bodies = world.count::<melosim::components::InertialProperties>();
-    let n_hinge = world.count::<melosim::components::HingeJoint>();
-    let n_slide = world.count::<melosim::components::SlideJoint>();
-    let n_ball = world.count::<melosim::components::BallJoint>();
-    let n_free = world.count::<melosim::components::FreeJoint>();
+    let n_hinge = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count();
+    let n_slide = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "SlideJoint").count();
+    let n_ball = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "BallJoint").count();
+    let n_free = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "FreeJoint").count();
     let n_sites = world.count::<melosim::components::Site>();
     let n_geoms = world.count::<melosim::components::DisplayGeometry>();
     let n_muscles = world.count::<melosim::components::Muscle>();
@@ -65,8 +65,8 @@ fn test_myohand_mjspec_roundtrip() {
         "Body count mismatch"
     );
     assert_eq!(
-        world.count::<melosim::components::HingeJoint>(),
-        world2.count::<melosim::components::HingeJoint>(),
+        world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count(),
+        world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count(),
         "Hinge count mismatch"
     );
     assert_eq!(
@@ -92,10 +92,10 @@ fn test_myoleg_mjspec_roundtrip() {
         .expect("Failed to import myoLeg via MjSpec");
 
     let n_bodies = world.count::<melosim::components::InertialProperties>();
-    let n_hinge = world.count::<melosim::components::HingeJoint>();
-    let n_slide = world.count::<melosim::components::SlideJoint>();
-    let n_ball = world.count::<melosim::components::BallJoint>();
-    let n_free = world.count::<melosim::components::FreeJoint>();
+    let n_hinge = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count();
+    let n_slide = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "SlideJoint").count();
+    let n_ball = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "BallJoint").count();
+    let n_free = world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "FreeJoint").count();
     let n_sites = world.count::<melosim::components::Site>();
     let n_geoms = world.count::<melosim::components::DisplayGeometry>();
     let n_muscles = world.count::<melosim::components::Muscle>();

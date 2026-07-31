@@ -1,5 +1,4 @@
 use melosim::components::*;
-// use melosim::id::EntityID;
 use melosim::math::{Transform, Vec3};
 use melosim::systems;
 use melosim::world::World;
@@ -82,49 +81,33 @@ fn main() {
         },
     );
 
-    // ── Simple joints ──
-    let pelvis_free = world.spawn();
-    world.attach(
-        pelvis_free,
-        FreeJoint {
-            body_a: ground,
-            body_b: pelvis,
-            limits: None,
-        },
-    );
+    // ── Simple joints using convenience builders ──
+    let _pelvis_free = world.add_free(ground, pelvis, None);
 
-    let hip = world.spawn();
-    world.attach(
-        hip,
-        HingeJoint {
-            body_a: pelvis,
-            body_b: femur,
-            limits: Some(JointLimits {
-                lower: -2.0,
-                upper: 0.5,
-            }),
-            axis: [1.0, 0.0, 0.0],
-        },
+    let _hip = world.add_hinge(
+        pelvis,
+        femur,
+        [1.0, 0.0, 0.0],
+        Some(JointLimits {
+            lower: -2.0,
+            upper: 0.5,
+        }),
     );
 
     // ── UniversalJoint (e.g., lumbar spine) ──
-    let lumbar = world.spawn();
-    world.attach(
-        lumbar,
-        UniversalJoint {
-            body_a: pelvis,
-            body_b: femur,
-            limits: Some(JointLimits {
-                lower: -0.5,
-                upper: 0.5,
-            }),
-            axis1: [1.0, 0.0, 0.0],
-            axis2: [0.0, 1.0, 0.0],
-        },
+    let _lumbar = world.add_universal(
+        pelvis,
+        femur,
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        Some(JointLimits {
+            lower: -0.5,
+            upper: 0.5,
+        }),
     );
 
     // ── CustomJoint (e.g., knee with coupled motion) ──
-    // 1. Create coordinate entities
+    // 1. Create coordinate entity
     let knee_flexion = world.spawn();
     world.attach(
         knee_flexion,
@@ -146,16 +129,12 @@ fn main() {
         },
     );
 
-    // 2. Create the CustomJoint referencing those coordinates
-    let knee = world.spawn();
-    world.attach(
-        knee,
-        CustomJoint {
-            body_a: femur,
-            body_b: pelvis,
-            limits: None,
-            coordinates: vec![knee_flexion],
-        },
+    // 2. Create the Joint referencing those coordinates
+    let knee = world.add_custom(
+        femur,
+        pelvis,
+        vec![knee_flexion],
+        None,
     );
 
     // 3. Create CoordinateEffects mapping coordinates to transform components
@@ -187,9 +166,9 @@ fn main() {
     );
 
     // 4. Create SpatialTransform grouping the effects
-    let knee_transform = world.spawn();
+    let _knee_transform = world.spawn();
     world.attach(
-        knee_transform,
+        _knee_transform,
         SpatialTransform {
             joint: knee,
             effects: vec![flex_effect, ap_translate],
@@ -197,9 +176,9 @@ fn main() {
     );
 
     // ── Site (muscle attachment point) ──
-    let asis = world.spawn();
+    let _asis = world.spawn();
     world.attach(
-        asis,
+        _asis,
         Site {
             parent: pelvis,
             offset: Vec3::new(0.01, 0.02, 0.13),

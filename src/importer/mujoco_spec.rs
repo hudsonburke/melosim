@@ -194,12 +194,6 @@ fn import_body_joints(
 
         match jnt_type {
             MjtJoint::mjJNT_HINGE => {
-                world.attach(joint_entity, HingeJoint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
-                    limits,
-                    axis,
-                });
                 // Create coordinate entity
                 let coord_entity = world.spawn();
                 world.attach(coord_entity, Name { value: jnt_name });
@@ -213,14 +207,33 @@ fn import_body_joints(
                     locked: false,
                     prescribed_function: None,
                 });
-            }
-            MjtJoint::mjJNT_SLIDE => {
-                world.attach(joint_entity, SlideJoint {
+
+                // Create CoordinateEffect: rotation about the hinge axis
+                let effect_entity = world.spawn();
+                world.attach(effect_entity, CoordinateEffect {
+                    coordinate: coord_entity,
+                    joint: joint_entity,
+                    component: TransformComponent::RotationAboutAxis(axis),
+                    function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+                });
+
+                // Create SpatialTransform
+                let st_entity = world.spawn();
+                world.attach(st_entity, SpatialTransform {
+                    joint: joint_entity,
+                    effects: vec![effect_entity],
+                });
+
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
                     body_a: parent_entity,
                     body_b: child_entity,
                     limits,
-                    axis,
+                    joint_type: "PinJoint",
+                    coordinates: vec![coord_entity],
                 });
+            }
+            MjtJoint::mjJNT_SLIDE => {
                 let coord_entity = world.spawn();
                 world.attach(coord_entity, Name { value: jnt_name });
                 world.attach(coord_entity, JointCoordinate {
@@ -233,19 +246,50 @@ fn import_body_joints(
                     locked: false,
                     prescribed_function: None,
                 });
-            }
-            MjtJoint::mjJNT_BALL => {
-                world.attach(joint_entity, BallJoint {
+
+                // Create CoordinateEffect: translation along the slide axis
+                let effect_entity = world.spawn();
+                world.attach(effect_entity, CoordinateEffect {
+                    coordinate: coord_entity,
+                    joint: joint_entity,
+                    component: TransformComponent::TranslationAlongAxis(axis),
+                    function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+                });
+
+                // Create SpatialTransform
+                let st_entity = world.spawn();
+                world.attach(st_entity, SpatialTransform {
+                    joint: joint_entity,
+                    effects: vec![effect_entity],
+                });
+
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
                     body_a: parent_entity,
                     body_b: child_entity,
                     limits,
+                    joint_type: "SlideJoint",
+                    coordinates: vec![coord_entity],
+                });
+            }
+            MjtJoint::mjJNT_BALL => {
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
+                    body_a: parent_entity,
+                    body_b: child_entity,
+                    limits,
+                    joint_type: "BallJoint",
+                    coordinates: vec![],
                 });
             }
             MjtJoint::mjJNT_FREE => {
-                world.attach(joint_entity, FreeJoint {
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
                     body_a: parent_entity,
                     body_b: child_entity,
-                    limits,
+                    limits: None,
+                    joint_type: "FreeJoint",
+                    coordinates: vec![],
                 });
             }
         }

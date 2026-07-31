@@ -134,12 +134,6 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
 
         match jnt_type {
             mjtJoint_::mjJNT_HINGE => {
-                world.attach(joint_entity, HingeJoint {
-                    body_a,
-                    body_b,
-                    limits,
-                    axis: axis_arr,
-                });
                 // Create a coordinate entity for the hinge DOF
                 let coord_entity = world.spawn();
                 let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
@@ -156,14 +150,33 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
                     prescribed_function: None,
                 });
                 coord_map.insert(j as i32, coord_entity);
-            }
-            mjtJoint_::mjJNT_SLIDE => {
-                world.attach(joint_entity, SlideJoint {
+
+                // Create CoordinateEffect: rotation about the hinge axis
+                let effect_entity = world.spawn();
+                world.attach(effect_entity, CoordinateEffect {
+                    coordinate: coord_entity,
+                    joint: joint_entity,
+                    component: TransformComponent::RotationAboutAxis(axis_arr),
+                    function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+                });
+
+                // Create SpatialTransform
+                let st_entity = world.spawn();
+                world.attach(st_entity, SpatialTransform {
+                    joint: joint_entity,
+                    effects: vec![effect_entity],
+                });
+
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
                     body_a,
                     body_b,
                     limits,
-                    axis: axis_arr,
+                    joint_type: "PinJoint",
+                    coordinates: vec![coord_entity],
                 });
+            }
+            mjtJoint_::mjJNT_SLIDE => {
                 let coord_entity = world.spawn();
                 let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
                     .unwrap_or("unnamed_coord");
@@ -179,19 +192,50 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
                     prescribed_function: None,
                 });
                 coord_map.insert(j as i32, coord_entity);
-            }
-            mjtJoint_::mjJNT_BALL => {
-                world.attach(joint_entity, BallJoint {
+
+                // Create CoordinateEffect: translation along the slide axis
+                let effect_entity = world.spawn();
+                world.attach(effect_entity, CoordinateEffect {
+                    coordinate: coord_entity,
+                    joint: joint_entity,
+                    component: TransformComponent::TranslationAlongAxis(axis_arr),
+                    function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+                });
+
+                // Create SpatialTransform
+                let st_entity = world.spawn();
+                world.attach(st_entity, SpatialTransform {
+                    joint: joint_entity,
+                    effects: vec![effect_entity],
+                });
+
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
                     body_a,
                     body_b,
                     limits,
+                    joint_type: "SlideJoint",
+                    coordinates: vec![coord_entity],
+                });
+            }
+            mjtJoint_::mjJNT_BALL => {
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
+                    body_a,
+                    body_b,
+                    limits,
+                    joint_type: "BallJoint",
+                    coordinates: vec![],
                 });
             }
             mjtJoint_::mjJNT_FREE => {
-                world.attach(joint_entity, FreeJoint {
+                // Create the unified Joint
+                world.attach(joint_entity, Joint {
                     body_a,
                     body_b,
-                    limits,
+                    limits: None,
+                    joint_type: "FreeJoint",
+                    coordinates: vec![],
                 });
             }
             // All four MuJoCo joint types are handled above.
