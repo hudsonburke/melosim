@@ -22,18 +22,12 @@ pub struct CoordinateActuator {
 
 use super::{Validate, JointCoordinate};
 use crate::world::World;
-use crate::systems::{System, validate_all};
+use crate::systems::{System, validate_all, check_has};
 
 impl Validate for CoordinateActuator {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        if world.get::<JointCoordinate>(self.coordinate).is_none() {
-            vec![format!(
-                "{:?} CoordinateActuator references missing coordinate {:?}",
-                entity.0, self.coordinate.0
-            )]
-        } else {
-            Vec::new()
-        }
+        check_has::<JointCoordinate>(world, entity, "coordinate", self.coordinate)
+            .into_iter().collect()
     }
 }
 

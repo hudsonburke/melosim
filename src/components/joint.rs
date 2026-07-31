@@ -91,26 +91,18 @@ pub struct CustomJoint {
 
 // ── Validation ────────────────────────────────────────
 
-use super::{Validate, InertialProperties};
+use super::{Validate, Frame};
 use crate::world::World;
-use crate::systems::{System, validate_all};
-
-fn check_body(world: &World, entity: EntityID, label: &str, body: EntityID) -> Option<String> {
-    if world.get::<InertialProperties>(body).is_none() {
-        Some(format!("{:?} {} references missing body {:?}", entity.0, label, body.0))
-    } else {
-        None
-    }
-}
+use crate::systems::{System, validate_all, check_has};
 
 macro_rules! impl_validate_body_refs {
     ($ty:ident) => {
         impl Validate for $ty {
             fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-                let mut e = Vec::new();
-                if let Some(err) = check_body(world, entity, "body_a", self.body_a) { e.push(err); }
-                if let Some(err) = check_body(world, entity, "body_b", self.body_b) { e.push(err); }
-                e
+                [
+                    check_has::<Frame>(world, entity, "body_a", self.body_a),
+                    check_has::<Frame>(world, entity, "body_b", self.body_b),
+                ].into_iter().flatten().collect()
             }
         }
     };
@@ -125,15 +117,13 @@ impl_validate_body_refs!(UniversalJoint);
 
 impl Validate for CustomJoint {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        let mut e = Vec::new();
-        if let Some(err) = check_body(world, entity, "body_a", self.body_a) { e.push(err); }
-        if let Some(err) = check_body(world, entity, "body_b", self.body_b) { e.push(err); }
+        let mut e: Vec<String> = [
+            check_has::<Frame>(world, entity, "body_a", self.body_a),
+            check_has::<Frame>(world, entity, "body_b", self.body_b),
+        ].into_iter().flatten().collect();
         for (i, coord_key) in self.coordinates.iter().enumerate() {
-            if world.get::<super::JointCoordinate>(*coord_key).is_none() {
-                e.push(format!(
-                    "{:?} CustomJoint coordinate[{}] {:?} references missing JointCoordinate",
-                    entity.0, i, coord_key.0
-                ));
+            if let Some(err) = check_has::<super::JointCoordinate>(world, entity, &format!("coordinates[{i}]"), *coord_key) {
+                e.push(err);
             }
         }
         e

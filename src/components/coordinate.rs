@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::id::EntityID;
+use serde::{Deserialize, Serialize};
 
 /// A single degree of freedom (generalized coordinate).
 ///
@@ -8,8 +8,8 @@ use crate::id::EntityID;
 /// (e.g., "find all locked coordinates") without touching every joint.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JointCoordinate {
-    pub range_min: f64,
-    pub range_max: f64,
+    pub range_min: f64, // TODO: THis might just be joint limits
+    pub range_max: f64, //TODO: Maybe make this an abs val like start and duration
     pub default_value: f64,
     pub stiffness: f64,
     pub damping: f64,
@@ -88,61 +88,49 @@ pub struct SpatialTransform {
 
 // ── Validation ────────────────────────────────────────
 
-use super::{Validate, CustomJoint, HingeJoint, UniversalJoint};
+use super::{CustomJoint, HingeJoint, UniversalJoint, Validate};
+use crate::systems::{System, check_exists, check_has, validate_all};
 use crate::world::World;
-use crate::systems::{System, validate_all};
 
 impl Validate for JointCoordinate {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        let mut e = Vec::new();
         if self.clamped && self.range_min > self.range_max {
-            let name = world.get::<super::Name>(entity).map(|n| n.value.clone()).unwrap_or_default();
-            e.push(format!(
+            let name = world
+                .get::<super::Name>(entity)
+                .map(|n| n.value.clone())
+                .unwrap_or_default();
+            vec![format!(
                 "{:?} JointCoordinate '{}' has invalid range [{},{}]",
                 entity.0, name, self.range_min, self.range_max
-            ));
+            )]
+        } else {
+            Vec::new()
         }
-        e
     }
 }
 
 impl Validate for CoordinateEffect {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        let mut e = Vec::new();
-        if world.get::<JointCoordinate>(self.coordinate).is_none() {
-            e.push(format!(
-                "{:?} CoordinateEffect references missing coordinate {:?}",
-                entity.0, self.coordinate.0
-            ));
-        }
-        if world.get::<CustomJoint>(self.joint).is_none()
-            && world.get::<HingeJoint>(self.joint).is_none()
-            && world.get::<UniversalJoint>(self.joint).is_none()
-        {
-            e.push(format!(
-                "{:?} CoordinateEffect references missing joint {:?}",
-                entity.0, self.joint.0
-            ));
-        }
-        e
+        [
+            check_has::<JointCoordinate>(world, entity, "coordinate", self.coordinate),
+            check_exists(world, entity, "joint", self.joint),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 }
 
 impl Validate for SpatialTransform {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        let mut e = Vec::new();
-        if world.get::<CustomJoint>(self.joint).is_none() {
-            e.push(format!(
-                "{:?} SpatialTransform references missing CustomJoint {:?}",
-                entity.0, self.joint.0
-            ));
-        }
+        let mut e: Vec<String> = check_exists(world, entity, "joint", self.joint)
+            .into_iter()
+            .collect();
         for (i, effect_key) in self.effects.iter().enumerate() {
-            if world.get::<CoordinateEffect>(*effect_key).is_none() {
-                e.push(format!(
-                    "{:?} SpatialTransform effect[{}] {:?} references missing CoordinateEffect",
-                    entity.0, i, effect_key.0
-                ));
+            if let Some(err) =
+                check_has::<CoordinateEffect>(world, entity, &format!("effects[{i}]"), *effect_key)
+            {
+                e.push(err);
             }
         }
         e

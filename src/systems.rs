@@ -35,10 +35,48 @@ pub fn run_systems(world: &mut World) {
 
 // ── Validation helpers ────────────────────────────────
 //
-// Validation is a specific kind of system. These helpers
-// support the Validate trait on components.
+// Two kinds of reference checks:
+// 1. check_exists — entity must have been spawned (any entity)
+// 2. check_has::<T> — entity must exist AND have component T
 
 use crate::components::Validate;
+use crate::id::EntityID;
+
+/// Check that a referenced entity was spawned.
+/// Use for: Frame.parent, Site.parent, StationDefinedFrame.origin, etc.
+pub fn check_exists(
+    world: &World,
+    entity: EntityID,
+    field: &str,
+    reference: EntityID,
+) -> Option<String> {
+    if reference.0 >= world.next_id {
+        Some(format!(
+            "{:?} {} references non-existent entity {:?}",
+            entity.0, field, reference.0
+        ))
+    } else {
+        None
+    }
+}
+
+/// Check that a referenced entity exists AND has component T.
+/// Use for: HingeJoint.body_a (needs InertialProperties), etc.
+pub fn check_has<T: 'static>(
+    world: &World,
+    entity: EntityID,
+    field: &str,
+    reference: EntityID,
+) -> Option<String> {
+    if world.get::<T>(reference).is_none() {
+        Some(format!(
+            "{:?} {} references entity {:?} missing {}",
+            entity.0, field, reference.0, std::any::type_name::<T>()
+        ))
+    } else {
+        None
+    }
+}
 
 /// Iterate all instances of T, call validate on each, collect errors.
 pub fn validate_all<T: Validate + 'static>(world: &mut World) {

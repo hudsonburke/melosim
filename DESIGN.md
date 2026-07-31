@@ -153,6 +153,14 @@ CustomJoint ──coordinates──→ [JointCoordinate, JointCoordinate, ...]
 |---|---|---|
 | `WrapGeom` | body, wrap_type, dimensions, location, orientation | Wrapping surface for muscle paths |
 
+### Attachment Frames
+
+| Component | Fields | Purpose |
+|---|---|---|
+| `StationDefinedFrame` | origin, axis_x, axis_y (EntityIDs) | Frame computed from anatomical landmarks |
+
+Station-defined frames derive their transform from stations (body-fixed points). This is the primary mechanism for attaching exoskeleton parts — the user places 3-4 landmarks, the system computes the frame, and the attachment follows automatically when the body scales.
+
 ## Systems and Plugins
 
 melosim uses a decentralized plugin system based on the `inventory` crate. Systems are named functions that operate on the World. Plugins register systems at link time — no central list, no registration code in core.
@@ -392,3 +400,4 @@ melosim/              (workspace root + core library)
 
 - [OpenSim Round-Trip](docs/roundtrip-opensim.md) — Rajagopal 2015 import/export plan and status
 - [Future Considerations](docs/future.md) — Shipyard ECS, SparseSet, simulation plans
+- [App Roadmap](docs/app-roadmap.md) — Desktop app development phases and estimates
