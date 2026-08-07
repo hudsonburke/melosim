@@ -126,6 +126,56 @@ impl World {
             })
     }
 
+    // ── Parent-child relationships ──
+
+    /// Set the parent of an entity. Attaches `ChildOf` and maintains
+    /// the `Children` list on the parent.
+    ///
+    /// If the entity already has a parent, removes it from the old
+    /// parent's Children list first.
+    pub fn set_parent(&mut self, child: EntityID, parent: EntityID) {
+        // If child already has a parent, remove from old parent's Children
+        if let Some(old_parent) = self.get::<ChildOf>(child).map(|c| c.parent) {
+            if old_parent != parent {
+                self.remove_child(old_parent, child);
+            } else {
+                return; // Already parented to this entity
+            }
+        }
+
+        // Set ChildOf on child
+        self.attach(child, ChildOf { parent });
+
+        // Add to parent's Children list
+        let children = self
+            .components
+            .entry::<ComponentStorage<Children>>()
+            .or_insert_with(Vec::new);
+        let idx = parent.0 as usize;
+        if idx >= children.len() {
+            children.reserve(idx + 1 - children.len());
+            while children.len() <= idx {
+                children.push(None);
+            }
+        }
+        if let Some(ref mut list) = children[idx] {
+            if !list.entities.contains(&child) {
+                list.entities.push(child);
+            }
+        } else {
+            children[idx] = Some(Children {
+                entities: vec![child],
+            });
+        }
+    }
+
+    /// Remove a child from a parent's Children list.
+    fn remove_child(&mut self, parent: EntityID, child: EntityID) {
+        if let Some(children) = self.get_mut::<Children>(parent) {
+            children.entities.retain(|&e| e != child);
+        }
+    }
+
     // ── Queries ──
 
     /// Find an entity by its Name component value.
@@ -153,11 +203,17 @@ impl World {
     }
 
     /// Get all children of an entity.
+    /// Uses the Children component (O(1)) if available, falls back to scanning.
     pub fn children_of(&self, entity: EntityID) -> Vec<EntityID> {
-        self.iter::<ChildOf>()
-            .filter(|(_, c)| c.parent == entity)
-            .map(|(eid, _)| eid)
-            .collect()
+        if let Some(children) = self.get::<Children>(entity) {
+            children.entities.clone()
+        } else {
+            // Fallback: scan ChildOf components
+            self.iter::<ChildOf>()
+                .filter(|(_, c)| c.parent == entity)
+                .map(|(eid, _)| eid)
+                .collect()
+        }
     }
 
     /// Get the parent frame of a joint.
@@ -556,6 +612,7 @@ impl std::fmt::Debug for World {
             .field("coordinate_effects", &self.count::<CoordinateEffect>())
             .field("spatial_transforms", &self.count::<SpatialTransform>())
             .field("child_of", &self.count::<ChildOf>())
+            .field("children", &self.count::<Children>())
             .field("positions", &self.count::<Position>())
             .field("rotations", &self.count::<Rotation>())
             .field("materials", &self.count::<Material>())
