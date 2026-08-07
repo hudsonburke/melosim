@@ -1,15 +1,17 @@
-use crate::id::EntityID;
 use serde::{Deserialize, Serialize};
+use crate::id::EntityID;
 
 /// A single degree of freedom (generalized coordinate).
 ///
 /// Coordinates are separate entities referenced by Joints
 /// and CoordinateEffects. This allows independent iteration
 /// (e.g., "find all locked coordinates") without touching every joint.
+///
+/// In the hierarchy, a coordinate is a child of its joint entity via ChildOf.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JointCoordinate {
-    pub range_min: f64, // TODO: THis might just be joint limits
-    pub range_max: f64, //TODO: Maybe make this an abs val like start and duration
+    pub range_min: f64,
+    pub range_max: f64,
     pub default_value: f64,
     pub stiffness: f64,
     pub damping: f64,
@@ -25,18 +27,9 @@ pub struct JointCoordinate {
 /// current coordinate values. Each effect drives one of the transform
 /// components (rotation/translation about axes).
 ///
-/// Example: a knee Joint where flexion (coord0) drives:
-///   - RotationY → knee flexion angle (linear, slope=-1.0)
-///   - TranslationX → coupled AP translation (polynomial)
-///   - TranslationZ → coupled vertical translation (polynomial)
-///
-/// All three are separate CoordinateEffect entities referencing coord0.
+/// In the hierarchy, an effect is a child of its coordinate entity via ChildOf.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CoordinateEffect {
-    /// The coordinate this effect reads from.
-    pub coordinate: EntityID,
-    /// The joint this effect belongs to.
-    pub joint: EntityID,
     /// Which spatial transform component this effect drives.
     pub component: TransformComponent,
     /// The function mapping coordinate value → transform value.
@@ -79,24 +72,11 @@ pub enum JointFunction {
     Polynomial { coefficients: Vec<f64> },
 }
 
-/// Groups the CoordinateEffects that define a Joint's spatial transform.
-///
-/// A convenience grouping — the actual data lives in CoordinateEffect components.
-/// OpenSim's CustomJoint spatial transform has exactly 6 transform components:
-/// 3 rotations (X, Y, Z) and 3 translations (X, Y, Z), each of which can be
-/// driven by zero or one coordinate.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SpatialTransform {
-    /// The joint this transform belongs to.
-    pub joint: EntityID,
-    /// EntityIDs of the CoordinateEffect components making up this transform.
-    pub effects: Vec<EntityID>,
-}
-
 // ── Validation ────────────────────────────────────────
 
-use super::{Joint, Validate};
-use crate::systems::{System, check_exists, check_has, validate_all};
+use super::Validate;
+use super::relationship::ChildOf;
+use crate::systems::{System, validate_all};
 use crate::world::World;
 
 impl Validate for JointCoordinate {
@@ -118,32 +98,23 @@ impl Validate for JointCoordinate {
 
 impl Validate for CoordinateEffect {
     fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        [
-            check_has::<JointCoordinate>(world, entity, "coordinate", self.coordinate),
-            check_exists(world, entity, "joint", self.joint),
-        ]
-        .into_iter()
-        .flatten()
-        .collect()
-    }
-}
-
-impl Validate for SpatialTransform {
-    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
-        let mut e: Vec<String> = check_exists(world, entity, "joint", self.joint)
-            .into_iter()
-            .collect();
-        for (i, effect_key) in self.effects.iter().enumerate() {
-            if let Some(err) =
-                check_has::<CoordinateEffect>(world, entity, &format!("effects[{i}]"), *effect_key)
-            {
-                e.push(err);
+        let mut errors = Vec::new();
+        if let Some(co) = world.get::<ChildOf>(entity) {
+            if world.get::<JointCoordinate>(co.parent).is_none() {
+                errors.push(format!(
+                    "{:?} CoordinateEffect parent {:?} is missing JointCoordinate",
+                    entity.0, co.parent.0
+                ));
             }
+        } else {
+            errors.push(format!(
+                "{:?} CoordinateEffect is missing ChildOf component",
+                entity.0
+            ));
         }
-        e
+        errors
     }
 }
 
 inventory::submit! { System::new("validate_coordinate", |w| validate_all::<JointCoordinate>(w)) }
 inventory::submit! { System::new("validate_coordinate_effect", |w| validate_all::<CoordinateEffect>(w)) }
-inventory::submit! { System::new("validate_spatial_transform", |w| validate_all::<SpatialTransform>(w)) }

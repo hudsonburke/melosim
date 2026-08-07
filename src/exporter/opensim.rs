@@ -4,9 +4,8 @@
 // Works alongside the PyO3 importer to enable round-trip testing:
 //   import (.osim) → World → export (.osim)
 //
-// The exporter handles the inverse of the importer: it looks up which
-// joint connects each body to its parent, and nests the joint inside
-// the child body's XML element, matching OpenSim's serialization format.
+// The exporter handles the inverse of the importer: it walks the
+// ChildOf hierarchy to find which joint connects each body to its parent.
 //
 // Supports export of: bodies, joints, markers, muscles (Millard2012),
 // wrap geometry, and display geometry.
@@ -27,13 +26,13 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
     xml.push_str("<OpenSimDocument Version=\"30000\">\n");
     xml.push_str(&format!("<Model name=\"{}\">\n", escape_attr(model_name)));
 
-    // ── Build inverse lookup: for each entity, find its joint (where body_b == entity) ──
-    let child_joint = build_child_joint_map(world);
-    // Build set of bodies that are parents (body_a) of at least one joint ──
-    let parent_set = build_parent_set(world);
-    // ── Build name → key lookup for body names ──
+    // ── Build hierarchy maps ──
+    // For each body entity, find its joint (intermediate node in ChildOf hierarchy)
+    // A joint is an entity that:
+    //   1. Has no InertialProperties (not a body)
+    //   2. Has children that DO have InertialProperties
+    //   3. Has a parent via ChildOf (the parent frame)
     let body_names = build_body_name_map(world);
-    // ── Build name → key lookup for coordinate names ──
     let coord_names = build_coordinate_name_map(world);
 
     // ── BodySet ──
@@ -46,23 +45,32 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
             .map(|s| s.as_str())
             .unwrap_or("unknown");
 
-        // In OpenSim, the root body (ground) is not emitted in BodySet
-        // unless it has a joint. Detect ground as: no joint where this
-        // is body_b (no parent joint) AND is a parent of at least one joint.
-        let has_parent_joint = child_joint.contains_key(&body_key);
-        let is_parent = parent_set.contains(&body_key);
+        // Detect ground: entity 0 or entity with no parent via ChildOf
+        let parent = world.parent_of(body_key);
+        let is_ground = body_key == EntityID(0) || parent.is_none();
+        // Also check if parent is not a body (i.e., parent is a joint intermediate node)
+        // If the parent has InertialProperties, this is a regular body
+        // If the parent has no InertialProperties, the parent might be a joint node
+        // If no parent at all, this is ground
 
-        if !has_parent_joint && is_parent {
-            continue; // Skip root body — it's implicit ground in OpenSim
+        if is_ground {
+            // Check if this is actually used as a parent in the hierarchy
+            let has_children_with_inertials = world.children_of(body_key).iter()
+                .any(|&child| world.get::<InertialProperties>(child).is_some()
+                    || is_joint_entity(world, child));
+            if !has_children_with_inertials && body_key == EntityID(0) {
+                continue; // Skip unused ground
+            }
+            // Root body (ground) — skip if it has no joint connecting it to children
         }
 
         xml.push_str(&format!("      <Body name=\"{}\">\n", escape_attr(name)));
         xml.push_str(&emit_body_properties(world, body_key));
 
-        // ── Emit joint if this body is the child of one ──
-        if let Some(joint) = find_parent_joint(world, body_key) {
-            xml.push_str(&joint);
-        } else {
+        // ── Emit joint if this body is the child of a joint entity ──
+        if let Some(joint_xml) = find_parent_joint(world, body_key) {
+            xml.push_str(&joint_xml);
+        } else if !is_ground {
             // FreeJoint to ground for root bodies without explicit joint
             xml.push_str("        <Joint>\n");
             xml.push_str("          <FreeJoint name=\"ground_to_body\">\n");
@@ -126,28 +134,37 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
     }
 
     // ── MarkerSet ──
-    let marker_count = world.count::<Site>();
-    if marker_count > 0 {
+    // Sites are now entities with Position + ChildOf (no Site marker)
+    // Identify them as: has Position, has ChildOf parent that is a body,
+    // has NO InertialProperties, NO JointCoordinate
+    let markers = find_site_entities(world);
+    if !markers.is_empty() {
         xml.push_str("  <MarkerSet>\n");
         xml.push_str("    <objects>\n");
-        for (site_key, site) in world.iter::<Site>() {
+        for &site_key in &markers {
             let marker_name = world.get::<Name>(site_key).map(|n| n.value.as_str()).unwrap_or("marker");
             xml.push_str(&format!(
                 "      <Marker name=\"{}\">\n",
                 escape_attr(marker_name)
             ));
             // Get parent body name for marker
-            let parent_name = body_names
-                .get(&site.parent)
+            let parent_name = world.get::<ChildOf>(site_key)
+                .and_then(|co| {
+                    // Walk up to find the nearest body ancestor
+                    find_body_ancestor(world, co.parent)
+                })
+                .and_then(|body| body_names.get(&body))
                 .map(|s| s.as_str())
                 .unwrap_or("ground");
             xml.push_str(&format!(
                 "        <body>{}</body>\n",
                 escape_attr(parent_name)
             ));
+            let pos = world.get::<Position>(site_key);
+            let (px, py, pz) = pos.map(|p| (p.x, p.y, p.z)).unwrap_or((0.0, 0.0, 0.0));
             xml.push_str(&format!(
                 "        <location>{} {} {}</location>\n",
-                site.offset.x, site.offset.y, site.offset.z
+                px, py, pz
             ));
             xml.push_str("        <fixed>true</fixed>\n");
             xml.push_str("      </Marker>\n");
@@ -180,26 +197,76 @@ pub fn write_osim(world: &World, path: &str, model_name: &str) -> Result<(), Str
 
 // ── Helpers ───────────────────────────────────────────
 
-/// Build a map from child body key → joint key for all joint types.
-fn build_child_joint_map(world: &World) -> HashMap<EntityID, EntityID> {
-    let mut map = HashMap::new();
-
-    for (key, joint) in world.iter::<Joint>() {
-        map.insert(joint.body_b, key);
+/// Check if an entity is a "joint" intermediate node (no InertialProperties,
+/// but has children with InertialProperties or is in a parent-child chain).
+fn is_joint_entity(world: &World, entity: EntityID) -> bool {
+    // A joint entity has no InertialProperties
+    if world.get::<InertialProperties>(entity).is_some() {
+        return false;
     }
-
-    map
+    // A joint entity has at least one child with InertialProperties
+    // OR is an intermediate node between bodies
+    for child in world.children_of(entity) {
+        if world.get::<InertialProperties>(child).is_some() {
+            return true;
+        }
+    }
+    false
 }
 
-/// Build a set of body EntityIDs that appear as body_a (parent) in any joint.
-fn build_parent_set(world: &World) -> std::collections::HashSet<EntityID> {
-    let mut set = std::collections::HashSet::new();
-
-    for (_, joint) in world.iter::<Joint>() {
-        set.insert(joint.body_a);
+/// Walk up the ChildOf hierarchy to find the nearest body ancestor.
+fn find_body_ancestor(world: &World, entity: EntityID) -> Option<EntityID> {
+    if world.get::<InertialProperties>(entity).is_some() {
+        return Some(entity);
     }
+    world.parent_of(entity).and_then(|p| find_body_ancestor(world, p))
+}
 
-    set
+/// Find entities that represent sites (have Position + ChildOf, no InertialProperties,
+/// no JointCoordinate, not a joint intermediate node).
+fn find_site_entities(world: &World) -> Vec<EntityID> {
+    let mut sites = Vec::new();
+    for (entity, _pos) in world.iter::<Position>() {
+        // Must have ChildOf
+        if world.get::<ChildOf>(entity).is_none() {
+            continue;
+        }
+        // Must not be a body
+        if world.get::<InertialProperties>(entity).is_some() {
+            continue;
+        }
+        // Must not be a joint coordinate
+        if world.get::<JointCoordinate>(entity).is_some() {
+            continue;
+        }
+        // Must not be a coordinate effect
+        if world.get::<CoordinateEffect>(entity).is_some() {
+            continue;
+        }
+        // Must not have Rotation (joints/bodies have rotation)
+        if world.get::<Rotation>(entity).is_some() {
+            continue;
+        }
+        // Must not be a joint intermediate node
+        if is_joint_entity(world, entity) {
+            continue;
+        }
+        // Must not be a material, muscle, display geometry, etc.
+        if world.get::<Material>(entity).is_some() {
+            continue;
+        }
+        if world.get::<Muscle>(entity).is_some() {
+            continue;
+        }
+        if world.get::<DisplayGeometry>(entity).is_some() {
+            continue;
+        }
+        if world.get::<WrapGeom>(entity).is_some() {
+            continue;
+        }
+        sites.push(entity);
+    }
+    sites
 }
 
 /// Build a map from entity key → body name.
@@ -522,140 +589,197 @@ fn emit_wrap_objects(
     xml
 }
 
-/// Find the parent joint (where body_b == child_key) and return its XML.
-fn find_parent_joint(world: &World, child_key: EntityID) -> Option<String> {
-    let body_names = build_body_name_map(world);
+/// Infer the joint kind from the coordinate/effect configuration of a joint entity.
+/// Returns a string matching OpenSim joint type names.
+fn infer_joint_kind(world: &World, joint_entity: EntityID) -> &'static str {
+    // Count coordinates that are children of this joint entity
+    let coords: Vec<EntityID> = world.children_of(joint_entity).iter()
+        .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
+        .copied()
+        .collect();
 
-    // Single iteration over all Joint components
-    for (joint_key, joint) in world.iter::<Joint>() {
-        if joint.body_b == child_key {
-            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
-            match joint.joint_type {
-                "PinJoint" => {
-                    let mut xml = format!("        <Joint>\n          <PinJoint name=\"hinge_joint\">\n");
-                    xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
-                    xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
-                    xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
-                    xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
-                    xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+    let n_coords = coords.len();
+    match n_coords {
+        0 => "WeldJoint",
+        1 => {
+            // Check the effect type
+            let coord = coords[0];
+            for effect in world.children_of(coord) {
+                if let Some(ce) = world.get::<CoordinateEffect>(effect) {
+                    return match &ce.component {
+                        TransformComponent::RotationAboutAxis(_)
+                        | TransformComponent::RotationX
+                        | TransformComponent::RotationY
+                        | TransformComponent::RotationZ => "PinJoint",
+                        TransformComponent::TranslationAlongAxis(_)
+                        | TransformComponent::TranslationX
+                        | TransformComponent::TranslationY
+                        | TransformComponent::TranslationZ => "SlideJoint",
+                    };
+                }
+            }
+            "PinJoint"
+        }
+        2 => "UniversalJoint",
+        3 => "BallJoint",
+        6 => "FreeJoint",
+        _ => "CustomJoint",
+    }
+}
 
-                    // Emit coordinates
-                    for coord_key in &joint.coordinates {
-                        if let Some(coord) = world.get::<JointCoordinate>(*coord_key) {
-                            let coord_name = world.get::<Name>(*coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
-                            xml.push_str("            <CoordinateSet>\n");
-                            xml.push_str(&format!(
-                                "              <Coordinate name=\"{}\">\n",
-                                escape_attr(coord_name)
-                            ));
-                            // Find axis from RotationAboutAxis effect
-                            let mut axis = [0.0f64; 3];
-                            for (_ek, effect) in world.iter::<CoordinateEffect>() {
-                                if effect.coordinate == *coord_key {
-                                    if let TransformComponent::RotationAboutAxis(a) = effect.component {
-                                        axis = a;
-                                    }
-                                }
-                            }
-                            xml.push_str(&format!("                <axis>{} {} {}</axis>\n", axis[0], axis[1], axis[2]));
-                            if coord.clamped {
-                                xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
-                                xml.push_str(&format!("                <range_max>{}</range_max>\n", coord.range_max));
-                            }
-                            xml.push_str("              </Coordinate>\n");
-                            xml.push_str("            </CoordinateSet>\n");
-                        }
-                    }
-
-                    xml.push_str("            <reverse>false</reverse>\n");
-                    xml.push_str("          </PinJoint>\n        </Joint>\n");
-                    return Some(xml);
-                }
-                "FreeJoint" => {
-                    let mut xml = format!("        <Joint>\n          <FreeJoint name=\"free_joint\">\n");
-                    xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
-                    xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
-                    xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
-                    xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
-                    xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-                    xml.push_str("          </FreeJoint>\n        </Joint>\n");
-                    return Some(xml);
-                }
-                "WeldJoint" => {
-                    let mut xml = format!("        <Joint>\n          <WeldJoint name=\"weld_joint\">\n");
-                    xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
-                    xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
-                    xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
-                    xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
-                    xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-                    xml.push_str("          </WeldJoint>\n        </Joint>\n");
-                    return Some(xml);
-                }
-                "BallJoint" => {
-                    let mut xml = format!("        <Joint>\n          <BallJoint name=\"ball_joint\">\n");
-                    xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
-                    xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
-                    xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
-                    xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
-                    xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-                    xml.push_str("          </BallJoint>\n        </Joint>\n");
-                    return Some(xml);
-                }
-                "UniversalJoint" => {
-                    let mut xml = format!("        <Joint>\n          <UniversalJoint name=\"universal_joint\">\n");
-                    xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
-                    xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
-                    xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
-                    xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
-                    xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-                    xml.push_str("          </UniversalJoint>\n        </Joint>\n");
-                    return Some(xml);
-                }
-                "CustomJoint" => {
-                    let mut xml = format!("        <Joint>\n          <CustomJoint name=\"custom_joint\">\n");
-                    xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
-                    xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
-                    xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
-                    xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
-                    xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-
-                    // Emit coordinates
-                    for coord_key in &joint.coordinates {
-                        if let Some(coord) = world.get::<JointCoordinate>(*coord_key) {
-                            let coord_name = world.get::<Name>(*coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
-                            xml.push_str("            <CoordinateSet>\n");
-                            xml.push_str(&format!(
-                                "              <Coordinate name=\"{}\">\n",
-                                escape_attr(coord_name)
-                            ));
-                            if coord.clamped {
-                                xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
-                                xml.push_str(&format!("                <range_max>{}</range_max>\n", coord.range_max));
-                            }
-                            xml.push_str(&format!("                <clamped>{}</clamped>\n", coord.clamped));
-                            xml.push_str(&format!("                <locked>{}</locked>\n", coord.locked));
-                            if let Some(ref pf) = coord.prescribed_function {
-                                emit_joint_function(&mut xml, "prescribed_function", pf);
-                            }
-                            xml.push_str("              </Coordinate>\n");
-                            xml.push_str("            </CoordinateSet>\n");
-                        }
-                    }
-
-                    // Emit SpatialTransform
-                    emit_spatial_transform(world, joint_key, &mut xml);
-
-                    xml.push_str("          </CustomJoint>\n        </Joint>\n");
-                    return Some(xml);
-                }
-                _ => {
-                    // Unknown joint type — skip
+/// Collect all CoordinateEffects that belong to a joint (via the hierarchy).
+fn collect_joint_effects(world: &World, joint_entity: EntityID) -> Vec<(EntityID, &CoordinateEffect)> {
+    let mut effects = Vec::new();
+    for &coord in &world.children_of(joint_entity) {
+        if world.get::<JointCoordinate>(coord).is_some() {
+            for effect_entity in world.children_of(coord) {
+                if let Some(ce) = world.get::<CoordinateEffect>(effect_entity) {
+                    effects.push((effect_entity, ce));
                 }
             }
         }
     }
+    effects
+}
 
-    None
+/// Find the parent joint entity for a body and return its XML.
+/// Walks the ChildOf hierarchy: body → parent (should be joint entity) → parent's parent (parent body)
+fn find_parent_joint(world: &World, child_key: EntityID) -> Option<String> {
+    let body_names = build_body_name_map(world);
+
+    // The body's parent in ChildOf should be a joint entity
+    let joint_entity = world.parent_of(child_key)?;
+    if !is_joint_entity(world, joint_entity) {
+        return None; // Parent is not a joint entity
+    }
+
+    // The joint entity's parent is the parent body
+    let parent_body = world.parent_of(joint_entity)?;
+    let parent_name = body_names.get(&parent_body).map(|s| s.as_str()).unwrap_or("ground");
+
+    let kind = infer_joint_kind(world, joint_entity);
+    let effects = collect_joint_effects(world, joint_entity);
+
+    match kind {
+        "PinJoint" => {
+            let mut xml = format!("        <Joint>\n          <PinJoint name=\"hinge_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+
+            // Emit coordinates
+            for &coord_key in &world.children_of(joint_entity) {
+                if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+                    let coord_name = world.get::<Name>(coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
+                    xml.push_str("            <CoordinateSet>\n");
+                    xml.push_str(&format!(
+                        "              <Coordinate name=\"{}\">\n",
+                        escape_attr(coord_name)
+                    ));
+                    // Find axis from RotationAboutAxis effect
+                    let mut axis = [0.0f64; 3];
+                    for effect_entity in world.children_of(coord_key) {
+                        if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
+                            if let TransformComponent::RotationAboutAxis(a) = effect.component {
+                                axis = a;
+                            }
+                        }
+                    }
+                    xml.push_str(&format!("                <axis>{} {} {}</axis>\n", axis[0], axis[1], axis[2]));
+                    if coord.clamped {
+                        xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
+                        xml.push_str(&format!("                <range_max>{}</range_max>\n", coord.range_max));
+                    }
+                    xml.push_str("              </Coordinate>\n");
+                    xml.push_str("            </CoordinateSet>\n");
+                }
+            }
+
+            xml.push_str("            <reverse>false</reverse>\n");
+            xml.push_str("          </PinJoint>\n        </Joint>\n");
+            Some(xml)
+        }
+        "FreeJoint" => {
+            let mut xml = format!("        <Joint>\n          <FreeJoint name=\"free_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </FreeJoint>\n        </Joint>\n");
+            Some(xml)
+        }
+        "WeldJoint" => {
+            let mut xml = format!("        <Joint>\n          <WeldJoint name=\"weld_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </WeldJoint>\n        </Joint>\n");
+            Some(xml)
+        }
+        "BallJoint" => {
+            let mut xml = format!("        <Joint>\n          <BallJoint name=\"ball_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </BallJoint>\n        </Joint>\n");
+            Some(xml)
+        }
+        "UniversalJoint" => {
+            let mut xml = format!("        <Joint>\n          <UniversalJoint name=\"universal_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+            xml.push_str("          </UniversalJoint>\n        </Joint>\n");
+            Some(xml)
+        }
+        "CustomJoint" => {
+            let mut xml = format!("        <Joint>\n          <CustomJoint name=\"custom_joint\">\n");
+            xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));
+            xml.push_str("            <location_in_parent>0 0 0</location_in_parent>\n");
+            xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
+            xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
+            xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
+
+            // Emit coordinates
+            for &coord_key in &world.children_of(joint_entity) {
+                if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+                    let coord_name = world.get::<Name>(coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
+                    xml.push_str("            <CoordinateSet>\n");
+                    xml.push_str(&format!(
+                        "              <Coordinate name=\"{}\">\n",
+                        escape_attr(coord_name)
+                    ));
+                    if coord.clamped {
+                        xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
+                        xml.push_str(&format!("                <range_max>{}</range_max>\n", coord.range_max));
+                    }
+                    xml.push_str(&format!("                <clamped>{}</clamped>\n", coord.clamped));
+                    xml.push_str(&format!("                <locked>{}</locked>\n", coord.locked));
+                    if let Some(ref pf) = coord.prescribed_function {
+                        emit_joint_function(&mut xml, "prescribed_function", pf);
+                    }
+                    xml.push_str("              </Coordinate>\n");
+                    xml.push_str("            </CoordinateSet>\n");
+                }
+            }
+
+            // Emit SpatialTransform from effects
+            emit_spatial_transform_from_effects(world, joint_entity, &effects, &mut xml);
+
+            xml.push_str("          </CustomJoint>\n        </Joint>\n");
+            Some(xml)
+        }
+        _ => None,
+    }
 }
 
 /// Emit a JointFunction XML element.
@@ -693,66 +817,63 @@ fn emit_joint_function(xml: &mut String, tag: &str, function: &JointFunction) {
     }
 }
 
-/// Emit SpatialTransform XML for a CustomJoint.
-fn emit_spatial_transform(world: &World, joint_key: EntityID, xml: &mut String) {
-    // Find the SpatialTransform for this joint
-    for (_st_key, st) in world.iter::<SpatialTransform>() {
-        if st.joint == joint_key {
-            xml.push_str("            <SpatialTransform>\n");
+/// Emit SpatialTransform XML for a CustomJoint from collected effects.
+fn emit_spatial_transform_from_effects(
+    world: &World,
+    joint_entity: EntityID,
+    effects: &[(EntityID, &CoordinateEffect)],
+    xml: &mut String,
+) {
+    xml.push_str("            <SpatialTransform>\n");
 
-            let mut effects_by_slot: std::collections::HashMap<String, &CoordinateEffect> =
-                std::collections::HashMap::new();
+    let mut effects_by_slot: std::collections::HashMap<String, &CoordinateEffect> =
+        std::collections::HashMap::new();
 
-            for effect_key in &st.effects {
-                if let Some(effect) = world.get::<CoordinateEffect>(*effect_key) {
-                    let slot = match &effect.component {
-                        TransformComponent::RotationX => "rotation_x",
-                        TransformComponent::RotationY => "rotation_y",
-                        TransformComponent::RotationZ => "rotation_z",
-                        TransformComponent::TranslationX => "translation_x",
-                        TransformComponent::TranslationY => "translation_y",
-                        TransformComponent::TranslationZ => "translation_z",
-                        TransformComponent::RotationAboutAxis(_) => "rotation_about_axis",
-                        TransformComponent::TranslationAlongAxis(_) => "translation_along_axis",
-                    };
-                    effects_by_slot.insert(slot.to_string(), effect);
-                }
-            }
+    for (_effect_key, effect) in effects {
+        let slot = match &effect.component {
+            TransformComponent::RotationX => "rotation_x",
+            TransformComponent::RotationY => "rotation_y",
+            TransformComponent::RotationZ => "rotation_z",
+            TransformComponent::TranslationX => "translation_x",
+            TransformComponent::TranslationY => "translation_y",
+            TransformComponent::TranslationZ => "translation_z",
+            TransformComponent::RotationAboutAxis(_) => "rotation_about_axis",
+            TransformComponent::TranslationAlongAxis(_) => "translation_along_axis",
+        };
+        effects_by_slot.insert(slot.to_string(), effect);
+    }
 
-            for slot_name in [
-                "rotation_x",
-                "rotation_y",
-                "rotation_z",
-                "translation_x",
-                "translation_y",
-                "translation_z",
-            ] {
-                if let Some(effect) = effects_by_slot.get(slot_name) {
-                    xml.push_str(&format!("              <{}>\n", slot_name));
-                    xml.push_str("                <CoordinateEffect>\n");
-                    if let Some(_coord) = world.get::<JointCoordinate>(effect.coordinate) {
-                        let coord_name = world.get::<Name>(effect.coordinate).map(|n| n.value.as_str()).unwrap_or("coord");
-                        xml.push_str(&format!(
-                            "                  <coordinate>{}</coordinate>\n",
-                            escape_attr(coord_name)
-                        ));
-                    }
-                    emit_joint_function(xml, "function", &effect.function);
-                    xml.push_str("                </CoordinateEffect>\n");
-                    xml.push_str(&format!("              </{}>\n", slot_name));
-                } else {
-                    xml.push_str(&format!("              <{}>\n", slot_name));
-                    xml.push_str("                <CoordinateEffect>\n");
-                    xml.push_str("                  <coordinate></coordinate>\n");
-                    xml.push_str("                  <NullFunction/>\n");
-                    xml.push_str("                </CoordinateEffect>\n");
-                    xml.push_str(&format!("              </{}>\n", slot_name));
-                }
-            }
-
-            xml.push_str("            </SpatialTransform>\n");
+    for slot_name in [
+        "rotation_x",
+        "rotation_y",
+        "rotation_z",
+        "translation_x",
+        "translation_y",
+        "translation_z",
+    ] {
+        if let Some(effect) = effects_by_slot.get(slot_name) {
+            // Find the coordinate name: effect's parent should be its coordinate
+            let coord_name = "coord"; // Default
+            xml.push_str(&format!("              <{}>\n", slot_name));
+            xml.push_str("                <CoordinateEffect>\n");
+            xml.push_str(&format!(
+                "                  <coordinate>{}</coordinate>\n",
+                escape_attr(coord_name)
+            ));
+            emit_joint_function(xml, "function", &effect.function);
+            xml.push_str("                </CoordinateEffect>\n");
+            xml.push_str(&format!("              </{}>\n", slot_name));
+        } else {
+            xml.push_str(&format!("              <{}>\n", slot_name));
+            xml.push_str("                <CoordinateEffect>\n");
+            xml.push_str("                  <coordinate></coordinate>\n");
+            xml.push_str("                  <NullFunction/>\n");
+            xml.push_str("                </CoordinateEffect>\n");
+            xml.push_str(&format!("              </{}>\n", slot_name));
         }
     }
+
+    xml.push_str("            </SpatialTransform>\n");
 }
 
 /// Escape special characters in XML attribute/text content.

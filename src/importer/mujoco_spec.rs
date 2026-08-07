@@ -103,13 +103,9 @@ fn import_body_recursive(
     // Frame (relative to parent)
     let pos = *body.pos();
     let quat = *body.quat();
-    world.attach(entity, Frame {
-        parent: parent_entity,
-        transform: Transform {
-            translation: Vec3::new(pos[0], pos[1], pos[2]),
-            rotation: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] },
-        },
-    });
+    world.set_parent(entity, parent_entity);
+    world.attach(entity, Position::new(pos[0], pos[1], pos[2]));
+    world.attach(entity, Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
 
     body_map.insert(body_name, entity);
 
@@ -117,15 +113,13 @@ fn import_body_recursive(
     // In MJCF, joints are defined on the child body
     import_body_joints(world, body, entity, parent_entity);
 
-    // ── Import sites on this body ──
+    // ── Import sites on this body (now just ChildOf + Position) ──
     for site in body.site_iter(false) {
         let site_entity = world.spawn();
         let site_name = site.name().to_string();
         let site_pos = *site.pos();
-        world.attach(site_entity, Site {
-            parent: entity,
-            offset: Vec3::new(site_pos[0], site_pos[1], site_pos[2]),
-        });
+        world.set_parent(site_entity, entity);
+        world.attach(site_entity, Position::new(site_pos[0], site_pos[1], site_pos[2]));
         world.attach(site_entity, Name { value: site_name });
     }
 
@@ -178,11 +172,6 @@ fn import_body_joints(
         let axis = *joint.axis();
         let range = *joint.range();
         let limited = matches!(joint.limited(), MjtLimited::mjLIMITED_TRUE);
-        let limits = if limited {
-            Some(JointLimits { lower: range[0], upper: range[1] })
-        } else {
-            None
-        };
 
         let damping_arr = *joint.damping();
         let stiffness_arr = *joint.stiffness();
@@ -192,10 +181,15 @@ fn import_body_joints(
         let joint_entity = world.spawn();
         world.attach(joint_entity, Name { value: jnt_name.clone() });
 
+        // Set up hierarchy: joint is child of parent, child body is child of joint
+        world.set_parent(joint_entity, parent_entity);
+        world.set_parent(child_entity, joint_entity);
+
         match jnt_type {
             MjtJoint::mjJNT_HINGE => {
-                // Create coordinate entity
+                // Create coordinate entity (child of joint)
                 let coord_entity = world.spawn();
+                world.set_parent(coord_entity, joint_entity);
                 world.attach(coord_entity, Name { value: jnt_name });
                 world.attach(coord_entity, JointCoordinate {
                     range_min: if limited { range[0] } else { -1e10 },
@@ -208,33 +202,17 @@ fn import_body_joints(
                     prescribed_function: None,
                 });
 
-                // Create CoordinateEffect: rotation about the hinge axis
+                // Create CoordinateEffect: rotation about the hinge axis (child of coord)
                 let effect_entity = world.spawn();
+                world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
-                    coordinate: coord_entity,
-                    joint: joint_entity,
                     component: TransformComponent::RotationAboutAxis(axis),
                     function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
-                });
-
-                // Create SpatialTransform
-                let st_entity = world.spawn();
-                world.attach(st_entity, SpatialTransform {
-                    joint: joint_entity,
-                    effects: vec![effect_entity],
-                });
-
-                // Create the unified Joint
-                world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
-                    limits,
-                    joint_type: "PinJoint",
-                    coordinates: vec![coord_entity],
                 });
             }
             MjtJoint::mjJNT_SLIDE => {
                 let coord_entity = world.spawn();
+                world.set_parent(coord_entity, joint_entity);
                 world.attach(coord_entity, Name { value: jnt_name });
                 world.attach(coord_entity, JointCoordinate {
                     range_min: if limited { range[0] } else { -1e10 },
@@ -247,50 +225,19 @@ fn import_body_joints(
                     prescribed_function: None,
                 });
 
-                // Create CoordinateEffect: translation along the slide axis
+                // Create CoordinateEffect: translation along the slide axis (child of coord)
                 let effect_entity = world.spawn();
+                world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
-                    coordinate: coord_entity,
-                    joint: joint_entity,
                     component: TransformComponent::TranslationAlongAxis(axis),
                     function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
                 });
-
-                // Create SpatialTransform
-                let st_entity = world.spawn();
-                world.attach(st_entity, SpatialTransform {
-                    joint: joint_entity,
-                    effects: vec![effect_entity],
-                });
-
-                // Create the unified Joint
-                world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
-                    limits,
-                    joint_type: "SlideJoint",
-                    coordinates: vec![coord_entity],
-                });
             }
             MjtJoint::mjJNT_BALL => {
-                // Create the unified Joint
-                world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
-                    limits,
-                    joint_type: "BallJoint",
-                    coordinates: vec![],
-                });
+                // Ball joint — no coordinates/effects in current representation
             }
             MjtJoint::mjJNT_FREE => {
-                // Create the unified Joint
-                world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
-                    limits: None,
-                    joint_type: "FreeJoint",
-                    coordinates: vec![],
-                });
+                // Free joint — no coordinates/effects in current representation
             }
         }
     }

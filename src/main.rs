@@ -1,5 +1,4 @@
 use melosim::components::*;
-use melosim::math::{Transform, Vec3};
 use melosim::systems;
 use melosim::world::World;
 
@@ -24,14 +23,6 @@ fn main() {
             value: "ground".into(),
         },
     );
-    let ground_frame = world.spawn();
-    world.attach(
-        ground_frame,
-        Frame {
-            parent: ground,
-            transform: Transform::default(),
-        },
-    );
 
     let pelvis = world.spawn();
     world.attach(
@@ -46,14 +37,6 @@ fn main() {
         pelvis,
         Name {
             value: "pelvis".into(),
-        },
-    );
-    let pelvis_frame = world.spawn();
-    world.attach(
-        pelvis_frame,
-        Frame {
-            parent: ground,
-            transform: Transform::default(),
         },
     );
 
@@ -72,26 +55,19 @@ fn main() {
             value: "femur".into(),
         },
     );
-    let femur_frame = world.spawn();
-    world.attach(
-        femur_frame,
-        Frame {
-            parent: pelvis,
-            transform: Transform::default(),
-        },
-    );
+
+    // ── Set up hierarchy: pelvis is child of ground ──
+    world.set_parent(pelvis, ground);
 
     // ── Simple joints using convenience builders ──
-    let _pelvis_free = world.add_free(ground, pelvis, None);
+    // add_free: creates joint entity as intermediate node
+    let _pelvis_free = world.add_free(ground, pelvis);
 
     let _hip = world.add_hinge(
         pelvis,
         femur,
         [1.0, 0.0, 0.0],
-        Some(JointLimits {
-            lower: -2.0,
-            upper: 0.5,
-        }),
+        Some((-2.0, 0.5)),
     );
 
     // ── UniversalJoint (e.g., lumbar spine) ──
@@ -100,10 +76,7 @@ fn main() {
         femur,
         [1.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
-        Some(JointLimits {
-            lower: -0.5,
-            upper: 0.5,
-        }),
+        Some((-0.5, 0.5)),
     );
 
     // ── CustomJoint (e.g., knee with coupled motion) ──
@@ -129,21 +102,19 @@ fn main() {
         },
     );
 
-    // 2. Create the Joint referencing those coordinates
-    let knee = world.add_custom(
+    // 2. Create the Joint as intermediate node (coordinates set as children)
+    let _knee = world.add_custom(
         femur,
         pelvis,
         vec![knee_flexion],
-        None,
     );
 
-    // 3. Create CoordinateEffects mapping coordinates to transform components
+    // 3. Create CoordinateEffects as children of coordinates
     let flex_effect = world.spawn();
+    world.set_parent(flex_effect, knee_flexion);
     world.attach(
         flex_effect,
         CoordinateEffect {
-            coordinate: knee_flexion,
-            joint: knee,
             component: TransformComponent::RotationY,
             function: JointFunction::Linear {
                 slope: -1.0,
@@ -153,11 +124,10 @@ fn main() {
     );
 
     let ap_translate = world.spawn();
+    world.set_parent(ap_translate, knee_flexion);
     world.attach(
         ap_translate,
         CoordinateEffect {
-            coordinate: knee_flexion,
-            joint: knee,
             component: TransformComponent::TranslationX,
             function: JointFunction::Polynomial {
                 coefficients: vec![0.002, -0.015, 0.0, 0.0],
@@ -165,25 +135,11 @@ fn main() {
         },
     );
 
-    // 4. Create SpatialTransform grouping the effects
-    let _knee_transform = world.spawn();
-    world.attach(
-        _knee_transform,
-        SpatialTransform {
-            joint: knee,
-            effects: vec![flex_effect, ap_translate],
-        },
-    );
-
     // ── Site (muscle attachment point) ──
+    // Sites are now just entities with ChildOf + Position (no marker needed)
     let _asis = world.spawn();
-    world.attach(
-        _asis,
-        Site {
-            parent: pelvis,
-            offset: Vec3::new(0.01, 0.02, 0.13),
-        },
-    );
+    world.set_parent(_asis, pelvis);
+    world.attach(_asis, Position::new(0.01, 0.02, 0.13));
 
     // ── Run systems (validation, etc.) ──
     systems::run_systems(&mut world);

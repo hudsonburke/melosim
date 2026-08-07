@@ -7,6 +7,8 @@ mod material;
 mod muscle;
 mod name;
 mod path;
+mod relationship;
+mod spatial;
 mod tendon;
 mod wrap;
 
@@ -19,6 +21,8 @@ pub use material::*;
 pub use muscle::*;
 pub use name::*;
 pub use path::*;
+pub use relationship::*;
+pub use spatial::*;
 pub use tendon::*;
 pub use wrap::*;
 

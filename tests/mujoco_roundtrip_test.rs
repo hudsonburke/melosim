@@ -2,6 +2,9 @@
 
 use melosim::importer::mujoco::import_mjcf;
 use melosim::exporter::mujoco::world_to_mjcf;
+use melosim::components::*;
+use melosim::world::World;
+use melosim::id::EntityID;
 use std::path::Path;
 use std::process::Command;
 
@@ -15,6 +18,74 @@ fn ensure_myo_sim() {
             .expect("Failed to run git clone");
         assert!(status.success(), "git clone failed");
     }
+}
+
+/// Infer joint kind from coordinate/effect configuration.
+fn infer_joint_kind(world: &World, joint_entity: EntityID) -> &'static str {
+    let coords: Vec<EntityID> = world.children_of(joint_entity).iter()
+        .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
+        .copied()
+        .collect();
+    match coords.len() {
+        0 => "WeldJoint",
+        1 => {
+            for effect_entity in world.children_of(coords[0]) {
+                if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
+                    match &effect.component {
+                        TransformComponent::TranslationAlongAxis(_)
+                        | TransformComponent::TranslationX
+                        | TransformComponent::TranslationY
+                        | TransformComponent::TranslationZ => return "SlideJoint",
+                        _ => {}
+                    }
+                }
+            }
+            "PinJoint"
+        }
+        2 => "UniversalJoint",
+        3 => "BallJoint",
+        6 => "FreeJoint",
+        _ => "CustomJoint",
+    }
+}
+
+/// Collect all unique joint entities from the world.
+fn collect_joint_entities(world: &World) -> Vec<EntityID> {
+    let mut joints: Vec<EntityID> = Vec::new();
+    for (coord_eid, _) in world.iter::<JointCoordinate>() {
+        if let Some(co) = world.get::<ChildOf>(coord_eid) {
+            let joint = co.parent;
+            if !joints.contains(&joint) && world.get::<InertialProperties>(joint).is_none() {
+                joints.push(joint);
+            }
+        }
+    }
+    joints
+}
+
+/// Count joints of a specific kind.
+fn count_joints_by_kind(world: &World, kind: &str) -> usize {
+    collect_joint_entities(world).iter()
+        .filter(|&&j| infer_joint_kind(world, j) == kind)
+        .count()
+}
+
+/// Count site entities (entities with Position but without InertialProperties or Rotation).
+fn count_sites(world: &World) -> usize {
+    world.iter::<Position>()
+        .filter(|(eid, _)| {
+            world.get::<InertialProperties>(*eid).is_none()
+                && world.get::<Rotation>(*eid).is_none()
+        })
+        .count()
+}
+
+/// Find all hinge joint entities and their names.
+fn find_hinge_joints(world: &World) -> Vec<(EntityID, Option<String>)> {
+    collect_joint_entities(world).iter()
+        .filter(|&&j| infer_joint_kind(world, j) == "PinJoint")
+        .map(|&j| (j, world.get::<Name>(j).map(|n| n.value.clone())))
+        .collect()
 }
 
 #[test]
@@ -56,16 +127,16 @@ fn test_myoelbow_roundtrip_structural() {
 
     // ── Structural comparison ──
     let checks = [
-        ("Bodies", world1.count::<melosim::components::InertialProperties>(),
-                     world2.count::<melosim::components::InertialProperties>()),
-        ("Hinge joints", world1.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count(),
-                            world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count()),
-        ("Coordinates", world1.count::<melosim::components::JointCoordinate>(),
-                           world2.count::<melosim::components::JointCoordinate>()),
-        ("Muscles", world1.count::<melosim::components::Muscle>(),
-                       world2.count::<melosim::components::Muscle>()),
-        ("Muscle paths", world1.count::<melosim::components::MusclePath>(),
-                            world2.count::<melosim::components::MusclePath>()),
+        ("Bodies", world1.count::<InertialProperties>(),
+                     world2.count::<InertialProperties>()),
+        ("Hinge joints", count_joints_by_kind(&world1, "PinJoint"),
+                            count_joints_by_kind(&world2, "PinJoint")),
+        ("Coordinates", world1.count::<JointCoordinate>(),
+                           world2.count::<JointCoordinate>()),
+        ("Muscles", world1.count::<Muscle>(),
+                       world2.count::<Muscle>()),
+        ("Muscle paths", world1.count::<MusclePath>(),
+                            world2.count::<MusclePath>()),
     ];
 
     for (label, c1, c2) in &checks {
@@ -74,37 +145,49 @@ fn test_myoelbow_roundtrip_structural() {
     }
 
     // Sites may differ (export only emits sites with unique positions)
-    let n_sites1 = world1.count::<melosim::components::Site>();
-    let n_sites2 = world2.count::<melosim::components::Site>();
+    let n_sites1 = count_sites(&world1);
+    let n_sites2 = count_sites(&world2);
     println!("  Sites: {} -> {} (may differ due to deduplication)", n_sites1, n_sites2);
 
     // ── Joint axis comparison ──
-    for (key1, joint1) in world1.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
-        let name1 = world1.get::<melosim::components::Name>(key1).map(|n| n.value.clone());
+    let hinges1 = find_hinge_joints(&world1);
+    let hinges2 = find_hinge_joints(&world2);
+
+    for (key1, name1) in &hinges1 {
+        // Get the coordinate entity for this joint
+        let coord1 = world1.children_of(*key1).iter()
+            .find(|&&c| world1.get::<JointCoordinate>(c).is_some())
+            .copied();
+
         // Find axis from RotationAboutAxis effect
         let mut axis1 = [0.0f64; 3];
-        for coord_key in &joint1.coordinates {
-            for (_ek, effect) in world1.iter::<melosim::components::CoordinateEffect>() {
-                if effect.coordinate == *coord_key {
-                    if let melosim::components::TransformComponent::RotationAboutAxis(a) = effect.component {
+        if let Some(coord_key) = coord1 {
+            for effect_entity in world1.children_of(coord_key) {
+                if let Some(effect) = world1.get::<CoordinateEffect>(effect_entity) {
+                    if let TransformComponent::RotationAboutAxis(a) = effect.component {
                         axis1 = a;
                     }
                 }
             }
         }
-        for (key2, joint2) in world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
-            let name2 = world2.get::<melosim::components::Name>(key2).map(|n| n.value.clone());
+
+        for (key2, name2) in &hinges2 {
             if name1 == name2 {
+                let coord2 = world2.children_of(*key2).iter()
+                    .find(|&&c| world2.get::<JointCoordinate>(c).is_some())
+                    .copied();
+
                 let mut axis2 = [0.0f64; 3];
-                for coord_key in &joint2.coordinates {
-                    for (_ek, effect) in world2.iter::<melosim::components::CoordinateEffect>() {
-                        if effect.coordinate == *coord_key {
-                            if let melosim::components::TransformComponent::RotationAboutAxis(a) = effect.component {
+                if let Some(coord_key) = coord2 {
+                    for effect_entity in world2.children_of(coord_key) {
+                        if let Some(effect) = world2.get::<CoordinateEffect>(effect_entity) {
+                            if let TransformComponent::RotationAboutAxis(a) = effect.component {
                                 axis2 = a;
                             }
                         }
                     }
                 }
+
                 let axis_diff: f64 = axis1.iter().zip(axis2.iter())
                     .map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt();
                 assert!(axis_diff < 1e-6,
@@ -115,24 +198,32 @@ fn test_myoelbow_roundtrip_structural() {
     }
 
     // ── Joint limits comparison ──
-    for (key1, joint1) in world1.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
-        let name1 = world1.get::<melosim::components::Name>(key1).map(|n| n.value.clone());
-        for (key2, joint2) in world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
-            let name2 = world2.get::<melosim::components::Name>(key2).map(|n| n.value.clone());
+    for (key1, name1) in &hinges1 {
+        let coord1 = world1.children_of(*key1).iter()
+            .find(|&&c| world1.get::<JointCoordinate>(c).is_some())
+            .copied()
+            .and_then(|c| world1.get::<JointCoordinate>(c));
+
+        for (key2, name2) in &hinges2 {
             if name1 == name2 {
-                match (&joint1.limits, &joint2.limits) {
-                    (Some(l1), Some(l2)) => {
-                        let lower_diff = (l1.lower - l2.lower).abs();
-                        let upper_diff = (l1.upper - l2.upper).abs();
+                let coord2 = world2.children_of(*key2).iter()
+                    .find(|&&c| world2.get::<JointCoordinate>(c).is_some())
+                    .copied()
+                    .and_then(|c| world2.get::<JointCoordinate>(c));
+
+                match (coord1, coord2) {
+                    (Some(c1), Some(c2)) => {
+                        let lower_diff = (c1.range_min - c2.range_min).abs();
+                        let upper_diff = (c1.range_max - c2.range_max).abs();
                         if lower_diff > 1e-3 || upper_diff > 1e-3 {
                             println!("  Joint '{:?}': LIMIT MISMATCH: [{}, {}] vs [{}, {}] (diff: {}, {})",
-                                name1, l1.lower, l1.upper, l2.lower, l2.upper, lower_diff, upper_diff);
+                                name1, c1.range_min, c1.range_max, c2.range_min, c2.range_max, lower_diff, upper_diff);
                         }
                         assert!(lower_diff < 1e-3,
-                            "Joint '{:?}': lower limit mismatch {} vs {}", name1, l1.lower, l2.lower);
+                            "Joint '{:?}': lower limit mismatch {} vs {}", name1, c1.range_min, c2.range_min);
                         assert!(upper_diff < 1e-3,
-                            "Joint '{:?}': upper limit mismatch {} vs {}", name1, l1.upper, l2.upper);
-                        println!("  Joint '{:?}': limits [{}, {}] preserved", name1, l1.lower, l1.upper);
+                            "Joint '{:?}': upper limit mismatch {} vs {}", name1, c1.range_max, c2.range_max);
+                        println!("  Joint '{:?}': limits [{}, {}] preserved", name1, c1.range_min, c1.range_max);
                     }
                     (None, None) => println!("  Joint '{:?}': no limits (preserved)", name1),
                     _ => panic!("Joint '{:?}': limits presence mismatch", name1),
@@ -142,10 +233,10 @@ fn test_myoelbow_roundtrip_structural() {
     }
 
     // ── Coordinate damping/stiffness comparison ──
-    for (key1, coord1) in world1.iter::<melosim::components::JointCoordinate>() {
-        let name1 = world1.get::<melosim::components::Name>(key1).map(|n| n.value.clone());
-        for (key2, coord2) in world2.iter::<melosim::components::JointCoordinate>() {
-            let name2 = world2.get::<melosim::components::Name>(key2).map(|n| n.value.clone());
+    for (key1, coord1) in world1.iter::<JointCoordinate>() {
+        let name1 = world1.get::<Name>(key1).map(|n| n.value.clone());
+        for (key2, coord2) in world2.iter::<JointCoordinate>() {
+            let name2 = world2.get::<Name>(key2).map(|n| n.value.clone());
             if name1 == name2 {
                 assert!((coord1.damping - coord2.damping).abs() < 1e-6,
                     "Coord '{:?}': damping mismatch", name1);
@@ -155,11 +246,11 @@ fn test_myoelbow_roundtrip_structural() {
     }
 
     // ── Muscle name preservation ──
-    let mut muscle_names1: Vec<String> = world1.iter::<melosim::components::Muscle>()
-        .filter_map(|(k, _)| world1.get::<melosim::components::Name>(k).map(|n| n.value.clone()))
+    let mut muscle_names1: Vec<String> = world1.iter::<Muscle>()
+        .filter_map(|(k, _)| world1.get::<Name>(k).map(|n| n.value.clone()))
         .collect();
-    let mut muscle_names2: Vec<String> = world2.iter::<melosim::components::Muscle>()
-        .filter_map(|(k, _)| world2.get::<melosim::components::Name>(k).map(|n| n.value.clone()))
+    let mut muscle_names2: Vec<String> = world2.iter::<Muscle>()
+        .filter_map(|(k, _)| world2.get::<Name>(k).map(|n| n.value.clone()))
         .collect();
     muscle_names1.sort();
     muscle_names2.sort();
