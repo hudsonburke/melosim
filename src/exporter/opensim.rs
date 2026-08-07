@@ -130,24 +130,26 @@ pub fn world_to_osim(world: &World, model_name: &str) -> String {
     if marker_count > 0 {
         xml.push_str("  <MarkerSet>\n");
         xml.push_str("    <objects>\n");
-        for (site_key, site) in world.iter::<Site>() {
+        for (site_key, _site) in world.iter::<Site>() {
             let marker_name = world.get::<Name>(site_key).map(|n| n.value.as_str()).unwrap_or("marker");
             xml.push_str(&format!(
                 "      <Marker name=\"{}\">\n",
                 escape_attr(marker_name)
             ));
             // Get parent body name for marker
-            let parent_name = body_names
-                .get(&site.parent)
+            let parent_name = world.get::<ChildOf>(site_key)
+                .and_then(|co| body_names.get(&co.parent))
                 .map(|s| s.as_str())
                 .unwrap_or("ground");
             xml.push_str(&format!(
                 "        <body>{}</body>\n",
                 escape_attr(parent_name)
             ));
+            let pos = world.get::<Position>(site_key);
+            let (px, py, pz) = pos.map(|p| (p.x, p.y, p.z)).unwrap_or((0.0, 0.0, 0.0));
             xml.push_str(&format!(
                 "        <location>{} {} {}</location>\n",
-                site.offset.x, site.offset.y, site.offset.z
+                px, py, pz
             ));
             xml.push_str("        <fixed>true</fixed>\n");
             xml.push_str("      </Marker>\n");
@@ -184,19 +186,23 @@ pub fn write_osim(world: &World, path: &str, model_name: &str) -> Result<(), Str
 fn build_child_joint_map(world: &World) -> HashMap<EntityID, EntityID> {
     let mut map = HashMap::new();
 
-    for (key, joint) in world.iter::<Joint>() {
-        map.insert(joint.body_b, key);
+    for (key, _joint) in world.iter::<Joint>() {
+        if let Some(cf) = world.get::<ChildFrame>(key) {
+            map.insert(cf.frame, key);
+        }
     }
 
     map
 }
 
-/// Build a set of body EntityIDs that appear as body_a (parent) in any joint.
+/// Build a set of body EntityIDs that appear as parent frame in any joint.
 fn build_parent_set(world: &World) -> std::collections::HashSet<EntityID> {
     let mut set = std::collections::HashSet::new();
 
-    for (_, joint) in world.iter::<Joint>() {
-        set.insert(joint.body_a);
+    for (key, _) in world.iter::<Joint>() {
+        if let Some(pf) = world.get::<ParentFrame>(key) {
+            set.insert(pf.frame);
+        }
     }
 
     set
@@ -522,15 +528,20 @@ fn emit_wrap_objects(
     xml
 }
 
-/// Find the parent joint (where body_b == child_key) and return its XML.
+/// Find the parent joint (where ChildFrame == child_key) and return its XML.
 fn find_parent_joint(world: &World, child_key: EntityID) -> Option<String> {
     let body_names = build_body_name_map(world);
 
     // Single iteration over all Joint components
     for (joint_key, joint) in world.iter::<Joint>() {
-        if joint.body_b == child_key {
-            let parent_name = body_names.get(&joint.body_a).map(|s| s.as_str()).unwrap_or("ground");
-            match joint.joint_type {
+        let is_child = world.get::<ChildFrame>(joint_key).map_or(false, |cf| cf.frame == child_key);
+        if is_child {
+            let parent_name = world.get::<ParentFrame>(joint_key)
+                .and_then(|pf| body_names.get(&pf.frame))
+                .map(|s| s.as_str())
+                .unwrap_or("ground");
+            let kind = infer_joint_kind(world, joint);
+            match kind {
                 "PinJoint" => {
                     let mut xml = format!("        <Joint>\n          <PinJoint name=\"hinge_joint\">\n");
                     xml.push_str(&format!("            <parent_body>{}</parent_body>\n", escape_attr(parent_name)));

@@ -300,12 +300,6 @@ pub fn import_opensim_body(
         inertia: data.inertia,
     });
     world.attach(body_entity, Name { value: data.name.clone() });
-    // Frame is a separate entity referencing the body
-    let frame_entity = world.spawn();
-    world.attach(frame_entity, Frame {
-        parent: body_entity,
-        transform: Transform::default(),
-    });
     Ok(body_entity)
 }
 
@@ -338,10 +332,11 @@ pub fn import_opensim_marker(
     body_key: EntityID,
 ) -> EntityID {
     let site_entity = world.spawn();
-    world.attach(site_entity, Site {
-        parent: body_key,
-        offset: data.location.into(),
-    });
+    world.attach(site_entity, ChildOf { parent: body_key });
+    world.attach(site_entity, Position::new(
+        data.location[0], data.location[1], data.location[2],
+    ));
+    world.attach(site_entity, Site);
     world.attach(site_entity, Name { value: data.name.clone() });
     site_entity
 }
@@ -620,15 +615,14 @@ fn import_pin_joint(
         upper: c.range_max,
     });
 
+    world.attach(joint_entity, ParentFrame { frame: parent_key });
+    world.attach(joint_entity, ChildFrame { frame: child_key });
     world.attach(joint_entity, Joint {
-        body_a: parent_key,
-        body_b: child_key,
         limits,
-        joint_type: "PinJoint",
         coordinates: coord_refs,
     });
 
-    update_child_frame(world, child_key, data);
+    update_child_frame(world, parent_key, child_key, data);
     Ok(joint_entity)
 }
 
@@ -639,15 +633,14 @@ fn import_weld_joint(
     child_key: EntityID,
 ) -> Result<EntityID, String> {
     let joint_entity = world.spawn();
+    world.attach(joint_entity, ParentFrame { frame: parent_key });
+    world.attach(joint_entity, ChildFrame { frame: child_key });
     world.attach(joint_entity, Joint {
-        body_a: parent_key,
-        body_b: child_key,
         limits: None,
-        joint_type: "WeldJoint",
         coordinates: vec![],
     });
 
-    update_child_frame(world, child_key, data);
+    update_child_frame(world, parent_key, child_key, data);
     Ok(joint_entity)
 }
 
@@ -707,15 +700,14 @@ fn import_ball_joint(
         upper: c.range_max,
     });
 
+    world.attach(joint_entity, ParentFrame { frame: parent_key });
+    world.attach(joint_entity, ChildFrame { frame: child_key });
     world.attach(joint_entity, Joint {
-        body_a: parent_key,
-        body_b: child_key,
         limits,
-        joint_type: "BallJoint",
         coordinates: coord_refs,
     });
 
-    update_child_frame(world, child_key, data);
+    update_child_frame(world, parent_key, child_key, data);
     Ok(joint_entity)
 }
 
@@ -726,15 +718,14 @@ fn import_free_joint(
     child_key: EntityID,
 ) -> Result<EntityID, String> {
     let joint_entity = world.spawn();
+    world.attach(joint_entity, ParentFrame { frame: parent_key });
+    world.attach(joint_entity, ChildFrame { frame: child_key });
     world.attach(joint_entity, Joint {
-        body_a: parent_key,
-        body_b: child_key,
         limits: None,
-        joint_type: "FreeJoint",
         coordinates: vec![],
     });
 
-    update_child_frame(world, child_key, data);
+    update_child_frame(world, parent_key, child_key, data);
     Ok(joint_entity)
 }
 
@@ -800,15 +791,14 @@ fn import_universal_joint(
         effects: effect_refs,
     });
 
+    world.attach(joint_entity, ParentFrame { frame: parent_key });
+    world.attach(joint_entity, ChildFrame { frame: child_key });
     world.attach(joint_entity, Joint {
-        body_a: parent_key,
-        body_b: child_key,
         limits: None,
-        joint_type: "UniversalJoint",
         coordinates: coord_refs,
     });
 
-    update_child_frame(world, child_key, data);
+    update_child_frame(world, parent_key, child_key, data);
     Ok(joint_entity)
 }
 
@@ -857,11 +847,10 @@ fn import_custom_joint(
         .collect();
 
     let joint_entity = world.spawn();
+    world.attach(joint_entity, ParentFrame { frame: parent_key });
+    world.attach(joint_entity, ChildFrame { frame: child_key });
     world.attach(joint_entity, Joint {
-        body_a: parent_key,
-        body_b: child_key,
         limits: None,
-        joint_type: "CustomJoint",
         coordinates: coord_refs,
     });
 
@@ -925,24 +914,30 @@ fn import_custom_joint(
         effects: effect_ids,
     });
 
-    update_child_frame(world, child_key, data);
+    update_child_frame(world, parent_key, child_key, data);
     Ok(joint_entity)
 }
 
 // ── Frame helper ──────────────────────────────────────
 
-/// Update a body's Frame transform with the joint's parent-frame offset.
+/// Update a body's spatial components with the joint's parent-frame offset.
 /// In OpenSim, the joint's location_in_parent / orientation_in_parent defines
 /// where the child body attaches relative to the parent body's frame.
-/// For now we store this in the child's Frame component.
-fn update_child_frame(_world: &mut World, _child_key: EntityID, _data: &OpenSimJointData) {
-    // TODO: Compose location_in_parent + orientation_in_parent into the
-    // child body's Frame transform. This requires computing a Transform from
-    // the Euler angles and translation, which needs quaternion math.
-    //
-    // For now, frames use default transforms. The joint parent/child offsets
-    // are captured by the joint's body_a/body_b fields. Adding full frame
-    // transform computation is the next step after basic import validation.
+fn update_child_frame(
+    world: &mut World,
+    parent_key: EntityID,
+    child_key: EntityID,
+    data: &OpenSimJointData,
+) {
+    world.attach(child_key, ChildOf { parent: parent_key });
+    world.attach(child_key, Position::new(
+        data.location_in_parent[0],
+        data.location_in_parent[1],
+        data.location_in_parent[2],
+    ));
+    world.attach(child_key, Rotation {
+        quaternion: euler_to_quaternion(data.orientation_in_parent),
+    });
 }
 
 // ── JSON loading helper ───────────────────────────────

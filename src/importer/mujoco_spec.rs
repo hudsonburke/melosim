@@ -103,13 +103,9 @@ fn import_body_recursive(
     // Frame (relative to parent)
     let pos = *body.pos();
     let quat = *body.quat();
-    world.attach(entity, Frame {
-        parent: parent_entity,
-        transform: Transform {
-            translation: Vec3::new(pos[0], pos[1], pos[2]),
-            rotation: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] },
-        },
-    });
+    world.attach(entity, ChildOf { parent: parent_entity });
+    world.attach(entity, Position::new(pos[0], pos[1], pos[2]));
+    world.attach(entity, Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
 
     body_map.insert(body_name, entity);
 
@@ -122,10 +118,9 @@ fn import_body_recursive(
         let site_entity = world.spawn();
         let site_name = site.name().to_string();
         let site_pos = *site.pos();
-        world.attach(site_entity, Site {
-            parent: entity,
-            offset: Vec3::new(site_pos[0], site_pos[1], site_pos[2]),
-        });
+        world.attach(site_entity, ChildOf { parent: entity });
+        world.attach(site_entity, Position::new(site_pos[0], site_pos[1], site_pos[2]));
+        world.attach(site_entity, Site);
         world.attach(site_entity, Name { value: site_name });
     }
 
@@ -225,11 +220,10 @@ fn import_body_joints(
                 });
 
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: parent_entity });
+                world.attach(joint_entity, ChildFrame { frame: child_entity });
                 world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
                     limits,
-                    joint_type: "PinJoint",
                     coordinates: vec![coord_entity],
                 });
             }
@@ -264,31 +258,28 @@ fn import_body_joints(
                 });
 
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: parent_entity });
+                world.attach(joint_entity, ChildFrame { frame: child_entity });
                 world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
                     limits,
-                    joint_type: "SlideJoint",
                     coordinates: vec![coord_entity],
                 });
             }
             MjtJoint::mjJNT_BALL => {
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: parent_entity });
+                world.attach(joint_entity, ChildFrame { frame: child_entity });
                 world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
                     limits,
-                    joint_type: "BallJoint",
                     coordinates: vec![],
                 });
             }
             MjtJoint::mjJNT_FREE => {
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: parent_entity });
+                world.attach(joint_entity, ChildFrame { frame: child_entity });
                 world.attach(joint_entity, Joint {
-                    body_a: parent_entity,
-                    body_b: child_entity,
                     limits: None,
-                    joint_type: "FreeJoint",
                     coordinates: vec![],
                 });
             }

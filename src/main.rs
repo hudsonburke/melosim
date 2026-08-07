@@ -1,5 +1,4 @@
 use melosim::components::*;
-use melosim::math::{Transform, Vec3};
 use melosim::systems;
 use melosim::world::World;
 
@@ -24,14 +23,6 @@ fn main() {
             value: "ground".into(),
         },
     );
-    let ground_frame = world.spawn();
-    world.attach(
-        ground_frame,
-        Frame {
-            parent: ground,
-            transform: Transform::default(),
-        },
-    );
 
     let pelvis = world.spawn();
     world.attach(
@@ -46,14 +37,6 @@ fn main() {
         pelvis,
         Name {
             value: "pelvis".into(),
-        },
-    );
-    let pelvis_frame = world.spawn();
-    world.attach(
-        pelvis_frame,
-        Frame {
-            parent: ground,
-            transform: Transform::default(),
         },
     );
 
@@ -72,17 +55,9 @@ fn main() {
             value: "femur".into(),
         },
     );
-    let femur_frame = world.spawn();
-    world.attach(
-        femur_frame,
-        Frame {
-            parent: pelvis,
-            transform: Transform::default(),
-        },
-    );
 
     // ── Simple joints using convenience builders ──
-    let _pelvis_free = world.add_free(ground, pelvis, None);
+    let _pelvis_free = world.add_free(ground, pelvis);
 
     let _hip = world.add_hinge(
         pelvis,
@@ -179,10 +154,15 @@ fn main() {
     let _asis = world.spawn();
     world.attach(
         _asis,
-        Site {
-            parent: pelvis,
-            offset: Vec3::new(0.01, 0.02, 0.13),
-        },
+        ChildOf { parent: pelvis },
+    );
+    world.attach(
+        _asis,
+        Position::new(0.01, 0.02, 0.13),
+    );
+    world.attach(
+        _asis,
+        Site,
     );
 
     // ── Run systems (validation, etc.) ──

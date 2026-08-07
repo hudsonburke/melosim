@@ -81,13 +81,9 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
             .ok_or_else(|| format!("Body {} has unmapped parent {}", i, parent_id))?;
         let pos = model.body_pos()[i];
         let quat = model.body_quat()[i];
-        world.attach(entity, Frame {
-            parent,
-            transform: Transform {
-                translation: Vec3::new(pos[0], pos[1], pos[2]),
-                rotation: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] },
-            },
-        });
+        world.attach(entity, ChildOf { parent });
+        world.attach(entity, Position::new(pos[0], pos[1], pos[2]));
+        world.attach(entity, Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
 
         body_map.insert(i as i32, entity);
     }
@@ -168,11 +164,10 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
                 });
 
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: body_a });
+                world.attach(joint_entity, ChildFrame { frame: body_b });
                 world.attach(joint_entity, Joint {
-                    body_a,
-                    body_b,
                     limits,
-                    joint_type: "PinJoint",
                     coordinates: vec![coord_entity],
                 });
             }
@@ -210,31 +205,28 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
                 });
 
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: body_a });
+                world.attach(joint_entity, ChildFrame { frame: body_b });
                 world.attach(joint_entity, Joint {
-                    body_a,
-                    body_b,
                     limits,
-                    joint_type: "SlideJoint",
                     coordinates: vec![coord_entity],
                 });
             }
             mjtJoint_::mjJNT_BALL => {
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: body_a });
+                world.attach(joint_entity, ChildFrame { frame: body_b });
                 world.attach(joint_entity, Joint {
-                    body_a,
-                    body_b,
                     limits,
-                    joint_type: "BallJoint",
                     coordinates: vec![],
                 });
             }
             mjtJoint_::mjJNT_FREE => {
                 // Create the unified Joint
+                world.attach(joint_entity, ParentFrame { frame: body_a });
+                world.attach(joint_entity, ChildFrame { frame: body_b });
                 world.attach(joint_entity, Joint {
-                    body_a,
-                    body_b,
                     limits: None,
-                    joint_type: "FreeJoint",
                     coordinates: vec![],
                 });
             }
@@ -250,10 +242,9 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
 
         let pos = model.site_pos()[s];
         let site_entity = world.spawn();
-        world.attach(site_entity, Site {
-            parent,
-            offset: Vec3::new(pos[0], pos[1], pos[2]),
-        });
+        world.attach(site_entity, ChildOf { parent });
+        world.attach(site_entity, Position::new(pos[0], pos[1], pos[2]));
+        world.attach(site_entity, Site);
 
         let site_name = model.id_to_name(MjtObj::mjOBJ_SITE, s)
             .unwrap_or("unnamed_site")

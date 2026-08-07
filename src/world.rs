@@ -1,6 +1,6 @@
 use crate::components::*;
 use crate::id::EntityID;
-use crate::math::{Quaternion, Vec3};
+
 use anymap2::AnyMap;
 
 /// Type alias for per-type component storage.
@@ -145,6 +145,31 @@ impl World {
             .collect()
     }
 
+    // ── Relationship queries ──
+
+    /// Get the parent entity via ChildOf relationship.
+    pub fn parent_of(&self, entity: EntityID) -> Option<EntityID> {
+        self.get::<ChildOf>(entity).map(|c| c.parent)
+    }
+
+    /// Get all children of an entity.
+    pub fn children_of(&self, entity: EntityID) -> Vec<EntityID> {
+        self.iter::<ChildOf>()
+            .filter(|(_, c)| c.parent == entity)
+            .map(|(eid, _)| eid)
+            .collect()
+    }
+
+    /// Get the parent frame of a joint.
+    pub fn joint_parent_frame(&self, joint: EntityID) -> Option<EntityID> {
+        self.get::<ParentFrame>(joint).map(|p| p.frame)
+    }
+
+    /// Get the child frame of a joint.
+    pub fn joint_child_frame(&self, joint: EntityID) -> Option<EntityID> {
+        self.get::<ChildFrame>(joint).map(|c| c.frame)
+    }
+
     // ── Resource access ──
 
     pub fn get_resource<T: 'static>(&self) -> Option<&T> {
@@ -174,18 +199,22 @@ impl World {
 
     // ── Convenience joint builders ──
 
-    /// Add a hinge (pin) joint between two bodies.
-    /// Creates a Joint entity with joint_type="PinJoint",
-    /// 1 coordinate entity, a RotationAboutAxis effect, and a SpatialTransform.
+    /// Add a hinge (pin) joint between two frame entities.
+    /// Creates a Joint entity with 1 coordinate entity, a RotationAboutAxis
+    /// effect, and a SpatialTransform.
     /// Returns the joint entity.
     pub fn add_hinge(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
+        parent_frame: EntityID,
+        child_frame: EntityID,
         axis: [f64; 3],
         limits: Option<JointLimits>,
     ) -> EntityID {
         let joint_entity = self.spawn();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
 
         // Create coordinate
         let coord_entity = self.spawn();
@@ -218,27 +247,28 @@ impl World {
 
         // Create the joint
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits,
-            joint_type: "PinJoint",
             coordinates: vec![coord_entity],
         });
 
         joint_entity
     }
 
-    /// Add a slide (prismatic) joint between two bodies.
-    /// Creates a Joint entity with joint_type="SlideJoint",
-    /// 1 coordinate entity, a TranslationAlongAxis effect, and a SpatialTransform.
+    /// Add a slide (prismatic) joint between two frame entities.
+    /// Creates a Joint entity with 1 coordinate entity, a TranslationAlongAxis
+    /// effect, and a SpatialTransform.
     pub fn add_slide(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
+        parent_frame: EntityID,
+        child_frame: EntityID,
         axis: [f64; 3],
         limits: Option<JointLimits>,
     ) -> EntityID {
         let joint_entity = self.spawn();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
 
         // Create coordinate
         let coord_entity = self.spawn();
@@ -271,28 +301,29 @@ impl World {
 
         // Create the joint
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits,
-            joint_type: "SlideJoint",
             coordinates: vec![coord_entity],
         });
 
         joint_entity
     }
 
-    /// Add a ball (spherical) joint between two bodies.
-    /// Creates a Joint entity with joint_type="BallJoint",
-    /// 3 coordinate entities, 3 RotationAboutAxis effects, and a SpatialTransform.
+    /// Add a ball (spherical) joint between two frame entities.
+    /// Creates a Joint entity with 3 coordinate entities, 3 RotationAboutAxis
+    /// effects, and a SpatialTransform.
     pub fn add_ball(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
+        parent_frame: EntityID,
+        child_frame: EntityID,
         limits: Option<JointLimits>,
     ) -> EntityID {
         let joint_entity = self.spawn();
         let mut coords = Vec::new();
         let mut effects = Vec::new();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
 
         let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
@@ -328,28 +359,28 @@ impl World {
         });
 
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits,
-            joint_type: "BallJoint",
             coordinates: coords,
         });
 
         joint_entity
     }
 
-    /// Add a free (6-DOF) joint between two bodies.
-    /// Creates a Joint entity with joint_type="FreeJoint",
-    /// 6 coordinate entities (3 rotation + 3 translation), effects, and SpatialTransform.
+    /// Add a free (6-DOF) joint between two frame entities.
+    /// Creates a Joint entity with 6 coordinate entities (3 rotation + 3 translation),
+    /// effects, and SpatialTransform.
     pub fn add_free(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
-        limits: Option<JointLimits>,
+        parent_frame: EntityID,
+        child_frame: EntityID,
     ) -> EntityID {
         let joint_entity = self.spawn();
         let mut coords = Vec::new();
         let mut effects = Vec::new();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
 
         // 3 rotation axes
         let rot_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -408,41 +439,41 @@ impl World {
         });
 
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits: None,
-            joint_type: "FreeJoint",
             coordinates: coords,
         });
 
         joint_entity
     }
 
-    /// Add a fixed (weld) joint between two bodies.
-    /// Creates a Joint entity with joint_type="WeldJoint", no coordinates or effects.
+    /// Add a fixed (weld) joint between two frame entities.
+    /// Creates a Joint entity with no coordinates or effects.
     pub fn add_fixed(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
+        parent_frame: EntityID,
+        child_frame: EntityID,
     ) -> EntityID {
         let joint_entity = self.spawn();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
+
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits: None,
-            joint_type: "WeldJoint",
             coordinates: vec![],
         });
+
         joint_entity
     }
 
-    /// Add a universal joint between two bodies.
-    /// Creates a Joint entity with joint_type="UniversalJoint",
-    /// 2 coordinate entities, 2 RotationAboutAxis effects, and a SpatialTransform.
+    /// Add a universal joint between two frame entities.
+    /// Creates a Joint entity with 2 coordinate entities, 2 RotationAboutAxis
+    /// effects, and a SpatialTransform.
     pub fn add_universal(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
+        parent_frame: EntityID,
+        child_frame: EntityID,
         axis1: [f64; 3],
         axis2: [f64; 3],
         limits: Option<JointLimits>,
@@ -450,6 +481,10 @@ impl World {
         let joint_entity = self.spawn();
         let mut coords = Vec::new();
         let mut effects = Vec::new();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
 
         for axis in &[axis1, axis2] {
             let coord_entity = self.spawn();
@@ -481,33 +516,33 @@ impl World {
         });
 
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits,
-            joint_type: "UniversalJoint",
             coordinates: coords,
         });
 
         joint_entity
     }
 
-    /// Add a custom joint between two bodies with pre-created coordinates.
+    /// Add a custom joint between two frame entities with pre-created coordinates.
     /// The caller is responsible for creating CoordinateEffect entities.
     pub fn add_custom(
         &mut self,
-        body_a: EntityID,
-        body_b: EntityID,
+        parent_frame: EntityID,
+        child_frame: EntityID,
         coordinates: Vec<EntityID>,
         limits: Option<JointLimits>,
     ) -> EntityID {
         let joint_entity = self.spawn();
+
+        // Relationship components
+        self.attach(joint_entity, ParentFrame { frame: parent_frame });
+        self.attach(joint_entity, ChildFrame { frame: child_frame });
+
         self.attach(joint_entity, Joint {
-            body_a,
-            body_b,
             limits,
-            joint_type: "CustomJoint",
             coordinates,
         });
+
         joint_entity
     }
 }
@@ -516,12 +551,13 @@ impl std::fmt::Debug for World {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("World");
         s.field("inertials", &self.count::<InertialProperties>())
-            .field("frames", &self.count::<Frame>())
             .field("joints", &self.count::<Joint>())
             .field("coordinates", &self.count::<JointCoordinate>())
             .field("coordinate_effects", &self.count::<CoordinateEffect>())
             .field("spatial_transforms", &self.count::<SpatialTransform>())
-            .field("sites", &self.count::<Site>())
+            .field("child_of", &self.count::<ChildOf>())
+            .field("positions", &self.count::<Position>())
+            .field("rotations", &self.count::<Rotation>())
             .field("materials", &self.count::<Material>())
             .field("muscles", &self.count::<Muscle>())
             .field("coordinate_actuators", &self.count::<CoordinateActuator>())

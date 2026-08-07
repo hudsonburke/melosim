@@ -162,11 +162,11 @@ pub fn write_mjcf(world: &World, path: &str, model_name: &str) -> Result<(), Str
 
 // ── Helper functions ──
 
-/// Build parent → children map from Frame components.
+/// Build parent → children map from ChildOf components.
 fn build_children_map(world: &World) -> HashMap<EntityID, Vec<EntityID>> {
     let mut children: HashMap<EntityID, Vec<EntityID>> = HashMap::new();
-    for (entity, frame) in world.iter::<Frame>() {
-        children.entry(frame.parent).or_default().push(entity);
+    for (entity, child_of) in world.iter::<ChildOf>() {
+        children.entry(child_of.parent).or_default().push(entity);
     }
     children
 }
@@ -182,24 +182,24 @@ fn build_body_name_map(world: &World) -> HashMap<EntityID, String> {
     names
 }
 
-/// Find root bodies: entities with InertialProperties whose Frame
-/// parent is entity 0 (ground) or that have no Frame at all.
+/// Find root bodies: entities with InertialProperties whose ChildOf
+/// parent is entity 0 (ground) or that have no ChildOf at all.
 fn find_root_bodies(world: &World) -> Vec<EntityID> {
     let mut roots = Vec::new();
-    for (entity, frame) in world.iter::<Frame>() {
-        if frame.parent == EntityID(0) {
+    for (entity, child_of) in world.iter::<ChildOf>() {
+        if child_of.parent == EntityID(0) {
             // This body's parent is ground — it's a root
             if world.get::<InertialProperties>(entity).is_some() {
                 roots.push(entity);
             }
         }
     }
-    // Also include bodies with no Frame (top-level bodies)
+    // Also include bodies with no ChildOf (top-level bodies)
     for (entity, _) in world.iter::<InertialProperties>() {
         if entity == EntityID(0) {
             continue; // Skip ground itself
         }
-        if world.get::<Frame>(entity).is_none() {
+        if world.get::<ChildOf>(entity).is_none() {
             roots.push(entity);
         }
     }
@@ -220,13 +220,14 @@ fn emit_body_recursive(
 
     xml.push_str(&format!("{}<body name=\"{}\"", indent, escape_attr(name)));
 
-    // Position and orientation from Frame
-    if let Some(frame) = world.get::<Frame>(entity) {
-        let t = &frame.transform;
-        if t.translation.x != 0.0 || t.translation.y != 0.0 || t.translation.z != 0.0 {
-            xml.push_str(&format!(" pos=\"{} {} {}\"", t.translation.x, t.translation.y, t.translation.z));
+    // Position and orientation from Position/Rotation components
+    if let Some(pos) = world.get::<Position>(entity) {
+        if pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0 {
+            xml.push_str(&format!(" pos=\"{} {} {}\"", pos.x, pos.y, pos.z));
         }
-        let r = &frame.transform.rotation;
+    }
+    if let Some(rot) = world.get::<Rotation>(entity) {
+        let r = &rot.quaternion;
         if r.w != 1.0 || r.x != 0.0 || r.y != 0.0 || r.z != 0.0 {
             xml.push_str(&format!(" quat=\"{} {} {} {}\"", r.w, r.x, r.y, r.z));
         }
@@ -268,13 +269,15 @@ fn emit_body_recursive(
     }
 
     // Sites on this body
-    for (site_key, site) in world.iter::<Site>() {
-        if site.parent == entity {
+    for (site_key, _site) in world.iter::<Site>() {
+        if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == entity) {
             let site_name = world.get::<Name>(site_key)
                 .map(|n| n.value.as_str())
                 .unwrap_or("unnamed_site");
+            let pos = world.get::<Position>(site_key);
+            let (px, py, pz) = pos.map(|p| (p.x, p.y, p.z)).unwrap_or((0.0, 0.0, 0.0));
             xml.push_str(&format!("{}  <site name=\"{}\" pos=\"{} {} {}\"/>\n",
-                indent, escape_attr(site_name), site.offset.x, site.offset.y, site.offset.z));
+                indent, escape_attr(site_name), px, py, pz));
         }
     }
 
@@ -319,7 +322,7 @@ fn emit_body_joints(world: &World, xml: &mut String, body: EntityID, indent: usi
     let ind = "  ".repeat(indent + 1);
 
     for (key, joint) in world.iter::<Joint>() {
-        if joint.body_b != body {
+        if !world.get::<ChildFrame>(key).map_or(false, |cf| cf.frame == body) {
             continue;
         }
         let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
@@ -327,7 +330,8 @@ fn emit_body_joints(world: &World, xml: &mut String, body: EntityID, indent: usi
         // Extract axis from the first RotationAboutAxis or TranslationAlongAxis effect
         let axis = extract_joint_axis(world, key);
 
-        match joint.joint_type {
+        let kind = infer_joint_kind(world, joint);
+        match kind {
             "PinJoint" => {
                 xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"{} {} {}\"",
                     ind, escape_attr(name), axis[0], axis[1], axis[2]));
@@ -455,13 +459,15 @@ fn append_joint_dynamics(world: &World, xml: &mut String, joint_key: EntityID) {
 
 /// Find a site name matching a body and location (for tendon path references).
 fn find_site_name(world: &World, body: EntityID, location: &[f64; 3]) -> Option<String> {
-    for (site_key, site) in world.iter::<Site>() {
-        if site.parent == body {
-            let dx = site.offset.x - location[0];
-            let dy = site.offset.y - location[1];
-            let dz = site.offset.z - location[2];
-            if (dx * dx + dy * dy + dz * dz) < 1e-12 {
-                return world.get::<Name>(site_key).map(|n| n.value.clone());
+    for (site_key, _site) in world.iter::<Site>() {
+        if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) {
+            if let Some(pos) = world.get::<Position>(site_key) {
+                let dx = pos.x - location[0];
+                let dy = pos.y - location[1];
+                let dz = pos.z - location[2];
+                if (dx * dx + dy * dy + dz * dz) < 1e-12 {
+                    return world.get::<Name>(site_key).map(|n| n.value.clone());
+                }
             }
         }
     }

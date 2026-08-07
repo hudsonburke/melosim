@@ -13,9 +13,9 @@ use crate::id::EntityID;
 impl ExportAs<Mjcf> for Joint {
     fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
-        match self.joint_type {
+        let kind = infer_joint_kind(ctx.world, self);
+        match kind {
             "PinJoint" => {
-                // Find the RotationAboutAxis effect to get the axis
                 let mut axis = [0.0f64; 3];
                 for coord_key in &self.coordinates {
                     for (_ek, effect) in ctx.world.iter::<CoordinateEffect>() {
@@ -38,7 +38,6 @@ impl ExportAs<Mjcf> for Joint {
                 Some(xml)
             }
             "SlideJoint" => {
-                // Find the TranslationAlongAxis effect to get the axis
                 let mut axis = [0.0f64; 3];
                 for coord_key in &self.coordinates {
                     for (_ek, effect) in ctx.world.iter::<CoordinateEffect>() {
@@ -72,10 +71,9 @@ impl ExportAs<Mjcf> for Joint {
                 Some(format!(r#"<freejoint name="{}"/>"#, name))
             }
             "WeldJoint" => {
-                None // MuJoCo has no explicit fixed joint
+                None
             }
             "UniversalJoint" => {
-                // Find the two RotationAboutAxis effects for the two axes
                 let mut axes = Vec::new();
                 for coord_key in &self.coordinates {
                     for (_ek, effect) in ctx.world.iter::<CoordinateEffect>() {
@@ -198,9 +196,11 @@ impl ExportAs<Mjcf> for WrapGeom {
 impl ExportAs<Mjcf> for Site {
     fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
+        let pos = ctx.world.get::<Position>(entity);
+        let (x, y, z) = pos.map(|p| (p.x, p.y, p.z)).unwrap_or((0.0, 0.0, 0.0));
         Some(format!(
             r#"<site name="{}" pos="{} {} {}"/>"#,
-            escape_attr(name), self.offset.x, self.offset.y, self.offset.z
+            escape_attr(name), x, y, z
         ))
     }
 }
@@ -227,12 +227,6 @@ impl ExportAs<Mjcf> for Millard2012Params {
 impl ExportAs<Mjcf> for MusclePath {
     fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
         None // Emitted as <tendon><spatial> in the coordinator
-    }
-}
-
-impl ExportAs<Mjcf> for Frame {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
-        None // Encoded as pos/quat on the <body> element
     }
 }
 
