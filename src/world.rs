@@ -216,6 +216,205 @@ impl World {
         }
     }
 
+    // ── Typed relationships ──
+
+    /// "entity is positioned relative to frame."
+    /// Maintains InFrame on child and FrameContents on frame.
+    pub fn set_in_frame(&mut self, entity: EntityID, frame: EntityID) {
+        // Remove from old frame's contents if already in one
+        if let Some(old_frame) = self.get::<InFrame>(entity).map(|r| r.0) {
+            if old_frame != frame {
+                self.remove_from_frame_contents(old_frame, entity);
+            } else {
+                return;
+            }
+        }
+        self.attach(entity, InFrame(frame));
+        self.add_to_frame_contents(frame, entity);
+    }
+
+    /// "joint connects to this frame (child side)."
+    /// Maintains Connects on joint and ConnectedJoints on frame.
+    pub fn set_connects(&mut self, joint: EntityID, frame: EntityID) {
+        if let Some(old_frame) = self.get::<Connects>(joint).map(|r| r.0) {
+            if old_frame != frame {
+                self.remove_from_connected_joints(old_frame, joint);
+            } else {
+                return;
+            }
+        }
+        self.attach(joint, Connects(frame));
+        self.add_to_connected_joints(frame, joint);
+    }
+
+    /// "coordinate belongs to this joint."
+    /// Maintains HasDOF on coord and JointDOFs on joint.
+    pub fn set_has_dof(&mut self, coord: EntityID, joint: EntityID) {
+        if let Some(old_joint) = self.get::<HasDOF>(coord).map(|r| r.0) {
+            if old_joint != joint {
+                self.remove_from_joint_dofs(old_joint, coord);
+            } else {
+                return;
+            }
+        }
+        self.attach(coord, HasDOF(joint));
+        self.add_to_joint_dofs(joint, coord);
+    }
+
+    /// "effect reads from this coordinate."
+    /// Maintains Drives on effect and CoordinateEffects on coord.
+    pub fn set_drives(&mut self, effect: EntityID, coord: EntityID) {
+        if let Some(old_coord) = self.get::<Drives>(effect).map(|r| r.0) {
+            if old_coord != coord {
+                self.remove_from_coordinate_effects(old_coord, effect);
+            } else {
+                return;
+            }
+        }
+        self.attach(effect, Drives(coord));
+        self.add_to_coordinate_effects(coord, effect);
+    }
+
+    // ── Typed relationship queries ──
+
+    /// Get the frame this entity is positioned in.
+    pub fn in_frame(&self, entity: EntityID) -> Option<EntityID> {
+        self.get::<InFrame>(entity).map(|r| r.0)
+    }
+
+    /// Get all entities positioned in this frame.
+    pub fn frame_contents(&self, frame: EntityID) -> Vec<EntityID> {
+        self.get::<FrameContents>(frame)
+            .map(|c| c.entities.clone())
+            .unwrap_or_default()
+    }
+
+    /// Get the frame this joint connects to (child side).
+    pub fn connects_to(&self, joint: EntityID) -> Option<EntityID> {
+        self.get::<Connects>(joint).map(|r| r.0)
+    }
+
+    /// Get all joints that connect to this frame.
+    pub fn connected_joints(&self, frame: EntityID) -> Vec<EntityID> {
+        self.get::<ConnectedJoints>(frame)
+            .map(|c| c.entities.clone())
+            .unwrap_or_default()
+    }
+
+    /// Get the joint this coordinate belongs to.
+    pub fn joint_of(&self, coord: EntityID) -> Option<EntityID> {
+        self.get::<HasDOF>(coord).map(|r| r.0)
+    }
+
+    /// Get all coordinates (DOFs) in this joint.
+    pub fn joint_dofs(&self, joint: EntityID) -> Vec<EntityID> {
+        self.get::<JointDOFs>(joint)
+            .map(|d| d.entities.clone())
+            .unwrap_or_default()
+    }
+
+    /// Get the coordinate this effect reads from.
+    pub fn drives(&self, effect: EntityID) -> Option<EntityID> {
+        self.get::<Drives>(effect).map(|r| r.0)
+    }
+
+    /// Get all effects driven by this coordinate.
+    pub fn coordinate_effects(&self, coord: EntityID) -> Vec<EntityID> {
+        self.get::<CoordinateEffects>(coord)
+            .map(|e| e.entities.clone())
+            .unwrap_or_default()
+    }
+
+    // ── Internal helpers for typed relationships ──
+
+    fn add_to_frame_contents(&mut self, frame: EntityID, entity: EntityID) {
+        let storage = self.components
+            .entry::<ComponentStorage<FrameContents>>()
+            .or_insert_with(Vec::new);
+        let idx = frame.0 as usize;
+        if idx >= storage.len() {
+            storage.reserve(idx + 1 - storage.len());
+            while storage.len() <= idx { storage.push(None); }
+        }
+        if let Some(ref mut list) = storage[idx] {
+            if !list.entities.contains(&entity) { list.entities.push(entity); }
+        } else {
+            storage[idx] = Some(FrameContents { entities: vec![entity] });
+        }
+    }
+
+    fn remove_from_frame_contents(&mut self, frame: EntityID, entity: EntityID) {
+        if let Some(contents) = self.get_mut::<FrameContents>(frame) {
+            contents.entities.retain(|&e| e != entity);
+        }
+    }
+
+    fn add_to_connected_joints(&mut self, frame: EntityID, joint: EntityID) {
+        let storage = self.components
+            .entry::<ComponentStorage<ConnectedJoints>>()
+            .or_insert_with(Vec::new);
+        let idx = frame.0 as usize;
+        if idx >= storage.len() {
+            storage.reserve(idx + 1 - storage.len());
+            while storage.len() <= idx { storage.push(None); }
+        }
+        if let Some(ref mut list) = storage[idx] {
+            if !list.entities.contains(&joint) { list.entities.push(joint); }
+        } else {
+            storage[idx] = Some(ConnectedJoints { entities: vec![joint] });
+        }
+    }
+
+    fn remove_from_connected_joints(&mut self, frame: EntityID, joint: EntityID) {
+        if let Some(cj) = self.get_mut::<ConnectedJoints>(frame) {
+            cj.entities.retain(|&e| e != joint);
+        }
+    }
+
+    fn add_to_joint_dofs(&mut self, joint: EntityID, coord: EntityID) {
+        let storage = self.components
+            .entry::<ComponentStorage<JointDOFs>>()
+            .or_insert_with(Vec::new);
+        let idx = joint.0 as usize;
+        if idx >= storage.len() {
+            storage.reserve(idx + 1 - storage.len());
+            while storage.len() <= idx { storage.push(None); }
+        }
+        if let Some(ref mut list) = storage[idx] {
+            if !list.entities.contains(&coord) { list.entities.push(coord); }
+        } else {
+            storage[idx] = Some(JointDOFs { entities: vec![coord] });
+        }
+    }
+
+    fn remove_from_joint_dofs(&mut self, joint: EntityID, coord: EntityID) {
+        if let Some(dofs) = self.get_mut::<JointDOFs>(joint) {
+            dofs.entities.retain(|&e| e != coord);
+        }
+    }
+
+    fn add_to_coordinate_effects(&mut self, coord: EntityID, effect: EntityID) {
+        let storage = self.components
+            .entry::<ComponentStorage<CoordinateEffects>>()
+            .or_insert_with(Vec::new);
+        let idx = coord.0 as usize;
+        if idx >= storage.len() {
+            storage.reserve(idx + 1 - storage.len());
+            while storage.len() <= idx { storage.push(None); }
+        }
+        if let Some(ref mut list) = storage[idx] {
+            if !list.entities.contains(&effect) { list.entities.push(effect); }
+        } else {
+            storage[idx] = Some(CoordinateEffects { entities: vec![effect] });
+        }
+    }
+
+    fn remove_from_coordinate_effects(&mut self, coord: EntityID, effect: EntityID) {
+        if let Some(effects) = self.get_mut::<CoordinateEffects>(coord) {
+            effects.entities.retain(|&e| e != effect);
+        }
+    }
+
     // ── Resource access ──
 
     pub fn get_resource<T: 'static>(&self) -> Option<&T> {
