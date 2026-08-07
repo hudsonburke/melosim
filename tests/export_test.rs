@@ -5,8 +5,8 @@
 use melosim::exporter::opensim::world_to_osim;
 use melosim::importer::opensim::{import_opensim_model, load_opensim_json};
 use melosim::world::World;
-use melosim::math::{Transform, Vec3, Quaternion};
 use melosim::components::*;
+use melosim::id::EntityID;
 
 /// Basic checks on the XML output structure.
 fn check_xml_structure(xml: &str) {
@@ -35,12 +35,6 @@ fn test_export_simple_hip() {
 
     let xml = world_to_osim(&world, "SimpleHipTest");
 
-    // Debug: show marker section
-    if let Some(midx) = xml.find("MarkerSet") {
-        let end = xml[midx..].find("</MarkerSet>").map(|e| midx + e + 12).unwrap_or(xml.len());
-        eprintln!("Marker XML:\n{}", &xml[midx..end.min(midx+1000)]);
-    }
-
     // Check basic structure
     check_xml_structure(&xml);
     assert!(xml.contains("SimpleHipTest"), "Model name should be in output");
@@ -53,7 +47,7 @@ fn test_export_simple_hip() {
     assert!(xml.contains("<FreeJoint"), "Should contain FreeJoint");
     assert!(xml.contains("<PinJoint"), "Should contain PinJoint");
 
-    // Check markers have correct names from Name component on Site
+    // Check markers have correct names
     assert!(xml.contains("<Marker name=\"RASI\""), "Should contain RASI marker");
     assert!(xml.contains("<Marker name=\"RTHI\""), "Should contain RTHI marker");
 
@@ -129,8 +123,6 @@ fn test_export_simple_muscle() {
 
 // ── Model editing API tests ───────────────────────────
 
-use melosim::components::*;
-use melosim::id::EntityID;
 #[test]
 fn test_find_by_name() {
     let mut world = World::new();
@@ -145,47 +137,6 @@ fn test_find_by_name() {
 }
 
 #[test]
-fn test_attach_mesh() {
-    let mut world = World::new();
-
-    // Create a forearm body
-    let forearm = world.spawn();
-    world.attach(forearm, InertialProperties {
-        mass: 1.5,
-        com: [0.0; 3],
-        inertia: [0.0; 6],
-    });
-    world.attach(forearm, Frame {
-        parent: EntityID(0),
-        transform: Transform::default(),
-    });
-    world.attach(forearm, Name { value: "r_forearm".into() });
-
-    // Attach a mesh to it
-    let cuff = world.spawn();
-    world.attach(cuff, Frame {
-        parent: forearm,
-        transform: Transform {
-            translation: Vec3::new(0.0, 0.0, -0.15),
-            rotation: Quaternion::default(),
-        },
-    });
-    world.attach(cuff, MeshGeometry { mesh: "assets/arm_cuff.stl".into() });
-    world.attach(cuff, Name { value: "arm_cuff".into() });
-
-    // Verify the mesh entity has the right components
-    let frame = world.get::<Frame>(cuff).expect("cuff should have Frame");
-    assert_eq!(frame.parent, forearm);
-    assert_eq!(frame.transform.translation.z, -0.15);
-
-    let mesh = world.get::<MeshGeometry>(cuff).expect("cuff should have MeshGeometry");
-    assert_eq!(mesh.mesh, "assets/arm_cuff.stl");
-
-    let name = world.get::<Name>(cuff).expect("cuff should have Name");
-    assert_eq!(name.value, "arm_cuff");
-}
-
-#[test]
 fn test_body_construction() {
     let mut world = World::new();
 
@@ -196,11 +147,8 @@ fn test_body_construction() {
         com: [0.0; 3],
         inertia: [0.0; 6],
     });
-    world.attach(forearm, Frame {
-        parent: EntityID(0),
-        transform: Transform::default(),
-    });
     world.attach(forearm, Name { value: "r_forearm".into() });
+    world.set_parent(forearm, EntityID(0));
 
     // Build a cuff with mass and mesh using generic attach
     let cuff = world.spawn();
@@ -209,13 +157,7 @@ fn test_body_construction() {
         com: [0.0; 3],
         inertia: [0.0; 6],
     });
-    world.attach(cuff, Frame {
-        parent: forearm,
-        transform: Transform {
-            translation: Vec3::new(0.0, 0.0, -0.15),
-            rotation: Quaternion::default(),
-        },
-    });
+    world.set_parent(cuff, forearm);
     world.attach(cuff, Name { value: "arm_cuff".into() });
     world.attach(cuff, MeshGeometry { mesh: "assets/cuff.stl".into() });
 
@@ -223,8 +165,8 @@ fn test_body_construction() {
     let inertial = world.get::<InertialProperties>(cuff).expect("cuff should have InertialProperties");
     assert_eq!(inertial.mass, 0.5);
 
-    let frame = world.get::<Frame>(cuff).expect("cuff should have Frame");
-    assert_eq!(frame.parent, forearm);
+    let parent = world.parent_of(cuff).expect("cuff should have parent");
+    assert_eq!(parent, forearm);
 
     let mesh = world.get::<MeshGeometry>(cuff).expect("cuff should have MeshGeometry");
     assert_eq!(mesh.mesh, "assets/cuff.stl");
@@ -246,4 +188,30 @@ fn test_get_mut() {
 
     let name = world.get::<Name>(e).expect("should have Name");
     assert_eq!(name.value, "modified");
+}
+
+#[test]
+fn test_hierarchy() {
+    let mut world = World::new();
+
+    let ground = world.spawn();
+    let body = world.spawn();
+    let joint = world.spawn();
+    let child = world.spawn();
+
+    world.set_parent(joint, ground);
+    world.set_parent(body, joint);
+    world.set_parent(child, body);
+
+    // Verify hierarchy
+    assert_eq!(world.parent_of(joint), Some(ground));
+    assert_eq!(world.parent_of(body), Some(joint));
+    assert_eq!(world.parent_of(child), Some(body));
+
+    // Verify children
+    let ground_children = world.children_of(ground);
+    assert!(ground_children.contains(&joint));
+
+    let joint_children = world.children_of(joint);
+    assert!(joint_children.contains(&body));
 }

@@ -23,12 +23,9 @@ fn test_opensim_to_mujoco_conversion() {
 
     println!("OpenSim import (Rajagopal 2015):");
     println!("  Bodies: {}", world.count::<melosim::components::InertialProperties>());
-    println!("  Hinge joints: {}", world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count());
-    println!("  Custom joints: {}", world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "CustomJoint").count());
-    println!("  Universal joints: {}", world.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "UniversalJoint").count());
     println!("  Coordinates: {}", world.count::<melosim::components::JointCoordinate>());
+    println!("  CoordinateEffects: {}", world.count::<melosim::components::CoordinateEffect>());
     println!("  Muscles: {}", world.count::<melosim::components::Muscle>());
-    println!("  Sites: {}", world.count::<melosim::components::Site>());
 
     // Export to MJCF
     let mjcf_xml = world_to_mjcf(&world, "Rajagopal2015");

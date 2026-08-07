@@ -216,16 +216,6 @@ impl World {
         }
     }
 
-    /// Get the parent frame of a joint.
-    pub fn joint_parent_frame(&self, joint: EntityID) -> Option<EntityID> {
-        self.get::<ParentFrame>(joint).map(|p| p.frame)
-    }
-
-    /// Get the child frame of a joint.
-    pub fn joint_child_frame(&self, joint: EntityID) -> Option<EntityID> {
-        self.get::<ChildFrame>(joint).map(|c| c.frame)
-    }
-
     // ── Resource access ──
 
     pub fn get_resource<T: 'static>(&self) -> Option<&T> {
@@ -256,27 +246,28 @@ impl World {
     // ── Convenience joint builders ──
 
     /// Add a hinge (pin) joint between two frame entities.
-    /// Creates a Joint entity with 1 coordinate entity, a RotationAboutAxis
-    /// effect, and a SpatialTransform.
+    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
+    /// with 1 coordinate entity and a RotationAboutAxis effect.
     /// Returns the joint entity.
     pub fn add_hinge(
         &mut self,
         parent_frame: EntityID,
         child_frame: EntityID,
         axis: [f64; 3],
-        limits: Option<JointLimits>,
+        limits: Option<(f64, f64)>,
     ) -> EntityID {
         let joint_entity = self.spawn();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
+        // Hierarchy: joint is child of parent frame, child frame is child of joint
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
-        // Create coordinate
+        // Create coordinate (child of joint)
         let coord_entity = self.spawn();
+        self.set_parent(coord_entity, joint_entity);
         self.attach(coord_entity, JointCoordinate {
-            range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
-            range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+            range_min: limits.map_or(-1e10, |l| l.0),
+            range_max: limits.map_or(1e10, |l| l.1),
             default_value: 0.0,
             stiffness: 0.0,
             damping: 0.0,
@@ -285,52 +276,39 @@ impl World {
             prescribed_function: None,
         });
 
-        // Create CoordinateEffect: rotation about the specified axis
+        // Create CoordinateEffect (child of coordinate)
         let effect_entity = self.spawn();
+        self.set_parent(effect_entity, coord_entity);
         self.attach(effect_entity, CoordinateEffect {
-            coordinate: coord_entity,
-            joint: joint_entity,
             component: TransformComponent::RotationAboutAxis(axis),
             function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
-        });
-
-        // Create SpatialTransform
-        let st_entity = self.spawn();
-        self.attach(st_entity, SpatialTransform {
-            joint: joint_entity,
-            effects: vec![effect_entity],
-        });
-
-        // Create the joint
-        self.attach(joint_entity, Joint {
-            limits,
-            coordinates: vec![coord_entity],
         });
 
         joint_entity
     }
 
     /// Add a slide (prismatic) joint between two frame entities.
-    /// Creates a Joint entity with 1 coordinate entity, a TranslationAlongAxis
-    /// effect, and a SpatialTransform.
+    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
+    /// with 1 coordinate entity and a TranslationAlongAxis effect.
     pub fn add_slide(
         &mut self,
         parent_frame: EntityID,
         child_frame: EntityID,
         axis: [f64; 3],
-        limits: Option<JointLimits>,
+        limits: Option<(f64, f64)>,
     ) -> EntityID {
         let joint_entity = self.spawn();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
+        // Hierarchy
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
-        // Create coordinate
+        // Create coordinate (child of joint)
         let coord_entity = self.spawn();
+        self.set_parent(coord_entity, joint_entity);
         self.attach(coord_entity, JointCoordinate {
-            range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
-            range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+            range_min: limits.map_or(-1e10, |l| l.0),
+            range_max: limits.map_or(1e10, |l| l.1),
             default_value: 0.0,
             stiffness: 0.0,
             damping: 0.0,
@@ -339,55 +317,40 @@ impl World {
             prescribed_function: None,
         });
 
-        // Create CoordinateEffect: translation along the specified axis
+        // Create CoordinateEffect (child of coordinate)
         let effect_entity = self.spawn();
+        self.set_parent(effect_entity, coord_entity);
         self.attach(effect_entity, CoordinateEffect {
-            coordinate: coord_entity,
-            joint: joint_entity,
             component: TransformComponent::TranslationAlongAxis(axis),
             function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
-        });
-
-        // Create SpatialTransform
-        let st_entity = self.spawn();
-        self.attach(st_entity, SpatialTransform {
-            joint: joint_entity,
-            effects: vec![effect_entity],
-        });
-
-        // Create the joint
-        self.attach(joint_entity, Joint {
-            limits,
-            coordinates: vec![coord_entity],
         });
 
         joint_entity
     }
 
     /// Add a ball (spherical) joint between two frame entities.
-    /// Creates a Joint entity with 3 coordinate entities, 3 RotationAboutAxis
-    /// effects, and a SpatialTransform.
+    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
+    /// with 3 coordinate entities and 3 RotationAboutAxis effects.
     pub fn add_ball(
         &mut self,
         parent_frame: EntityID,
         child_frame: EntityID,
-        limits: Option<JointLimits>,
+        limits: Option<(f64, f64)>,
     ) -> EntityID {
         let joint_entity = self.spawn();
-        let mut coords = Vec::new();
-        let mut effects = Vec::new();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
+        // Hierarchy
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
         let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
         for axis in &axes {
             let coord_entity = self.spawn();
+            self.set_parent(coord_entity, joint_entity);
             self.attach(coord_entity, JointCoordinate {
-                range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
-                range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+                range_min: limits.map_or(-1e10, |l| l.0),
+                range_max: limits.map_or(1e10, |l| l.1),
                 default_value: 0.0,
                 stiffness: 0.0,
                 damping: 0.0,
@@ -397,51 +360,35 @@ impl World {
             });
 
             let effect_entity = self.spawn();
+            self.set_parent(effect_entity, coord_entity);
             self.attach(effect_entity, CoordinateEffect {
-                coordinate: coord_entity,
-                joint: joint_entity,
                 component: TransformComponent::RotationAboutAxis(*axis),
                 function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
             });
-
-            coords.push(coord_entity);
-            effects.push(effect_entity);
         }
-
-        let st_entity = self.spawn();
-        self.attach(st_entity, SpatialTransform {
-            joint: joint_entity,
-            effects,
-        });
-
-        self.attach(joint_entity, Joint {
-            limits,
-            coordinates: coords,
-        });
 
         joint_entity
     }
 
     /// Add a free (6-DOF) joint between two frame entities.
-    /// Creates a Joint entity with 6 coordinate entities (3 rotation + 3 translation),
-    /// effects, and SpatialTransform.
+    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
+    /// with 6 coordinate entities (3 rotation + 3 translation) and effects.
     pub fn add_free(
         &mut self,
         parent_frame: EntityID,
         child_frame: EntityID,
     ) -> EntityID {
         let joint_entity = self.spawn();
-        let mut coords = Vec::new();
-        let mut effects = Vec::new();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
+        // Hierarchy
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
         // 3 rotation axes
         let rot_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         for axis in &rot_axes {
             let coord_entity = self.spawn();
+            self.set_parent(coord_entity, joint_entity);
             self.attach(coord_entity, JointCoordinate {
                 range_min: -1e10,
                 range_max: 1e10,
@@ -453,20 +400,18 @@ impl World {
                 prescribed_function: None,
             });
             let effect_entity = self.spawn();
+            self.set_parent(effect_entity, coord_entity);
             self.attach(effect_entity, CoordinateEffect {
-                coordinate: coord_entity,
-                joint: joint_entity,
                 component: TransformComponent::RotationAboutAxis(*axis),
                 function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
             });
-            coords.push(coord_entity);
-            effects.push(effect_entity);
         }
 
         // 3 translation axes
         let trans_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         for axis in &trans_axes {
             let coord_entity = self.spawn();
+            self.set_parent(coord_entity, joint_entity);
             self.attach(coord_entity, JointCoordinate {
                 range_min: -1e10,
                 range_max: 1e10,
@@ -478,32 +423,19 @@ impl World {
                 prescribed_function: None,
             });
             let effect_entity = self.spawn();
+            self.set_parent(effect_entity, coord_entity);
             self.attach(effect_entity, CoordinateEffect {
-                coordinate: coord_entity,
-                joint: joint_entity,
                 component: TransformComponent::TranslationAlongAxis(*axis),
                 function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
             });
-            coords.push(coord_entity);
-            effects.push(effect_entity);
         }
-
-        let st_entity = self.spawn();
-        self.attach(st_entity, SpatialTransform {
-            joint: joint_entity,
-            effects,
-        });
-
-        self.attach(joint_entity, Joint {
-            limits: None,
-            coordinates: coords,
-        });
 
         joint_entity
     }
 
     /// Add a fixed (weld) joint between two frame entities.
-    /// Creates a Joint entity with no coordinates or effects.
+    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy
+    /// with no coordinates or effects.
     pub fn add_fixed(
         &mut self,
         parent_frame: EntityID,
@@ -511,42 +443,36 @@ impl World {
     ) -> EntityID {
         let joint_entity = self.spawn();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
-
-        self.attach(joint_entity, Joint {
-            limits: None,
-            coordinates: vec![],
-        });
+        // Hierarchy
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
         joint_entity
     }
 
     /// Add a universal joint between two frame entities.
-    /// Creates a Joint entity with 2 coordinate entities, 2 RotationAboutAxis
-    /// effects, and a SpatialTransform.
+    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
+    /// with 2 coordinate entities and 2 RotationAboutAxis effects.
     pub fn add_universal(
         &mut self,
         parent_frame: EntityID,
         child_frame: EntityID,
         axis1: [f64; 3],
         axis2: [f64; 3],
-        limits: Option<JointLimits>,
+        limits: Option<(f64, f64)>,
     ) -> EntityID {
         let joint_entity = self.spawn();
-        let mut coords = Vec::new();
-        let mut effects = Vec::new();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
+        // Hierarchy
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
         for axis in &[axis1, axis2] {
             let coord_entity = self.spawn();
+            self.set_parent(coord_entity, joint_entity);
             self.attach(coord_entity, JointCoordinate {
-                range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
-                range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+                range_min: limits.map_or(-1e10, |l| l.0),
+                range_max: limits.map_or(1e10, |l| l.1),
                 default_value: 0.0,
                 stiffness: 0.0,
                 damping: 0.0,
@@ -555,49 +481,35 @@ impl World {
                 prescribed_function: None,
             });
             let effect_entity = self.spawn();
+            self.set_parent(effect_entity, coord_entity);
             self.attach(effect_entity, CoordinateEffect {
-                coordinate: coord_entity,
-                joint: joint_entity,
                 component: TransformComponent::RotationAboutAxis(*axis),
                 function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
             });
-            coords.push(coord_entity);
-            effects.push(effect_entity);
         }
-
-        let st_entity = self.spawn();
-        self.attach(st_entity, SpatialTransform {
-            joint: joint_entity,
-            effects,
-        });
-
-        self.attach(joint_entity, Joint {
-            limits,
-            coordinates: coords,
-        });
 
         joint_entity
     }
 
     /// Add a custom joint between two frame entities with pre-created coordinates.
     /// The caller is responsible for creating CoordinateEffect entities.
+    /// Coordinates are set as children of the joint entity.
     pub fn add_custom(
         &mut self,
         parent_frame: EntityID,
         child_frame: EntityID,
         coordinates: Vec<EntityID>,
-        limits: Option<JointLimits>,
     ) -> EntityID {
         let joint_entity = self.spawn();
 
-        // Relationship components
-        self.attach(joint_entity, ParentFrame { frame: parent_frame });
-        self.attach(joint_entity, ChildFrame { frame: child_frame });
+        // Hierarchy
+        self.set_parent(joint_entity, parent_frame);
+        self.set_parent(child_frame, joint_entity);
 
-        self.attach(joint_entity, Joint {
-            limits,
-            coordinates,
-        });
+        // Set coordinates as children of the joint
+        for &coord in &coordinates {
+            self.set_parent(coord, joint_entity);
+        }
 
         joint_entity
     }
@@ -607,10 +519,8 @@ impl std::fmt::Debug for World {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("World");
         s.field("inertials", &self.count::<InertialProperties>())
-            .field("joints", &self.count::<Joint>())
             .field("coordinates", &self.count::<JointCoordinate>())
             .field("coordinate_effects", &self.count::<CoordinateEffect>())
-            .field("spatial_transforms", &self.count::<SpatialTransform>())
             .field("child_of", &self.count::<ChildOf>())
             .field("children", &self.count::<Children>())
             .field("positions", &self.count::<Position>())

@@ -81,7 +81,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
             .ok_or_else(|| format!("Body {} has unmapped parent {}", i, parent_id))?;
         let pos = model.body_pos()[i];
         let quat = model.body_quat()[i];
-        world.attach(entity, ChildOf { parent });
+        world.set_parent(entity, parent);
         world.attach(entity, Position::new(pos[0], pos[1], pos[2]));
         world.attach(entity, Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
 
@@ -109,11 +109,6 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
         let axis_arr = [axis[0], axis[1], axis[2]];
         let range = model.jnt_range()[j];
         let has_limits = model.jnt_limited()[j];
-        let limits = if has_limits {
-            Some(JointLimits { lower: range[0], upper: range[1] })
-        } else {
-            None
-        };
 
         let stiffness = model.jnt_stiffness()[j];
 
@@ -128,12 +123,17 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
         let joint_entity = world.spawn();
         world.attach(joint_entity, Name { value: jnt_name });
 
+        // Set up hierarchy: joint is child of parent, child body is child of joint
+        world.set_parent(joint_entity, body_a);
+        world.set_parent(body_b, joint_entity);
+
         match jnt_type {
             mjtJoint_::mjJNT_HINGE => {
-                // Create a coordinate entity for the hinge DOF
+                // Create a coordinate entity for the hinge DOF (child of joint)
                 let coord_entity = world.spawn();
                 let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
                     .unwrap_or("unnamed_coord");
+                world.set_parent(coord_entity, joint_entity);
                 world.attach(coord_entity, Name { value: coord_name.to_string() });
                 world.attach(coord_entity, JointCoordinate {
                     range_min: if has_limits { range[0] } else { -1e10 },
@@ -147,34 +147,19 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
                 });
                 coord_map.insert(j as i32, coord_entity);
 
-                // Create CoordinateEffect: rotation about the hinge axis
+                // Create CoordinateEffect: rotation about the hinge axis (child of coord)
                 let effect_entity = world.spawn();
+                world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
-                    coordinate: coord_entity,
-                    joint: joint_entity,
                     component: TransformComponent::RotationAboutAxis(axis_arr),
                     function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
-                });
-
-                // Create SpatialTransform
-                let st_entity = world.spawn();
-                world.attach(st_entity, SpatialTransform {
-                    joint: joint_entity,
-                    effects: vec![effect_entity],
-                });
-
-                // Create the unified Joint
-                world.attach(joint_entity, ParentFrame { frame: body_a });
-                world.attach(joint_entity, ChildFrame { frame: body_b });
-                world.attach(joint_entity, Joint {
-                    limits,
-                    coordinates: vec![coord_entity],
                 });
             }
             mjtJoint_::mjJNT_SLIDE => {
                 let coord_entity = world.spawn();
                 let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
                     .unwrap_or("unnamed_coord");
+                world.set_parent(coord_entity, joint_entity);
                 world.attach(coord_entity, Name { value: coord_name.to_string() });
                 world.attach(coord_entity, JointCoordinate {
                     range_min: if has_limits { range[0] } else { -1e10 },
@@ -188,53 +173,25 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
                 });
                 coord_map.insert(j as i32, coord_entity);
 
-                // Create CoordinateEffect: translation along the slide axis
+                // Create CoordinateEffect: translation along the slide axis (child of coord)
                 let effect_entity = world.spawn();
+                world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
-                    coordinate: coord_entity,
-                    joint: joint_entity,
                     component: TransformComponent::TranslationAlongAxis(axis_arr),
                     function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
                 });
-
-                // Create SpatialTransform
-                let st_entity = world.spawn();
-                world.attach(st_entity, SpatialTransform {
-                    joint: joint_entity,
-                    effects: vec![effect_entity],
-                });
-
-                // Create the unified Joint
-                world.attach(joint_entity, ParentFrame { frame: body_a });
-                world.attach(joint_entity, ChildFrame { frame: body_b });
-                world.attach(joint_entity, Joint {
-                    limits,
-                    coordinates: vec![coord_entity],
-                });
             }
             mjtJoint_::mjJNT_BALL => {
-                // Create the unified Joint
-                world.attach(joint_entity, ParentFrame { frame: body_a });
-                world.attach(joint_entity, ChildFrame { frame: body_b });
-                world.attach(joint_entity, Joint {
-                    limits,
-                    coordinates: vec![],
-                });
+                // Ball joint — no coordinates/effects in current MuJoCo representation
             }
             mjtJoint_::mjJNT_FREE => {
-                // Create the unified Joint
-                world.attach(joint_entity, ParentFrame { frame: body_a });
-                world.attach(joint_entity, ChildFrame { frame: body_b });
-                world.attach(joint_entity, Joint {
-                    limits: None,
-                    coordinates: vec![],
-                });
+                // Free joint — no coordinates/effects in current MuJoCo representation
             }
             // All four MuJoCo joint types are handled above.
         }
     }
 
-    // ── Import sites ──
+    // ── Import sites (now just ChildOf + Position, no Site marker) ──
     for s in 0..nsite {
         let body_id = model.site_bodyid()[s];
         let parent = *body_map.get(&body_id)
@@ -242,9 +199,8 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, EntityID>), String
 
         let pos = model.site_pos()[s];
         let site_entity = world.spawn();
-        world.attach(site_entity, ChildOf { parent });
+        world.set_parent(site_entity, parent);
         world.attach(site_entity, Position::new(pos[0], pos[1], pos[2]));
-        world.attach(site_entity, Site);
 
         let site_name = model.id_to_name(MjtObj::mjOBJ_SITE, s)
             .unwrap_or("unnamed_site")

@@ -9,10 +9,10 @@
 //     <worldbody>
 //       <body name="...">         ← InertialProperties + Name
 //         <inertial .../>
-//         <joint name="..." />    ← HingeJoint / SlideJoint / etc.
+//         <joint name="..." />    ← intermediate joint entities
 //         <geom name="..." />     ← DisplayGeometry
-//         <site name="..." />     ← Site
-//         <body name="...">       ← recursive children
+//         <site name="..." />     ← site entities (Position + ChildOf)
+//         <body name="...">       ← recursive children (bodies)
 //         </body>
 //       </body>
 //     </worldbody>
@@ -36,7 +36,6 @@ use crate::world::World;
 pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
     let mut xml = String::new();
 
-
     xml.push_str("<mujoco model=\"");
     xml.push_str(&escape_attr(model_name));
     xml.push_str("\">\n");
@@ -47,7 +46,7 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
     let children_map = build_children_map(world);
     let body_names = build_body_name_map(world);
 
-    // ── Find root bodies (no Frame parent, or parent is ground entity 0) ──
+    // ── Find root bodies (no parent body, or parent is ground entity 0) ──
     let roots = find_root_bodies(world);
 
     // ── worldbody ──
@@ -74,7 +73,7 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
                 match point {
                     PathPoint::BodyFixed { body, location } => {
                         // Find the site name for this path point
-                        // Look for a Site entity on this body at this location
+                        // Look for a site entity on this body at this location
                         if let Some(site_name) = find_site_name(world, *body, location) {
                             xml.push_str(&format!("      <site site=\"{}\"/>\n", escape_attr(&site_name)));
                         }
@@ -206,6 +205,20 @@ fn find_root_bodies(world: &World) -> Vec<EntityID> {
     roots
 }
 
+/// Check if an entity is a joint intermediate node (no InertialProperties,
+/// but has body children).
+fn is_joint_entity(world: &World, entity: EntityID) -> bool {
+    if world.get::<InertialProperties>(entity).is_some() {
+        return false;
+    }
+    for child in world.children_of(entity) {
+        if world.get::<InertialProperties>(child).is_some() {
+            return true;
+        }
+    }
+    false
+}
+
 /// Recursively emit a body and its children.
 fn emit_body_recursive(
     world: &World,
@@ -245,7 +258,7 @@ fn emit_body_recursive(
         xml.push_str("/>\n");
     }
 
-    // Joints attached to this body
+    // Joints attached to this body (children that are joint intermediate nodes)
     emit_body_joints(world, xml, entity, indent.len());
 
     // Display geometries
@@ -268,9 +281,13 @@ fn emit_body_recursive(
         }
     }
 
-    // Sites on this body
-    for (site_key, _site) in world.iter::<Site>() {
+    // Sites on this body (entities with Position + ChildOf, no InertialProperties)
+    for (site_key, _site_pos) in world.iter::<Position>() {
         if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == entity) {
+            // Check this is a site (no InertialProperties, no JointCoordinate, no Rotation)
+            if world.get::<InertialProperties>(site_key).is_some() { continue; }
+            if world.get::<JointCoordinate>(site_key).is_some() { continue; }
+            if world.get::<Rotation>(site_key).is_some() { continue; }
             let site_name = world.get::<Name>(site_key)
                 .map(|n| n.value.as_str())
                 .unwrap_or("unnamed_site");
@@ -307,53 +324,100 @@ fn emit_body_recursive(
         }
     }
 
-    // Recurse into children
+    // Recurse into children that are bodies (have InertialProperties)
     if let Some(children) = children_map.get(&entity) {
         for &child in children {
-            emit_body_recursive(world, xml, child, children_map, body_names, depth + 1);
+            if world.get::<InertialProperties>(child).is_some() {
+                emit_body_recursive(world, xml, child, children_map, body_names, depth + 1);
+            }
         }
     }
 
     xml.push_str(&format!("{}</body>\n", indent));
 }
 
-/// Emit joints attached to a body.
+/// Emit joints attached to a body (child entities that are joint intermediate nodes).
 fn emit_body_joints(world: &World, xml: &mut String, body: EntityID, indent: usize) {
     let ind = "  ".repeat(indent + 1);
 
-    for (key, joint) in world.iter::<Joint>() {
-        if !world.get::<ChildFrame>(key).map_or(false, |cf| cf.frame == body) {
+    // Find children of this body that are joint entities
+    for &child in &world.children_of(body) {
+        if !is_joint_entity(world, child) {
             continue;
         }
-        let name = world.get::<Name>(key).map(|n| n.value.as_str()).unwrap_or("joint");
+        let name = world.get::<Name>(child).map(|n| n.value.as_str()).unwrap_or("joint");
 
-        // Extract axis from the first RotationAboutAxis or TranslationAlongAxis effect
-        let axis = extract_joint_axis(world, key);
+        // Collect coordinates and effects
+        let coords: Vec<EntityID> = world.children_of(child).iter()
+            .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
+            .copied()
+            .collect();
+        let n_coords = coords.len();
 
-        let kind = infer_joint_kind(world, joint);
+        // Infer joint kind from coordinate count
+        let kind = match n_coords {
+            0 => "WeldJoint",
+            1 => {
+                // Check effect type
+                let mut found_kind = "PinJoint";
+                for effect_entity in world.children_of(coords[0]) {
+                    if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
+                        match &effect.component {
+                            TransformComponent::TranslationAlongAxis(_)
+                            | TransformComponent::TranslationX
+                            | TransformComponent::TranslationY
+                            | TransformComponent::TranslationZ => { found_kind = "SlideJoint"; }
+                            _ => {}
+                        }
+                    }
+                }
+                found_kind
+            }
+            2 => "UniversalJoint",
+            3 => "BallJoint",
+            6 => "FreeJoint",
+            _ => "CustomJoint",
+        };
+
         match kind {
             "PinJoint" => {
+                // Extract axis from the first RotationAboutAxis effect
+                let axis = extract_joint_axis(world, child);
                 xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"{} {} {}\"",
                     ind, escape_attr(name), axis[0], axis[1], axis[2]));
-                if let Some(ref lim) = joint.limits {
-                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                // Emit limits from coordinate
+                if let Some(&coord_key) = coords.first() {
+                    if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+                        if coord.clamped {
+                            xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", coord.range_min, coord.range_max));
+                        }
+                    }
                 }
-                append_joint_dynamics(world, xml, key);
+                append_joint_dynamics(world, xml, child);
                 xml.push_str("/>\n");
             }
             "SlideJoint" => {
+                let axis = extract_joint_axis(world, child);
                 xml.push_str(&format!("{}<joint name=\"{}\" type=\"slide\" axis=\"{} {} {}\"",
                     ind, escape_attr(name), axis[0], axis[1], axis[2]));
-                if let Some(ref lim) = joint.limits {
-                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                if let Some(&coord_key) = coords.first() {
+                    if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+                        if coord.clamped {
+                            xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", coord.range_min, coord.range_max));
+                        }
+                    }
                 }
-                append_joint_dynamics(world, xml, key);
+                append_joint_dynamics(world, xml, child);
                 xml.push_str("/>\n");
             }
             "BallJoint" => {
                 xml.push_str(&format!("{}<joint name=\"{}\" type=\"ball\"", ind, escape_attr(name)));
-                if let Some(ref lim) = joint.limits {
-                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                if let Some(&coord_key) = coords.first() {
+                    if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+                        if coord.clamped {
+                            xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", coord.range_min, coord.range_max));
+                        }
+                    }
                 }
                 xml.push_str("/>\n");
             }
@@ -365,27 +429,27 @@ fn emit_body_joints(world: &World, xml: &mut String, body: EntityID, indent: usi
             }
             "UniversalJoint" => {
                 // Emit two hinge joints for the two axes
-                let axis2 = extract_joint_axis2(world, key);
+                let axes = extract_joint_axes(world, child, 2);
                 xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"{} {} {}\"",
-                    ind, escape_attr(name), axis[0], axis[1], axis[2]));
-                if let Some(ref lim) = joint.limits {
-                    xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", lim.lower, lim.upper));
+                    ind, escape_attr(name), axes[0][0], axes[0][1], axes[0][2]));
+                if let Some(&coord_key) = coords.first() {
+                    if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+                        if coord.clamped {
+                            xml.push_str(&format!(" limited=\"true\" range=\"{} {}\"", coord.range_min, coord.range_max));
+                        }
+                    }
                 }
                 xml.push_str("/>\n");
-                xml.push_str(&format!("{}<joint name=\"{}_2\" type=\"hinge\" axis=\"{} {} {}\"/>\n",
-                    ind, escape_attr(name), axis2[0], axis2[1], axis2[2]));
+                xml.push_str(&format!("{}<joint name=\"{}_2\" type=\"hinge\" axis=\"{} {} {}\"/>",
+                    ind, escape_attr(name), axes[1][0], axes[1][1], axes[1][2]));
+                xml.push_str("\n");
             }
             "CustomJoint" => {
                 // One hinge per coordinate
-                for (i, coord_key) in joint.coordinates.iter().enumerate() {
+                for (_i, coord_key) in coords.iter().enumerate() {
                     let coord_name = world.get::<Name>(*coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
-                    if i == 0 {
-                        xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"0 0 1\"",
-                            ind, escape_attr(coord_name)));
-                    } else {
-                        xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"0 0 1\"",
-                            ind, escape_attr(coord_name)));
-                    }
+                    xml.push_str(&format!("{}<joint name=\"{}\" type=\"hinge\" axis=\"0 0 1\"",
+                        ind, escape_attr(coord_name)));
                     xml.push_str("/>\n");
                 }
             }
@@ -394,12 +458,12 @@ fn emit_body_joints(world: &World, xml: &mut String, body: EntityID, indent: usi
     }
 }
 
-/// Extract the axis from a joint's first RotationAboutAxis or TranslationAlongAxis effect.
-fn extract_joint_axis(world: &World, joint_key: EntityID) -> [f64; 3] {
-    for (_st_key, st) in world.iter::<SpatialTransform>() {
-        if st.joint == joint_key {
-            for effect_key in &st.effects {
-                if let Some(effect) = world.get::<CoordinateEffect>(*effect_key) {
+/// Extract the axis from a joint entity's first RotationAboutAxis or TranslationAlongAxis effect.
+fn extract_joint_axis(world: &World, joint_entity: EntityID) -> [f64; 3] {
+    for &coord in &world.children_of(joint_entity) {
+        if world.get::<JointCoordinate>(coord).is_some() {
+            for effect_entity in world.children_of(coord) {
+                if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
                         TransformComponent::RotationAboutAxis(axis)
                         | TransformComponent::TranslationAlongAxis(axis) => {
@@ -414,19 +478,18 @@ fn extract_joint_axis(world: &World, joint_key: EntityID) -> [f64; 3] {
     [0.0, 0.0, 1.0] // default
 }
 
-/// Extract the second axis from a joint's effects (for UniversalJoint).
-fn extract_joint_axis2(world: &World, joint_key: EntityID) -> [f64; 3] {
-    let mut found_first = false;
-    for (_st_key, st) in world.iter::<SpatialTransform>() {
-        if st.joint == joint_key {
-            for effect_key in &st.effects {
-                if let Some(effect) = world.get::<CoordinateEffect>(*effect_key) {
+/// Extract N axes from a joint entity's effects.
+fn extract_joint_axes(world: &World, joint_entity: EntityID, n: usize) -> Vec<[f64; 3]> {
+    let mut axes = Vec::new();
+    for &coord in &world.children_of(joint_entity) {
+        if world.get::<JointCoordinate>(coord).is_some() {
+            for effect_entity in world.children_of(coord) {
+                if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
-                        TransformComponent::RotationAboutAxis(axis) => {
-                            if found_first {
-                                return *axis;
-                            }
-                            found_first = true;
+                        TransformComponent::RotationAboutAxis(axis)
+                        | TransformComponent::TranslationAlongAxis(axis) => {
+                            axes.push(*axis);
+                            if axes.len() >= n { return axes; }
                         }
                         _ => {}
                     }
@@ -434,40 +497,47 @@ fn extract_joint_axis2(world: &World, joint_key: EntityID) -> [f64; 3] {
             }
         }
     }
-    [0.0, 1.0, 0.0] // default
+    // Pad with defaults
+    while axes.len() < n {
+        axes.push([0.0, 0.0, 1.0]);
+    }
+    axes
 }
 
 /// Append stiffness/damping from JointCoordinate if available.
-fn append_joint_dynamics(world: &World, xml: &mut String, joint_key: EntityID) {
-    // Look for a JointCoordinate whose Name matches the joint's Name
-    let joint_name = world.get::<Name>(joint_key).map(|n| n.value.as_str());
-    if let Some(jname) = joint_name {
-        for (_coord_key, coord) in world.iter::<JointCoordinate>() {
-            let coord_name = world.get::<Name>(_coord_key).map(|n| n.value.as_str());
-            if coord_name == Some(jname) {
-                if coord.stiffness != 0.0 {
-                    xml.push_str(&format!(" stiffness=\"{}\"", coord.stiffness));
-                }
-                if coord.damping != 0.0 {
-                    xml.push_str(&format!(" damping=\"{}\"", coord.damping));
-                }
-                return;
+fn append_joint_dynamics(world: &World, xml: &mut String, joint_entity: EntityID) {
+    // Look for a JointCoordinate child of this joint
+    for &coord_key in &world.children_of(joint_entity) {
+        if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
+            if coord.stiffness != 0.0 {
+                xml.push_str(&format!(" stiffness=\"{}\"", coord.stiffness));
             }
+            if coord.damping != 0.0 {
+                xml.push_str(&format!(" damping=\"{}\"", coord.damping));
+            }
+            return;
         }
     }
 }
 
 /// Find a site name matching a body and location (for tendon path references).
+/// Sites are entities with Position + ChildOf (no InertialProperties, no Rotation).
 fn find_site_name(world: &World, body: EntityID, location: &[f64; 3]) -> Option<String> {
-    for (site_key, _site) in world.iter::<Site>() {
-        if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) {
-            if let Some(pos) = world.get::<Position>(site_key) {
-                let dx = pos.x - location[0];
-                let dy = pos.y - location[1];
-                let dz = pos.z - location[2];
-                if (dx * dx + dy * dy + dz * dz) < 1e-12 {
-                    return world.get::<Name>(site_key).map(|n| n.value.clone());
-                }
+    for (site_key, _pos) in world.iter::<Position>() {
+        if !world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) {
+            continue;
+        }
+        // Must be a site (no InertialProperties, no Rotation, no JointCoordinate)
+        if world.get::<InertialProperties>(site_key).is_some() { continue; }
+        if world.get::<Rotation>(site_key).is_some() { continue; }
+        if world.get::<JointCoordinate>(site_key).is_some() { continue; }
+
+        if let Some(pos) = world.get::<Position>(site_key) {
+            let dx = pos.x - location[0];
+            let dy = pos.y - location[1];
+            let dz = pos.z - location[2];
+            if (dx * dx + dy * dy + dz * dz) < 1e-12 {
+                return world.get::<Name>(site_key).map(|n| n.value.clone());
             }
         }
     }

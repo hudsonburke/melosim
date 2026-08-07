@@ -126,7 +126,7 @@ fn emit_body_recursive(
         }
     }
 
-    // Joints
+    // Joints (child entities that are joint intermediate nodes)
     emit_body_joints(world, ctx, xml, entity, &indent);
 
     // Display geometries
@@ -138,12 +138,17 @@ fn emit_body_recursive(
         }
     }
 
-    // Sites
-    for (site_key, _site) in world.iter::<Site>() {
+    // Sites (entities with Position + ChildOf, no InertialProperties, no Rotation, no JointCoordinate)
+    for (site_key, _site_pos) in world.iter::<Position>() {
         if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == entity) {
-            if let Some(element) = _site.export_as(site_key, ctx) {
-                xml.push_str(&format!("{}  {}\n", indent, element));
-            }
+            if world.get::<InertialProperties>(site_key).is_some() { continue; }
+            if world.get::<Rotation>(site_key).is_some() { continue; }
+            if world.get::<JointCoordinate>(site_key).is_some() { continue; }
+            let site_name = ctx.name_or_unnamed(site_key);
+            let pos = world.get::<Position>(site_key);
+            let (x, y, z) = pos.map(|p| (p.x, p.y, p.z)).unwrap_or((0.0, 0.0, 0.0));
+            xml.push_str(&format!("{}  <site name=\"{}\" pos=\"{} {} {}\"/>\n",
+                indent, escape_attr(site_name), x, y, z));
         }
     }
 
@@ -156,14 +161,29 @@ fn emit_body_recursive(
         }
     }
 
-    // Recurse into children
+    // Recurse into children that are bodies
     if let Some(children) = children_map.get(&entity) {
         for &child in children {
-            emit_body_recursive(world, ctx, xml, child, children_map, depth + 1);
+            if world.get::<InertialProperties>(child).is_some() {
+                emit_body_recursive(world, ctx, xml, child, children_map, depth + 1);
+            }
         }
     }
 
     xml.push_str(&format!("{}</body>\n", indent));
+}
+
+/// Check if an entity is a joint intermediate node.
+fn is_joint_entity(world: &World, entity: EntityID) -> bool {
+    if world.get::<InertialProperties>(entity).is_some() {
+        return false;
+    }
+    for child in world.children_of(entity) {
+        if world.get::<InertialProperties>(child).is_some() {
+            return true;
+        }
+    }
+    false
 }
 
 fn emit_body_joints(
@@ -173,9 +193,57 @@ fn emit_body_joints(
     body: EntityID,
     indent: &str,
 ) {
-    let joints: Vec<(EntityID, String)> = world.iter::<Joint>()
-        .filter(|(k, _)| world.get::<ChildFrame>(*k).map_or(false, |cf| cf.frame == body))
-        .filter_map(|(k, j)| j.export_as(k, ctx).map(|s| (k, s)))
+    // Find children of this body that are joint entities
+    let joints: Vec<(EntityID, String)> = world.children_of(body).iter()
+        .filter(|&&k| is_joint_entity(world, k))
+        .filter_map(|&k| {
+            // Export the joint based on its coordinate count
+            let coords: Vec<EntityID> = world.children_of(k).iter()
+                .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
+                .copied()
+                .collect();
+            let name = ctx.name_or_unnamed(k);
+            let n_coords = coords.len();
+            let kind = match n_coords {
+                0 => "WeldJoint",
+                1 => {
+                    let mut found = "PinJoint";
+                    for effect_entity in world.children_of(coords[0]) {
+                        if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
+                            match &effect.component {
+                                TransformComponent::TranslationAlongAxis(_)
+                                | TransformComponent::TranslationX
+                                | TransformComponent::TranslationY
+                                | TransformComponent::TranslationZ => { found = "SlideJoint"; }
+                                _ => {}
+                            }
+                        }
+                    }
+                    found
+                }
+                2 => "UniversalJoint",
+                3 => "BallJoint",
+                6 => "FreeJoint",
+                _ => "CustomJoint",
+            };
+            // Generate simple joint XML
+            match kind {
+                "WeldJoint" => None,
+                "FreeJoint" => Some(format!(r#"<freejoint name="{}"/>"#, escape_attr(name))),
+                _ => {
+                    let axis = [0.0, 0.0, 1.0]; // Default
+                    let jtype = match kind {
+                        "PinJoint" => "hinge",
+                        "SlideJoint" => "slide",
+                        "BallJoint" => "ball",
+                        _ => "hinge",
+                    };
+                    Some(format!(r#"<joint name="{}" type="{}" axis="{} {} {}"/>"#,
+                        escape_attr(name), jtype, axis[0], axis[1], axis[2]))
+                }
+            }
+            .map(|s| (k, s))
+        })
         .collect();
 
     for (_, element) in joints {
@@ -212,15 +280,20 @@ fn find_root_bodies(world: &World) -> Vec<EntityID> {
 }
 
 fn find_site_name(world: &World, body: EntityID, location: &[f64; 3]) -> Option<String> {
-    for (site_key, _site) in world.iter::<Site>() {
-        if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) {
-            if let Some(pos) = world.get::<Position>(site_key) {
-                let dx = pos.x - location[0];
-                let dy = pos.y - location[1];
-                let dz = pos.z - location[2];
-                if (dx * dx + dy * dy + dz * dz) < 1e-12 {
-                    return world.get::<Name>(site_key).map(|n| n.value.clone());
-                }
+    for (site_key, _pos) in world.iter::<Position>() {
+        if !world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) {
+            continue;
+        }
+        if world.get::<InertialProperties>(site_key).is_some() { continue; }
+        if world.get::<Rotation>(site_key).is_some() { continue; }
+        if world.get::<JointCoordinate>(site_key).is_some() { continue; }
+
+        if let Some(pos) = world.get::<Position>(site_key) {
+            let dx = pos.x - location[0];
+            let dy = pos.y - location[1];
+            let dz = pos.z - location[2];
+            if (dx * dx + dy * dy + dz * dz) < 1e-12 {
+                return world.get::<Name>(site_key).map(|n| n.value.clone());
             }
         }
     }

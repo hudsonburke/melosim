@@ -16,17 +16,3 @@ pub struct ChildOf {
 pub struct Children {
     pub entities: Vec<EntityID>,
 }
-
-/// A joint connects two frames.
-/// ParentFrame points to the frame that serves as the joint's parent.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ParentFrame {
-    pub frame: EntityID,
-}
-
-/// A joint connects two frames.
-/// ChildFrame points to the frame that moves relative to the parent.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ChildFrame {
-    pub frame: EntityID,
-}
