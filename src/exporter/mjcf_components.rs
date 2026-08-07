@@ -10,90 +10,109 @@ use crate::id::EntityID;
 
 // ── Joints ────────────────────────────────────────────
 
-impl ExportAs<Mjcf> for HingeJoint {
+impl ExportAs<Mjcf> for Joint {
     fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
-        let mut xml = format!(
-            r#"<joint name="{}" type="hinge" axis="{} {} {}""#,
-            name, self.axis[0], self.axis[1], self.axis[2]
-        );
-        if let Some(ref lim) = self.limits {
-            xml.push_str(&format!(r#" limited="true" range="{} {}""#, lim.lower, lim.upper));
+        match self.joint_type {
+            "PinJoint" => {
+                // Find the RotationAboutAxis effect to get the axis
+                let mut axis = [0.0f64; 3];
+                for coord_key in &self.coordinates {
+                    for (_ek, effect) in ctx.world.iter::<CoordinateEffect>() {
+                        if effect.coordinate == *coord_key {
+                            if let TransformComponent::RotationAboutAxis(a) = effect.component {
+                                axis = a;
+                            }
+                        }
+                    }
+                }
+                let mut xml = format!(
+                    r#"<joint name="{}" type="hinge" axis="{} {} {}""#,
+                    name, axis[0], axis[1], axis[2]
+                );
+                if let Some(ref lim) = self.limits {
+                    xml.push_str(&format!(r#" limited="true" range="{} {}""#, lim.lower, lim.upper));
+                }
+                append_dynamics(ctx, entity, &mut xml);
+                xml.push_str("/>");
+                Some(xml)
+            }
+            "SlideJoint" => {
+                // Find the TranslationAlongAxis effect to get the axis
+                let mut axis = [0.0f64; 3];
+                for coord_key in &self.coordinates {
+                    for (_ek, effect) in ctx.world.iter::<CoordinateEffect>() {
+                        if effect.coordinate == *coord_key {
+                            if let TransformComponent::TranslationAlongAxis(a) = effect.component {
+                                axis = a;
+                            }
+                        }
+                    }
+                }
+                let mut xml = format!(
+                    r#"<joint name="{}" type="slide" axis="{} {} {}""#,
+                    name, axis[0], axis[1], axis[2]
+                );
+                if let Some(ref lim) = self.limits {
+                    xml.push_str(&format!(r#" limited="true" range="{} {}""#, lim.lower, lim.upper));
+                }
+                append_dynamics(ctx, entity, &mut xml);
+                xml.push_str("/>");
+                Some(xml)
+            }
+            "BallJoint" => {
+                let mut xml = format!(r#"<joint name="{}" type="ball""#, name);
+                if let Some(ref lim) = self.limits {
+                    xml.push_str(&format!(r#" limited="true" range="{} {}""#, lim.lower, lim.upper));
+                }
+                xml.push_str("/>");
+                Some(xml)
+            }
+            "FreeJoint" => {
+                Some(format!(r#"<freejoint name="{}"/>"#, name))
+            }
+            "WeldJoint" => {
+                None // MuJoCo has no explicit fixed joint
+            }
+            "UniversalJoint" => {
+                // Find the two RotationAboutAxis effects for the two axes
+                let mut axes = Vec::new();
+                for coord_key in &self.coordinates {
+                    for (_ek, effect) in ctx.world.iter::<CoordinateEffect>() {
+                        if effect.coordinate == *coord_key {
+                            if let TransformComponent::RotationAboutAxis(a) = effect.component {
+                                axes.push(a);
+                            }
+                        }
+                    }
+                }
+                if axes.len() >= 2 {
+                    Some(format!(
+                        r#"<joint name="{}" type="hinge" axis="{} {} {}"/><joint name="{}_2" type="hinge" axis="{} {} {}"/>"#,
+                        name, axes[0][0], axes[0][1], axes[0][2],
+                        name, axes[1][0], axes[1][1], axes[1][2]
+                    ))
+                } else {
+                    Some(format!(r#"<joint name="{}" type="hinge" axis="1 0 0"/>"#, name))
+                }
+            }
+            "CustomJoint" => {
+                if self.coordinates.is_empty() {
+                    return None;
+                }
+                if self.coordinates.len() == 1 {
+                    return Some(format!(r#"<joint name="{}" type="hinge" axis="0 0 1"/>"#, name));
+                }
+                let mut xml = String::new();
+                for i in 0..self.coordinates.len() {
+                    xml.push_str(&format!(
+                        r#"<joint name="{}_{}" type="hinge" axis="0 0 1"/>"#, name, i
+                    ));
+                }
+                Some(xml)
+            }
+            _ => None,
         }
-        append_dynamics(ctx, entity, &mut xml);
-        xml.push_str("/>");
-        Some(xml)
-    }
-}
-
-impl ExportAs<Mjcf> for SlideJoint {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
-        let name = ctx.name_or_unnamed(entity);
-        let mut xml = format!(
-            r#"<joint name="{}" type="slide" axis="{} {} {}""#,
-            name, self.axis[0], self.axis[1], self.axis[2]
-        );
-        if let Some(ref lim) = self.limits {
-            xml.push_str(&format!(r#" limited="true" range="{} {}""#, lim.lower, lim.upper));
-        }
-        append_dynamics(ctx, entity, &mut xml);
-        xml.push_str("/>");
-        Some(xml)
-    }
-}
-
-impl ExportAs<Mjcf> for BallJoint {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
-        let name = ctx.name_or_unnamed(entity);
-        let mut xml = format!(r#"<joint name="{}" type="ball""#, name);
-        if let Some(ref lim) = self.limits {
-            xml.push_str(&format!(r#" limited="true" range="{} {}""#, lim.lower, lim.upper));
-        }
-        xml.push_str("/>");
-        Some(xml)
-    }
-}
-
-impl ExportAs<Mjcf> for FreeJoint {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
-        let name = ctx.name_or_unnamed(entity);
-        Some(format!(r#"<freejoint name="{}"/>"#, name))
-    }
-}
-
-impl ExportAs<Mjcf> for FixedJoint {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
-        None // MuJoCo has no explicit fixed joint
-    }
-}
-
-impl ExportAs<Mjcf> for UniversalJoint {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
-        let name = ctx.name_or_unnamed(entity);
-        Some(format!(
-            r#"<joint name="{}" type="hinge" axis="{} {} {}"/><joint name="{}_2" type="hinge" axis="{} {} {}"/>"#,
-            name, self.axis1[0], self.axis1[1], self.axis1[2],
-            name, self.axis2[0], self.axis2[1], self.axis2[2]
-        ))
-    }
-}
-
-impl ExportAs<Mjcf> for CustomJoint {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
-        let name = ctx.name_or_unnamed(entity);
-        if self.coordinates.is_empty() {
-            return None;
-        }
-        if self.coordinates.len() == 1 {
-            return Some(format!(r#"<joint name="{}" type="hinge" axis="0 0 1"/>"#, name));
-        }
-        let mut xml = String::new();
-        for i in 0..self.coordinates.len() {
-            xml.push_str(&format!(
-                r#"<joint name="{}_{}" type="hinge" axis="0 0 1"/>"#, name, i
-            ));
-        }
-        Some(xml)
     }
 }
 

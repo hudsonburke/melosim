@@ -5,6 +5,8 @@
 use melosim::exporter::opensim::world_to_osim;
 use melosim::importer::opensim::{import_opensim_model, load_opensim_json};
 use melosim::world::World;
+use melosim::math::{Transform, Vec3, Quaternion};
+use melosim::components::*;
 
 /// Basic checks on the XML output structure.
 fn check_xml_structure(xml: &str) {
@@ -129,8 +131,6 @@ fn test_export_simple_muscle() {
 
 use melosim::components::*;
 use melosim::id::EntityID;
-use melosim::math::{Transform, Vec3};
-
 #[test]
 fn test_find_by_name() {
     let mut world = World::new();
@@ -162,12 +162,16 @@ fn test_attach_mesh() {
     world.attach(forearm, Name { value: "r_forearm".into() });
 
     // Attach a mesh to it
-    let cuff = world.attach_mesh(
-        forearm,
-        "assets/arm_cuff.stl",
-        "arm_cuff",
-        Vec3::new(0.0, 0.0, -0.15),
-    );
+    let cuff = world.spawn();
+    world.attach(cuff, Frame {
+        parent: forearm,
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, -0.15),
+            rotation: Quaternion::default(),
+        },
+    });
+    world.attach(cuff, MeshGeometry { mesh: "assets/arm_cuff.stl".into() });
+    world.attach(cuff, Name { value: "arm_cuff".into() });
 
     // Verify the mesh entity has the right components
     let frame = world.get::<Frame>(cuff).expect("cuff should have Frame");

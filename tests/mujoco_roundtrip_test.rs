@@ -58,8 +58,8 @@ fn test_myoelbow_roundtrip_structural() {
     let checks = [
         ("Bodies", world1.count::<melosim::components::InertialProperties>(),
                      world2.count::<melosim::components::InertialProperties>()),
-        ("Hinge joints", world1.count::<melosim::components::HingeJoint>(),
-                            world2.count::<melosim::components::HingeJoint>()),
+        ("Hinge joints", world1.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count(),
+                            world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint").count()),
         ("Coordinates", world1.count::<melosim::components::JointCoordinate>(),
                            world2.count::<melosim::components::JointCoordinate>()),
         ("Muscles", world1.count::<melosim::components::Muscle>(),
@@ -79,27 +79,48 @@ fn test_myoelbow_roundtrip_structural() {
     println!("  Sites: {} -> {} (may differ due to deduplication)", n_sites1, n_sites2);
 
     // ── Joint axis comparison ──
-    for (key1, hinge1) in world1.iter::<melosim::components::HingeJoint>() {
+    for (key1, joint1) in world1.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
         let name1 = world1.get::<melosim::components::Name>(key1).map(|n| n.value.clone());
-        for (key2, hinge2) in world2.iter::<melosim::components::HingeJoint>() {
+        // Find axis from RotationAboutAxis effect
+        let mut axis1 = [0.0f64; 3];
+        for coord_key in &joint1.coordinates {
+            for (_ek, effect) in world1.iter::<melosim::components::CoordinateEffect>() {
+                if effect.coordinate == *coord_key {
+                    if let melosim::components::TransformComponent::RotationAboutAxis(a) = effect.component {
+                        axis1 = a;
+                    }
+                }
+            }
+        }
+        for (key2, joint2) in world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
             let name2 = world2.get::<melosim::components::Name>(key2).map(|n| n.value.clone());
             if name1 == name2 {
-                let axis_diff: f64 = hinge1.axis.iter().zip(hinge2.axis.iter())
+                let mut axis2 = [0.0f64; 3];
+                for coord_key in &joint2.coordinates {
+                    for (_ek, effect) in world2.iter::<melosim::components::CoordinateEffect>() {
+                        if effect.coordinate == *coord_key {
+                            if let melosim::components::TransformComponent::RotationAboutAxis(a) = effect.component {
+                                axis2 = a;
+                            }
+                        }
+                    }
+                }
+                let axis_diff: f64 = axis1.iter().zip(axis2.iter())
                     .map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt();
                 assert!(axis_diff < 1e-6,
-                    "Joint '{:?}': axis mismatch {:?} vs {:?}", name1, hinge1.axis, hinge2.axis);
+                    "Joint '{:?}': axis mismatch {:?} vs {:?}", name1, axis1, axis2);
                 println!("  Joint '{:?}': axis preserved", name1);
             }
         }
     }
 
     // ── Joint limits comparison ──
-    for (key1, hinge1) in world1.iter::<melosim::components::HingeJoint>() {
+    for (key1, joint1) in world1.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
         let name1 = world1.get::<melosim::components::Name>(key1).map(|n| n.value.clone());
-        for (key2, hinge2) in world2.iter::<melosim::components::HingeJoint>() {
+        for (key2, joint2) in world2.iter::<melosim::components::Joint>().filter(|(_, j)| j.joint_type == "PinJoint") {
             let name2 = world2.get::<melosim::components::Name>(key2).map(|n| n.value.clone());
             if name1 == name2 {
-                match (&hinge1.limits, &hinge2.limits) {
+                match (&joint1.limits, &joint2.limits) {
                     (Some(l1), Some(l2)) => {
                         let lower_diff = (l1.lower - l2.lower).abs();
                         let upper_diff = (l1.upper - l2.upper).abs();

@@ -226,73 +226,39 @@ fn world_to_scene(world: &World, mesh_base_url: &str, mesh_dir: &PathBuf) -> Sce
     }
 
     // Joints
-    for (eid, hinge) in world.iter::<HingeJoint>() {
+    for (eid, joint) in world.iter::<Joint>() {
         let name = world
             .get::<Name>(eid)
             .map(|n| n.value.clone())
             .unwrap_or_default();
+        // Find axis from CoordinateEffects
+        let mut axis = None;
+        for coord_key in &joint.coordinates {
+            for (_ek, effect) in world.iter::<CoordinateEffect>() {
+                if effect.coordinate == *coord_key {
+                    match &effect.component {
+                        TransformComponent::RotationAboutAxis(a) => {
+                            axis = Some(*a);
+                        }
+                        TransformComponent::TranslationAlongAxis(a) => {
+                            axis = Some(*a);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         joints.push(JointInfo {
             id: eid.0,
             name,
-            joint_type: "hinge".into(),
-            body_a: hinge.body_a.0,
-            body_b: hinge.body_b.0,
-            axis: Some(hinge.axis),
-            limits: hinge.limits.as_ref().map(|l| LimitInfo {
+            joint_type: joint.joint_type.to_lowercase().replace("joint", "").into(),
+            body_a: joint.body_a.0,
+            body_b: joint.body_b.0,
+            axis,
+            limits: joint.limits.as_ref().map(|l| LimitInfo {
                 lower: l.lower,
                 upper: l.upper,
             }),
-        });
-    }
-    for (eid, slide) in world.iter::<SlideJoint>() {
-        let name = world
-            .get::<Name>(eid)
-            .map(|n| n.value.clone())
-            .unwrap_or_default();
-        joints.push(JointInfo {
-            id: eid.0,
-            name,
-            joint_type: "slide".into(),
-            body_a: slide.body_a.0,
-            body_b: slide.body_b.0,
-            axis: Some(slide.axis),
-            limits: slide.limits.as_ref().map(|l| LimitInfo {
-                lower: l.lower,
-                upper: l.upper,
-            }),
-        });
-    }
-    for (eid, ball) in world.iter::<BallJoint>() {
-        let name = world
-            .get::<Name>(eid)
-            .map(|n| n.value.clone())
-            .unwrap_or_default();
-        joints.push(JointInfo {
-            id: eid.0,
-            name,
-            joint_type: "ball".into(),
-            body_a: ball.body_a.0,
-            body_b: ball.body_b.0,
-            axis: None,
-            limits: ball.limits.as_ref().map(|l| LimitInfo {
-                lower: l.lower,
-                upper: l.upper,
-            }),
-        });
-    }
-    for (eid, free) in world.iter::<FreeJoint>() {
-        let name = world
-            .get::<Name>(eid)
-            .map(|n| n.value.clone())
-            .unwrap_or_default();
-        joints.push(JointInfo {
-            id: eid.0,
-            name,
-            joint_type: "free".into(),
-            body_a: free.body_a.0,
-            body_b: free.body_b.0,
-            axis: None,
-            limits: None,
         });
     }
 

@@ -1,5 +1,6 @@
 use crate::components::*;
 use crate::id::EntityID;
+use crate::math::{Quaternion, Vec3};
 use anymap2::AnyMap;
 
 /// Type alias for per-type component storage.
@@ -170,6 +171,345 @@ impl World {
             .cloned()
             .unwrap_or_default()
     }
+
+    // ── Convenience joint builders ──
+
+    /// Add a hinge (pin) joint between two bodies.
+    /// Creates a Joint entity with joint_type="PinJoint",
+    /// 1 coordinate entity, a RotationAboutAxis effect, and a SpatialTransform.
+    /// Returns the joint entity.
+    pub fn add_hinge(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+        axis: [f64; 3],
+        limits: Option<JointLimits>,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+
+        // Create coordinate
+        let coord_entity = self.spawn();
+        self.attach(coord_entity, JointCoordinate {
+            range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
+            range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+            default_value: 0.0,
+            stiffness: 0.0,
+            damping: 0.0,
+            clamped: limits.is_some(),
+            locked: false,
+            prescribed_function: None,
+        });
+
+        // Create CoordinateEffect: rotation about the specified axis
+        let effect_entity = self.spawn();
+        self.attach(effect_entity, CoordinateEffect {
+            coordinate: coord_entity,
+            joint: joint_entity,
+            component: TransformComponent::RotationAboutAxis(axis),
+            function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+        });
+
+        // Create SpatialTransform
+        let st_entity = self.spawn();
+        self.attach(st_entity, SpatialTransform {
+            joint: joint_entity,
+            effects: vec![effect_entity],
+        });
+
+        // Create the joint
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits,
+            joint_type: "PinJoint",
+            coordinates: vec![coord_entity],
+        });
+
+        joint_entity
+    }
+
+    /// Add a slide (prismatic) joint between two bodies.
+    /// Creates a Joint entity with joint_type="SlideJoint",
+    /// 1 coordinate entity, a TranslationAlongAxis effect, and a SpatialTransform.
+    pub fn add_slide(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+        axis: [f64; 3],
+        limits: Option<JointLimits>,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+
+        // Create coordinate
+        let coord_entity = self.spawn();
+        self.attach(coord_entity, JointCoordinate {
+            range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
+            range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+            default_value: 0.0,
+            stiffness: 0.0,
+            damping: 0.0,
+            clamped: limits.is_some(),
+            locked: false,
+            prescribed_function: None,
+        });
+
+        // Create CoordinateEffect: translation along the specified axis
+        let effect_entity = self.spawn();
+        self.attach(effect_entity, CoordinateEffect {
+            coordinate: coord_entity,
+            joint: joint_entity,
+            component: TransformComponent::TranslationAlongAxis(axis),
+            function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+        });
+
+        // Create SpatialTransform
+        let st_entity = self.spawn();
+        self.attach(st_entity, SpatialTransform {
+            joint: joint_entity,
+            effects: vec![effect_entity],
+        });
+
+        // Create the joint
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits,
+            joint_type: "SlideJoint",
+            coordinates: vec![coord_entity],
+        });
+
+        joint_entity
+    }
+
+    /// Add a ball (spherical) joint between two bodies.
+    /// Creates a Joint entity with joint_type="BallJoint",
+    /// 3 coordinate entities, 3 RotationAboutAxis effects, and a SpatialTransform.
+    pub fn add_ball(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+        limits: Option<JointLimits>,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+        let mut coords = Vec::new();
+        let mut effects = Vec::new();
+
+        let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+        for axis in &axes {
+            let coord_entity = self.spawn();
+            self.attach(coord_entity, JointCoordinate {
+                range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
+                range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+                default_value: 0.0,
+                stiffness: 0.0,
+                damping: 0.0,
+                clamped: limits.is_some(),
+                locked: false,
+                prescribed_function: None,
+            });
+
+            let effect_entity = self.spawn();
+            self.attach(effect_entity, CoordinateEffect {
+                coordinate: coord_entity,
+                joint: joint_entity,
+                component: TransformComponent::RotationAboutAxis(*axis),
+                function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            });
+
+            coords.push(coord_entity);
+            effects.push(effect_entity);
+        }
+
+        let st_entity = self.spawn();
+        self.attach(st_entity, SpatialTransform {
+            joint: joint_entity,
+            effects,
+        });
+
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits,
+            joint_type: "BallJoint",
+            coordinates: coords,
+        });
+
+        joint_entity
+    }
+
+    /// Add a free (6-DOF) joint between two bodies.
+    /// Creates a Joint entity with joint_type="FreeJoint",
+    /// 6 coordinate entities (3 rotation + 3 translation), effects, and SpatialTransform.
+    pub fn add_free(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+        limits: Option<JointLimits>,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+        let mut coords = Vec::new();
+        let mut effects = Vec::new();
+
+        // 3 rotation axes
+        let rot_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        for axis in &rot_axes {
+            let coord_entity = self.spawn();
+            self.attach(coord_entity, JointCoordinate {
+                range_min: -1e10,
+                range_max: 1e10,
+                default_value: 0.0,
+                stiffness: 0.0,
+                damping: 0.0,
+                clamped: false,
+                locked: false,
+                prescribed_function: None,
+            });
+            let effect_entity = self.spawn();
+            self.attach(effect_entity, CoordinateEffect {
+                coordinate: coord_entity,
+                joint: joint_entity,
+                component: TransformComponent::RotationAboutAxis(*axis),
+                function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            });
+            coords.push(coord_entity);
+            effects.push(effect_entity);
+        }
+
+        // 3 translation axes
+        let trans_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        for axis in &trans_axes {
+            let coord_entity = self.spawn();
+            self.attach(coord_entity, JointCoordinate {
+                range_min: -1e10,
+                range_max: 1e10,
+                default_value: 0.0,
+                stiffness: 0.0,
+                damping: 0.0,
+                clamped: false,
+                locked: false,
+                prescribed_function: None,
+            });
+            let effect_entity = self.spawn();
+            self.attach(effect_entity, CoordinateEffect {
+                coordinate: coord_entity,
+                joint: joint_entity,
+                component: TransformComponent::TranslationAlongAxis(*axis),
+                function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            });
+            coords.push(coord_entity);
+            effects.push(effect_entity);
+        }
+
+        let st_entity = self.spawn();
+        self.attach(st_entity, SpatialTransform {
+            joint: joint_entity,
+            effects,
+        });
+
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits: None,
+            joint_type: "FreeJoint",
+            coordinates: coords,
+        });
+
+        joint_entity
+    }
+
+    /// Add a fixed (weld) joint between two bodies.
+    /// Creates a Joint entity with joint_type="WeldJoint", no coordinates or effects.
+    pub fn add_fixed(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits: None,
+            joint_type: "WeldJoint",
+            coordinates: vec![],
+        });
+        joint_entity
+    }
+
+    /// Add a universal joint between two bodies.
+    /// Creates a Joint entity with joint_type="UniversalJoint",
+    /// 2 coordinate entities, 2 RotationAboutAxis effects, and a SpatialTransform.
+    pub fn add_universal(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+        axis1: [f64; 3],
+        axis2: [f64; 3],
+        limits: Option<JointLimits>,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+        let mut coords = Vec::new();
+        let mut effects = Vec::new();
+
+        for axis in &[axis1, axis2] {
+            let coord_entity = self.spawn();
+            self.attach(coord_entity, JointCoordinate {
+                range_min: limits.as_ref().map_or(-1e10, |l| l.lower),
+                range_max: limits.as_ref().map_or(1e10, |l| l.upper),
+                default_value: 0.0,
+                stiffness: 0.0,
+                damping: 0.0,
+                clamped: limits.is_some(),
+                locked: false,
+                prescribed_function: None,
+            });
+            let effect_entity = self.spawn();
+            self.attach(effect_entity, CoordinateEffect {
+                coordinate: coord_entity,
+                joint: joint_entity,
+                component: TransformComponent::RotationAboutAxis(*axis),
+                function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            });
+            coords.push(coord_entity);
+            effects.push(effect_entity);
+        }
+
+        let st_entity = self.spawn();
+        self.attach(st_entity, SpatialTransform {
+            joint: joint_entity,
+            effects,
+        });
+
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits,
+            joint_type: "UniversalJoint",
+            coordinates: coords,
+        });
+
+        joint_entity
+    }
+
+    /// Add a custom joint between two bodies with pre-created coordinates.
+    /// The caller is responsible for creating CoordinateEffect entities.
+    pub fn add_custom(
+        &mut self,
+        body_a: EntityID,
+        body_b: EntityID,
+        coordinates: Vec<EntityID>,
+        limits: Option<JointLimits>,
+    ) -> EntityID {
+        let joint_entity = self.spawn();
+        self.attach(joint_entity, Joint {
+            body_a,
+            body_b,
+            limits,
+            joint_type: "CustomJoint",
+            coordinates,
+        });
+        joint_entity
+    }
 }
 
 impl std::fmt::Debug for World {
@@ -177,13 +517,7 @@ impl std::fmt::Debug for World {
         let mut s = f.debug_struct("World");
         s.field("inertials", &self.count::<InertialProperties>())
             .field("frames", &self.count::<Frame>())
-            .field("hinge_joints", &self.count::<HingeJoint>())
-            .field("slide_joints", &self.count::<SlideJoint>())
-            .field("ball_joints", &self.count::<BallJoint>())
-            .field("free_joints", &self.count::<FreeJoint>())
-            .field("fixed_joints", &self.count::<FixedJoint>())
-            .field("universal_joints", &self.count::<UniversalJoint>())
-            .field("custom_joints", &self.count::<CustomJoint>())
+            .field("joints", &self.count::<Joint>())
             .field("coordinates", &self.count::<JointCoordinate>())
             .field("coordinate_effects", &self.count::<CoordinateEffect>())
             .field("spatial_transforms", &self.count::<SpatialTransform>())
