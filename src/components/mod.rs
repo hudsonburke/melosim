@@ -2,7 +2,6 @@ mod actuator;
 mod body;
 mod coordinate;
 mod geometry;
-mod joint;
 mod material;
 mod muscle;
 mod name;
@@ -16,7 +15,6 @@ pub use actuator::*;
 pub use body::*;
 pub use coordinate::*;
 pub use geometry::*;
-pub use joint::*;
 pub use material::*;
 pub use muscle::*;
 pub use name::*;
@@ -26,8 +24,8 @@ pub use spatial::*;
 pub use tendon::*;
 pub use wrap::*;
 
-use bevy_ecs::prelude::Entity;
 use crate::world::World;
+use bevy_ecs::prelude::Entity;
 
 /// Validation trait for components that have invariants.
 ///

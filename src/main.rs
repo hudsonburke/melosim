@@ -1,6 +1,5 @@
-use melosim::components::*;
-use melosim::world::World;
 use bevy_ecs::prelude::Entity;
+use melosim::components::*;
 
 // ── Main ──
 
@@ -78,16 +77,12 @@ fn main() {
         value: "knee_flexion".into(),
     });
 
-    let _knee = add_custom(
-        &mut world,
-        femur,
-        pelvis,
-        vec![knee_flexion],
-        None,
-    );
+    let _knee = add_custom(&mut world, femur, pelvis, vec![knee_flexion], None);
 
     let flex_effect = world.spawn(()).id();
-    world.entity_mut(flex_effect).insert(ChildOf { parent: knee_flexion });
+    world.entity_mut(flex_effect).insert(ChildOf {
+        parent: knee_flexion,
+    });
     world.entity_mut(flex_effect).insert(CoordinateEffect {
         component: TransformComponent::RotationY,
         function: JointFunction::Linear {
@@ -97,7 +92,9 @@ fn main() {
     });
 
     let ap_translate = world.spawn(()).id();
-    world.entity_mut(ap_translate).insert(ChildOf { parent: knee_flexion });
+    world.entity_mut(ap_translate).insert(ChildOf {
+        parent: knee_flexion,
+    });
     world.entity_mut(ap_translate).insert(CoordinateEffect {
         component: TransformComponent::TranslationX,
         function: JointFunction::Polynomial {
@@ -108,7 +105,9 @@ fn main() {
     // ── Site (muscle attachment point) ──
     let _asis = world.spawn(()).id();
     world.entity_mut(_asis).insert(ChildOf { parent: pelvis });
-    world.entity_mut(_asis).insert(Position::new(0.01, 0.02, 0.13));
+    world
+        .entity_mut(_asis)
+        .insert(Position::new(0.01, 0.02, 0.13));
 
     // ── Run systems (validation, etc.) ──
     melosim::systems::run_systems(&mut world);
@@ -135,8 +134,12 @@ fn add_hinge(
     limits: Option<(f64, f64)>,
 ) -> Entity {
     let joint = world.spawn(()).id();
-    world.entity_mut(joint).insert(ChildOf { parent: parent_frame });
-    world.entity_mut(child_frame).insert(ChildOf { parent: joint });
+    world.entity_mut(joint).insert(ChildOf {
+        parent: parent_frame,
+    });
+    world
+        .entity_mut(child_frame)
+        .insert(ChildOf { parent: joint });
 
     let coord = world.spawn(()).id();
     world.entity_mut(coord).insert(ChildOf { parent: joint });
@@ -155,7 +158,10 @@ fn add_hinge(
     world.entity_mut(effect).insert(ChildOf { parent: coord });
     world.entity_mut(effect).insert(CoordinateEffect {
         component: TransformComponent::RotationAboutAxis(axis),
-        function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+        function: JointFunction::Linear {
+            slope: 1.0,
+            intercept: 0.0,
+        },
     });
 
     joint
@@ -163,22 +169,35 @@ fn add_hinge(
 
 fn add_free(world: &mut World, parent_frame: Entity, child_frame: Entity) -> Entity {
     let joint = world.spawn(()).id();
-    world.entity_mut(joint).insert(ChildOf { parent: parent_frame });
-    world.entity_mut(child_frame).insert(ChildOf { parent: joint });
+    world.entity_mut(joint).insert(ChildOf {
+        parent: parent_frame,
+    });
+    world
+        .entity_mut(child_frame)
+        .insert(ChildOf { parent: joint });
 
     let rot_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     for axis in &rot_axes {
         let coord = world.spawn(()).id();
         world.entity_mut(coord).insert(ChildOf { parent: joint });
         world.entity_mut(coord).insert(JointCoordinate {
-            range_min: -1e10, range_max: 1e10, default_value: 0.0,
-            stiffness: 0.0, damping: 0.0, clamped: false, locked: false, prescribed_function: None,
+            range_min: -1e10,
+            range_max: 1e10,
+            default_value: 0.0,
+            stiffness: 0.0,
+            damping: 0.0,
+            clamped: false,
+            locked: false,
+            prescribed_function: None,
         });
         let effect = world.spawn(()).id();
         world.entity_mut(effect).insert(ChildOf { parent: coord });
         world.entity_mut(effect).insert(CoordinateEffect {
             component: TransformComponent::RotationAboutAxis(*axis),
-            function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            function: JointFunction::Linear {
+                slope: 1.0,
+                intercept: 0.0,
+            },
         });
     }
     let trans_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -186,14 +205,23 @@ fn add_free(world: &mut World, parent_frame: Entity, child_frame: Entity) -> Ent
         let coord = world.spawn(()).id();
         world.entity_mut(coord).insert(ChildOf { parent: joint });
         world.entity_mut(coord).insert(JointCoordinate {
-            range_min: -1e10, range_max: 1e10, default_value: 0.0,
-            stiffness: 0.0, damping: 0.0, clamped: false, locked: false, prescribed_function: None,
+            range_min: -1e10,
+            range_max: 1e10,
+            default_value: 0.0,
+            stiffness: 0.0,
+            damping: 0.0,
+            clamped: false,
+            locked: false,
+            prescribed_function: None,
         });
         let effect = world.spawn(()).id();
         world.entity_mut(effect).insert(ChildOf { parent: coord });
         world.entity_mut(effect).insert(CoordinateEffect {
             component: TransformComponent::TranslationAlongAxis(*axis),
-            function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            function: JointFunction::Linear {
+                slope: 1.0,
+                intercept: 0.0,
+            },
         });
     }
     joint
@@ -208,8 +236,12 @@ fn add_universal(
     limits: Option<(f64, f64)>,
 ) -> Entity {
     let joint = world.spawn(()).id();
-    world.entity_mut(joint).insert(ChildOf { parent: parent_frame });
-    world.entity_mut(child_frame).insert(ChildOf { parent: joint });
+    world.entity_mut(joint).insert(ChildOf {
+        parent: parent_frame,
+    });
+    world
+        .entity_mut(child_frame)
+        .insert(ChildOf { parent: joint });
 
     for axis in &[axis1, axis2] {
         let coord = world.spawn(()).id();
@@ -218,14 +250,20 @@ fn add_universal(
             range_min: limits.map_or(-1e10, |l| l.0),
             range_max: limits.map_or(1e10, |l| l.1),
             default_value: 0.0,
-            stiffness: 0.0, damping: 0.0,
-            clamped: limits.is_some(), locked: false, prescribed_function: None,
+            stiffness: 0.0,
+            damping: 0.0,
+            clamped: limits.is_some(),
+            locked: false,
+            prescribed_function: None,
         });
         let effect = world.spawn(()).id();
         world.entity_mut(effect).insert(ChildOf { parent: coord });
         world.entity_mut(effect).insert(CoordinateEffect {
             component: TransformComponent::RotationAboutAxis(*axis),
-            function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
+            function: JointFunction::Linear {
+                slope: 1.0,
+                intercept: 0.0,
+            },
         });
     }
     joint
@@ -239,8 +277,12 @@ fn add_custom(
     _limits: Option<(f64, f64)>,
 ) -> Entity {
     let joint = world.spawn(()).id();
-    world.entity_mut(joint).insert(ChildOf { parent: parent_frame });
-    world.entity_mut(child_frame).insert(ChildOf { parent: joint });
+    world.entity_mut(joint).insert(ChildOf {
+        parent: parent_frame,
+    });
+    world
+        .entity_mut(child_frame)
+        .insert(ChildOf { parent: joint });
     for coord in &coordinates {
         world.entity_mut(*coord).insert(ChildOf { parent: joint });
     }
