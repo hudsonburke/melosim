@@ -1,5 +1,4 @@
 use bevy_ecs::prelude::*;
-use crate::math::Transform;
 
 /// A display/mesh geometry attached to a body for visualization.
 ///

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "python"]
+members = [".", "components", "editor", "python"]
 
 [package]
 name = "melosim"
@@ -13,7 +13,6 @@ serde_json = "1.0.151"
 mujoco-rs = { version = "5", features = [
   "auto-download-mujoco",
 ], optional = true }
-bevy_ecs = "0.15"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

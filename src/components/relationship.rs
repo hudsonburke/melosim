@@ -1,47 +1,29 @@
 use bevy_ecs::prelude::*;
 
-// ── Generic relationship ──────────────────────────────
-
-/// A relationship: this entity is a child of `parent`.
-/// Fallback for cases where no typed relationship applies.
-#[derive(Component, Clone, Debug)]
-pub struct ChildOf {
-    pub parent: Entity,
-}
-
-/// Bidirectional relationship target: auto-synced list of children.
-/// Maintained by World when ChildOf is attached/detached.
-#[derive(Component, Clone, Debug, Default)]
-pub struct Children {
-    pub entities: Vec<Entity>,
-}
-
 // ── Spatial relationships (positioning) ───────────────
 
 /// "This entity is positioned relative to this frame."
 /// Used by bodies, sites, joint entities, geometry.
 /// The FK solver walks InFrame to compute world poses.
-#[derive(Component, Clone, Debug)]
-pub struct InFrame(pub Entity);
+#[derive(Component, Debug)]
+#[relationship(relationship_target = FrameContents)]
+pub struct InFrame(Entity);
 
 /// Auto-synced list of entities positioned in this frame.
-#[derive(Component, Clone, Debug, Default)]
-pub struct FrameContents {
-    pub entities: Vec<Entity>,
-}
+#[derive(Component, Debug)]
+pub struct FrameContents(Vec<Entity>);
 
 // ── Behavioral relationships (motion) ─────────────────
 
 /// "This joint connects to this frame (child side)."
 /// The FK solver uses this to find which frame each joint drives.
-#[derive(Component, Clone, Debug)]
-pub struct Connects(pub Entity);
+#[derive(Component, Debug)]
+#[relationship(relationship_target = ConnectedJoints)]
+pub struct Connects(Entity);
 
 /// Auto-synced list of joints that connect to this frame.
-#[derive(Component, Clone, Debug, Default)]
-pub struct ConnectedJoints {
-    pub entities: Vec<Entity>,
-}
+#[derive(Component, Debug)]
+pub struct ConnectedJoints(Vec<Entity>);
 
 /// "This coordinate belongs to this joint."
 /// Groups DOFs under a joint entity.
