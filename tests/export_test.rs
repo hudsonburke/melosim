@@ -3,9 +3,13 @@
 use melosim::exporter::opensim::world_to_osim;
 use melosim::importer::opensim::{import_opensim_model, load_opensim_json};
 use melosim::world::World;
-use melosim::world::WorldExt;
 use melosim::components::*;
 use bevy_ecs::prelude::Entity;
+
+fn find_by_name(world: &mut World, name: &str) -> Option<Entity> {
+    let mut query = world.query::<(Entity, &Name)>();
+    query.iter(world).find(|(_, n)| n.value == name).map(|(e, _)| e)
+}
 
 fn check_xml_structure(xml: &str) {
     assert!(xml.starts_with("<?xml"), "XML should start with declaration");
@@ -56,7 +60,6 @@ fn test_export_simple_muscle() {
 
     let xml = world_to_osim(&mut world, "SimpleMuscleTest");
     check_xml_structure(&xml);
-
     assert!(xml.contains("<ForceSet>"), "Should contain ForceSet");
     assert!(xml.contains("Millard2012EquilibriumMuscle"), "Should contain muscle type");
     assert!(xml.contains("rectus_femoris_r"), "Should contain muscle name");
@@ -80,52 +83,52 @@ fn test_export_simple_muscle() {
 #[test]
 fn test_find_by_name() {
     let mut world = World::new();
-    let e1 = world.spawn_entity();
-    let e2 = world.spawn_entity();
-    world.attach(e1, Name::new("forearm"));
-    world.attach(e2, Name::new("cuff"));
+    let e1 = world.spawn(()).id();
+    let e2 = world.spawn(()).id();
+    world.entity_mut(e1).insert(Name::new("forearm"));
+    world.entity_mut(e2).insert(Name::new("cuff"));
 
-    assert_eq!(world.find_by_name("forearm"), Some(e1));
-    assert_eq!(world.find_by_name("cuff"), Some(e2));
-    assert_eq!(world.find_by_name("missing"), None);
+    assert_eq!(find_by_name(&mut world, "forearm"), Some(e1));
+    assert_eq!(find_by_name(&mut world, "cuff"), Some(e2));
+    assert_eq!(find_by_name(&mut world, "missing"), None);
 }
 
 #[test]
 fn test_body_construction() {
     let mut world = World::new();
 
-    let forearm = world.spawn_entity();
-    world.attach(forearm, InertialProperties {
+    let forearm = world.spawn(()).id();
+    world.entity_mut(forearm).insert(InertialProperties {
         mass: 1.5, com: [0.0; 3], inertia: [0.0; 6],
     });
-    world.attach(forearm, Name::new("r_forearm"));
+    world.entity_mut(forearm).insert(Name::new("r_forearm"));
 
-    let cuff = world.spawn_entity();
-    world.attach(cuff, InertialProperties {
+    let cuff = world.spawn(()).id();
+    world.entity_mut(cuff).insert(InertialProperties {
         mass: 0.5, com: [0.0; 3], inertia: [0.0; 6],
     });
-    world.set_parent(cuff, forearm);
-    world.attach(cuff, Name::new("arm_cuff"));
-    world.attach(cuff, MeshGeometry { mesh: "assets/cuff.stl".into() });
+    world.entity_mut(cuff).insert(ChildOf { parent: forearm });
+    world.entity_mut(cuff).insert(Name::new("arm_cuff"));
+    world.entity_mut(cuff).insert(MeshGeometry { mesh: "assets/cuff.stl".into() });
 
     let inertial = world.get::<InertialProperties>(cuff).expect("cuff should have InertialProperties");
     assert_eq!(inertial.mass, 0.5);
 
-    let parent = world.parent_of(cuff).expect("cuff should have parent");
+    let parent = world.get::<ChildOf>(cuff).expect("cuff should have parent").parent;
     assert_eq!(parent, forearm);
 
     let mesh = world.get::<MeshGeometry>(cuff).expect("cuff should have MeshGeometry");
     assert_eq!(mesh.mesh, "assets/cuff.stl");
 
-    let mut name = world.get::<Name>(cuff).expect("cuff should have Name");
+    let name = world.get::<Name>(cuff).expect("cuff should have Name");
     assert_eq!(name.value, "arm_cuff");
 }
 
 #[test]
 fn test_get_mut() {
     let mut world = World::new();
-    let e = world.spawn_entity();
-    world.attach(e, Name::new("test"));
+    let e = world.spawn(()).id();
+    world.entity_mut(e).insert(Name::new("test"));
 
     // Verify the name was attached
     let name = world.get::<Name>(e).expect("should have Name");
@@ -136,22 +139,31 @@ fn test_get_mut() {
 fn test_hierarchy() {
     let mut world = World::new();
 
-    let ground = world.spawn_entity();
-    let body = world.spawn_entity();
-    let joint = world.spawn_entity();
-    let child = world.spawn_entity();
+    let ground = world.spawn(()).id();
+    let body = world.spawn(()).id();
+    let joint = world.spawn(()).id();
+    let child = world.spawn(()).id();
 
-    world.set_parent(joint, ground);
-    world.set_parent(body, joint);
-    world.set_parent(child, body);
+    world.entity_mut(joint).insert(ChildOf { parent: ground });
+    world.entity_mut(body).insert(ChildOf { parent: joint });
+    world.entity_mut(child).insert(ChildOf { parent: body });
 
-    assert_eq!(world.parent_of(joint), Some(ground));
-    assert_eq!(world.parent_of(body), Some(joint));
-    assert_eq!(world.parent_of(child), Some(body));
+    assert_eq!(world.get::<ChildOf>(joint).map(|co| co.parent), Some(ground));
+    assert_eq!(world.get::<ChildOf>(body).map(|co| co.parent), Some(joint));
+    assert_eq!(world.get::<ChildOf>(child).map(|co| co.parent), Some(body));
 
-    let ground_children = world.children_of(ground);
+    // children_of
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    let ground_children: Vec<Entity> = query.iter(&world)
+        .filter(|(_, co)| co.parent == ground)
+        .map(|(e, _)| e)
+        .collect();
     assert!(ground_children.contains(&joint));
 
-    let joint_children = world.children_of(joint);
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    let joint_children: Vec<Entity> = query.iter(&world)
+        .filter(|(_, co)| co.parent == joint)
+        .map(|(e, _)| e)
+        .collect();
     assert!(joint_children.contains(&body));
 }

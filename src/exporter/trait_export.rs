@@ -1,6 +1,5 @@
 use crate::components::*;
 use crate::world::World;
-use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 use std::collections::HashMap;
 
@@ -21,17 +20,27 @@ pub struct ExportCtx {
 impl ExportCtx {
     pub fn new(world: &mut World) -> Self {
         let mut names = HashMap::new();
-        for (entity, _) in world.iter::<Name>() {
-            if let Some(name) = world.get::<Name>(entity) {
-                names.insert(entity, name.value.clone());
-            }
+        let name_entities: Vec<(Entity, Name)> = {
+            let mut query = world.query::<(Entity, &Name)>();
+            query.iter(world).map(|(e, n)| (e, n.clone())).collect()
+        };
+        for (entity, name) in name_entities {
+            names.insert(entity, name.value.clone());
         }
         let mut muscle_params = HashMap::new();
-        for (entity, params) in world.iter::<Millard2012Params>() {
+        let param_entities: Vec<(Entity, Millard2012Params)> = {
+            let mut query = world.query::<(Entity, &Millard2012Params)>();
+            query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+        };
+        for (entity, params) in param_entities {
             muscle_params.insert(entity, params);
         }
         let mut muscle_paths = HashMap::new();
-        for (entity, path) in world.iter::<MusclePath>() {
+        let path_entities: Vec<(Entity, MusclePath)> = {
+            let mut query = world.query::<(Entity, &MusclePath)>();
+            query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+        };
+        for (entity, path) in path_entities {
             muscle_paths.insert(entity, path);
         }
         Self { names, muscle_params, muscle_paths }

@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use crate::components::*;
 use crate::math::{Quaternion, Transform, Vec3};
 use crate::world::World;
-use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 use mujoco_rs::wrappers::mj_editing::*;
@@ -31,11 +30,11 @@ pub fn import_mjcf_spec(path: &str) -> Result<(World, HashMap<String, Entity>), 
     let mut body_map: HashMap<String, Entity> = HashMap::new();
 
     // ── Ground body (entity 0) ──
-    let ground = world.spawn_entity();
-    world.attach(ground, InertialProperties {
+    let ground = world.spawn(()).id();
+    world.entity_mut(ground).insert(InertialProperties {
         mass: 0.0, com: [0.0; 3], inertia: [0.0; 6],
     });
-    world.attach(ground, Name { value: "world".to_string() });
+    world.entity_mut(ground).insert(Name { value: "world".to_string() });
     body_map.insert("world".to_string(), ground);
 
     let world_body = spec.world_body();
@@ -63,35 +62,35 @@ fn import_body_recursive(
         return Ok(());
     }
 
-    let entity = world.spawn_entity();
+    let entity = world.spawn(()).id();
     let body_name = body.name().to_string();
     let mass = body.mass();
     let com = *body.ipos();
     let fullinertia = *body.fullinertia();
-    world.attach(entity, InertialProperties {
+    world.entity_mut(entity).insert(InertialProperties {
         mass, com, inertia: fullinertia,
     });
-    world.attach(entity, Name { value: body_name.clone() });
+    world.entity_mut(entity).insert(Name { value: body_name.clone() });
     let pos = *body.pos();
     let quat = *body.quat();
-    world.set_parent(entity, parent_entity);
-    world.attach(entity, Position::new(pos[0], pos[1], pos[2]));
-    world.attach(entity, Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
+    world.entity_mut(entity).insert(ChildOf { parent: parent_entity });
+    world.entity_mut(entity).insert(Position::new(pos[0], pos[1], pos[2]));
+    world.entity_mut(entity).insert(Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
     body_map.insert(body_name, entity);
 
     import_body_joints(world, body, entity, parent_entity);
 
     for site in body.site_iter(false) {
-        let site_entity = world.spawn_entity();
+        let site_entity = world.spawn(()).id();
         let site_name = site.name().to_string();
         let site_pos = *site.pos();
-        world.set_parent(site_entity, entity);
-        world.attach(site_entity, Position::new(site_pos[0], site_pos[1], site_pos[2]));
-        world.attach(site_entity, Name { value: site_name });
+        world.entity_mut(site_entity).insert(ChildOf { parent: entity });
+        world.entity_mut(site_entity).insert(Position::new(site_pos[0], site_pos[1], site_pos[2]));
+        world.entity_mut(site_entity).insert(Name { value: site_name });
     }
 
     for geom in body.geom_iter(false) {
-        let geom_entity = world.spawn_entity();
+        let geom_entity = world.spawn(()).id();
         let geom_name = geom.name().to_string();
         let geom_pos = *geom.pos();
         let geom_quat = *geom.quat();
@@ -102,7 +101,7 @@ fn import_body_recursive(
         } else {
             Some(geom.meshname().to_string())
         };
-        world.attach(geom_entity, DisplayGeometry {
+        world.entity_mut(geom_entity).insert(DisplayGeometry {
             body: entity, mesh_file, scale: geom_size,
             color: [geom_rgba[0] as f64, geom_rgba[1] as f64, geom_rgba[2] as f64],
             opacity: geom_rgba[3] as f64,
@@ -111,7 +110,7 @@ fn import_body_recursive(
                 rotation: Quaternion { w: geom_quat[0], x: geom_quat[1], y: geom_quat[2], z: geom_quat[3] },
             },
         });
-        world.attach(geom_entity, Name { value: geom_name });
+        world.entity_mut(geom_entity).insert(Name { value: geom_name });
     }
 
     for child in body.body_iter(false) {
@@ -138,44 +137,44 @@ fn import_body_joints(
         let damping = damping_arr[0];
         let stiffness = stiffness_arr[0];
 
-        let joint_entity = world.spawn_entity();
-        world.attach(joint_entity, Name { value: jnt_name.clone() });
-        world.set_parent(joint_entity, parent_entity);
-        world.set_parent(child_entity, joint_entity);
+        let joint_entity = world.spawn(()).id();
+        world.entity_mut(joint_entity).insert(Name { value: jnt_name.clone() });
+        world.entity_mut(joint_entity).insert(ChildOf { parent: parent_entity });
+        world.entity_mut(child_entity).insert(ChildOf { parent: joint_entity });
 
         match jnt_type {
             MjtJoint::mjJNT_HINGE => {
-                let coord_entity = world.spawn_entity();
-                world.set_parent(coord_entity, joint_entity);
-                world.attach(coord_entity, Name { value: jnt_name });
-                world.attach(coord_entity, JointCoordinate {
+                let coord_entity = world.spawn(()).id();
+                world.entity_mut(coord_entity).insert(ChildOf { parent: joint_entity });
+                world.entity_mut(coord_entity).insert(Name { value: jnt_name });
+                world.entity_mut(coord_entity).insert(JointCoordinate {
                     range_min: if limited { range[0] } else { -1e10 },
                     range_max: if limited { range[1] } else { 1e10 },
                     default_value: *joint.ref_(),
                     stiffness, damping, clamped: limited, locked: false,
                     prescribed_function: None,
                 });
-                let effect_entity = world.spawn_entity();
-                world.set_parent(effect_entity, coord_entity);
-                world.attach(effect_entity, CoordinateEffect {
+                let effect_entity = world.spawn(()).id();
+                world.entity_mut(effect_entity).insert(ChildOf { parent: coord_entity });
+                world.entity_mut(effect_entity).insert(CoordinateEffect {
                     component: TransformComponent::RotationAboutAxis(axis),
                     function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
                 });
             }
             MjtJoint::mjJNT_SLIDE => {
-                let coord_entity = world.spawn_entity();
-                world.set_parent(coord_entity, joint_entity);
-                world.attach(coord_entity, Name { value: jnt_name });
-                world.attach(coord_entity, JointCoordinate {
+                let coord_entity = world.spawn(()).id();
+                world.entity_mut(coord_entity).insert(ChildOf { parent: joint_entity });
+                world.entity_mut(coord_entity).insert(Name { value: jnt_name });
+                world.entity_mut(coord_entity).insert(JointCoordinate {
                     range_min: if limited { range[0] } else { -1e10 },
                     range_max: if limited { range[1] } else { 1e10 },
                     default_value: *joint.ref_(),
                     stiffness, damping, clamped: limited, locked: false,
                     prescribed_function: None,
                 });
-                let effect_entity = world.spawn_entity();
-                world.set_parent(effect_entity, coord_entity);
-                world.attach(effect_entity, CoordinateEffect {
+                let effect_entity = world.spawn(()).id();
+                world.entity_mut(effect_entity).insert(ChildOf { parent: coord_entity });
+                world.entity_mut(effect_entity).insert(CoordinateEffect {
                     component: TransformComponent::TranslationAlongAxis(axis),
                     function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
                 });
@@ -196,10 +195,10 @@ fn import_actuator(
     let is_muscle = actuator.dyntype() == mujoco_rs::mujoco_c::mjtDyn_::mjDYN_MUSCLE;
 
     if is_muscle {
-        let muscle_entity = world.spawn_entity();
-        world.attach(muscle_entity, Muscle);
-        world.attach(muscle_entity, Name { value: act_name.clone() });
-        world.attach(muscle_entity, Millard2012Params {
+        let muscle_entity = world.spawn(()).id();
+        world.entity_mut(muscle_entity).insert(Muscle);
+        world.entity_mut(muscle_entity).insert(Name { value: act_name.clone() });
+        world.entity_mut(muscle_entity).insert(Millard2012Params {
             muscle: muscle_entity,
             max_isometric_force: 1000.0,
             optimal_fiber_length: 0.1,
@@ -243,7 +242,7 @@ fn import_actuator(
                             }
                         }
                     }
-                    world.attach(muscle_entity, MusclePath {
+                    world.entity_mut(muscle_entity).insert(MusclePath {
                         muscle: muscle_entity, points: path_points,
                     });
                     break;
@@ -253,7 +252,12 @@ fn import_actuator(
     } else if actuator.trntype() == mujoco_rs::mujoco_c::mjtTrn_::mjTRN_JOINT {
         let target = actuator.target();
         if !target.is_empty() {
-            let matched_coord = world.iter::<JointCoordinate>()
+            // Find coordinate by name
+            let coord_items: Vec<(Entity, JointCoordinate)> = {
+                let mut query = world.query::<(Entity, &JointCoordinate)>();
+                query.iter(world).map(|(e, c)| (e, c.clone())).collect()
+            };
+            let matched_coord = coord_items
                 .into_iter()
                 .find(|(coord_key, _)| {
                     world.get::<Name>(*coord_key).map(|n| n.value.as_str()) == Some(target)
@@ -261,9 +265,9 @@ fn import_actuator(
                 .map(|(coord_key, _)| coord_key);
 
             if let Some(coord_key) = matched_coord {
-                let act_entity = world.spawn_entity();
-                world.attach(act_entity, Name { value: act_name });
-                world.attach(act_entity, CoordinateActuator {
+                let act_entity = world.spawn(()).id();
+                world.entity_mut(act_entity).insert(Name { value: act_name });
+                world.entity_mut(act_entity).insert(CoordinateActuator {
                     coordinate: coord_key,
                     optimal_force: actuator.gear()[0].abs(),
                     min_control: actuator.ctrlrange()[0],

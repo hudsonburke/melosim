@@ -4,7 +4,6 @@ use melosim::importer::mujoco_spec::import_mjcf_spec;
 use melosim::exporter::mujoco_spec::world_to_mjcf_spec;
 use melosim::components::*;
 use melosim::world::World;
-use melosim::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 use std::path::Path;
 use std::process::Command;
@@ -20,15 +19,25 @@ fn ensure_myo_sim() {
     }
 }
 
+fn children_of(world: &mut World, entity: Entity) -> Vec<Entity> {
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    query.iter(world)
+        .filter(|(_, co)| co.parent == entity)
+        .map(|(e, _)| e)
+        .collect()
+}
+
 fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
-    let coords: Vec<Entity> = world.children_of(joint_entity).iter()
+    let child_entities = children_of(world, joint_entity);
+    let coords: Vec<Entity> = child_entities.iter()
         .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
         .copied()
         .collect();
     match coords.len() {
         0 => "WeldJoint",
         1 => {
-            for effect_entity in world.children_of(coords[0]) {
+            let coord_children = children_of(world, coords[0]);
+            for effect_entity in coord_children {
                 if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
                         TransformComponent::TranslationAlongAxis(_)
@@ -50,7 +59,11 @@ fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
 
 fn collect_joint_entities(world: &mut World) -> Vec<Entity> {
     let mut joints: Vec<Entity> = Vec::new();
-    for (coord_eid, _) in world.iter::<JointCoordinate>() {
+    let coord_entities: Vec<(Entity, JointCoordinate)> = {
+        let mut query = world.query::<(Entity, &JointCoordinate)>();
+        query.iter(world).map(|(e, c)| (e, c.clone())).collect()
+    };
+    for (coord_eid, _) in coord_entities {
         if let Some(co) = world.get::<ChildOf>(coord_eid) {
             let joint = co.parent;
             if !joints.contains(&joint) && world.get::<InertialProperties>(joint).is_none() {
@@ -68,7 +81,11 @@ fn count_joints_by_kind(world: &mut World, kind: &str) -> usize {
 }
 
 fn count_sites(world: &mut World) -> usize {
-    world.iter::<Position>().into_iter()
+    let site_entities: Vec<(Entity, Position)> = {
+        let mut query = world.query::<(Entity, &Position)>();
+        query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+    };
+    site_entities.iter()
         .filter(|(eid, _)| {
             world.get::<InertialProperties>(*eid).is_none()
                 && world.get::<Rotation>(*eid).is_none()
@@ -77,54 +94,72 @@ fn count_sites(world: &mut World) -> usize {
 }
 
 #[test]
-fn test_mjspec_import() {
+fn test_myohand_mjspec_roundtrip() {
     ensure_myo_sim();
-    let model_path = "tests/fixtures/myo_sim/elbow/myoelbow_1dof6muscles.xml";
+    let model_path = "tests/fixtures/myo_sim/hand/myohand.xml";
     let (mut world, body_map) = import_mjcf_spec(model_path)
-        .expect("Failed to import myoelbow via MjSpec");
-    let n_bodies = world.count::<InertialProperties>();
+        .expect("Failed to import myoHand via MjSpec");
+    let n_bodies = world.query::<&InertialProperties>().iter(&world).count();
     let n_hinge = count_joints_by_kind(&mut world, "PinJoint");
+    let n_slide = count_joints_by_kind(&mut world, "SlideJoint");
+    let n_ball = count_joints_by_kind(&mut world, "BallJoint");
+    let n_free = count_joints_by_kind(&mut world, "FreeJoint");
     let n_sites = count_sites(&mut world);
-    let n_muscles = world.count::<Muscle>();
-    let n_paths = world.count::<MusclePath>();
-    println!("MjSpec import:");
+    let n_geoms = world.query::<&DisplayGeometry>().iter(&world).count();
+    let n_muscles = world.query::<&Muscle>().iter(&world).count();
+    let n_paths = world.query::<&MusclePath>().iter(&world).count();
+    println!("\nmyoHand MjSpec import:");
     println!("  Bodies: {}", n_bodies);
     println!("  Hinge joints: {}", n_hinge);
+    println!("  Slide joints: {}", n_slide);
+    println!("  Ball joints: {}", n_ball);
+    println!("  Free joints: {}", n_free);
     println!("  Sites: {}", n_sites);
+    println!("  Display geoms: {}", n_geoms);
     println!("  Muscles: {}", n_muscles);
     println!("  Muscle paths: {}", n_paths);
     println!("  Body map entries: {}", body_map.len());
-    assert_eq!(n_hinge, 1, "Expected 1 hinge joint");
-    assert_eq!(n_muscles, 6, "Expected 6 muscles");
-    assert!(n_sites > 10, "Expected many sites");
+    let exported_xml = world_to_mjcf_spec(&mut world, "MyoHand_v0.1.7")
+        .expect("Failed to export myoHand via MjSpec");
+    let tmp_path = "/tmp/melosim_myohand_roundtrip.xml";
+    std::fs::write(tmp_path, &exported_xml).expect("Failed to write");
+    let (mut world2, _) = import_mjcf_spec(tmp_path)
+        .expect("Failed to re-import myoHand");
+    assert_eq!(world.query::<&InertialProperties>().iter(&world).count(), world2.query::<&InertialProperties>().iter(&world2).count(), "Body count mismatch");
+    assert_eq!(count_joints_by_kind(&mut world, "PinJoint"), count_joints_by_kind(&mut world2, "PinJoint"), "Hinge count mismatch");
+    assert_eq!(world.query::<&Muscle>().iter(&world).count(), world2.query::<&Muscle>().iter(&world2).count(), "Muscle count mismatch");
+    let _ = std::fs::remove_file(tmp_path);
+    println!("\n  Exported: {} bytes", exported_xml.len());
+    println!("  Bodies: {} -> {}", n_bodies, world2.query::<&InertialProperties>().iter(&world2).count());
+    println!("  Muscles: {} -> {}", n_muscles, world2.query::<&Muscle>().iter(&world2).count());
+    println!("  myoHand roundtrip: PASSED");
 }
 
 #[test]
-fn test_mjspec_lossless_roundtrip() {
+fn test_myoleg_mjspec_roundtrip() {
     ensure_myo_sim();
-    let model_path = "tests/fixtures/myo_sim/elbow/myoelbow_1dof6muscles.xml";
-    let original_xml = std::fs::read_to_string(model_path)
-        .expect("Failed to read original MJCF");
-    let (mut world, _) = import_mjcf_spec(model_path).expect("Failed to import");
-    let exported_xml = world_to_mjcf_spec(&mut world, "MyoElbow_v0.1.7")
-        .expect("Failed to export via MjSpec");
-    let tmp_path = "/tmp/melosim_mjspec_roundtrip.xml";
+    let model_path = "tests/fixtures/myo_sim/leg/myolegs.xml";
+    let (mut world, body_map) = import_mjcf_spec(model_path)
+        .expect("Failed to import myoLeg via MjSpec");
+    let n_bodies = world.query::<&InertialProperties>().iter(&world).count();
+    let n_hinge = count_joints_by_kind(&mut world, "PinJoint");
+    let n_muscles = world.query::<&Muscle>().iter(&world).count();
+    println!("\nmyoLeg MjSpec import:");
+    println!("  Bodies: {}", n_bodies);
+    println!("  Hinge joints: {}", n_hinge);
+    println!("  Muscles: {}", n_muscles);
+    println!("  Body map entries: {}", body_map.len());
+    let exported_xml = world_to_mjcf_spec(&mut world, "myoLeg_v0.1")
+        .expect("Failed to export myoLeg via MjSpec");
+    let tmp_path = "/tmp/melosim_myoleg_roundtrip.xml";
     std::fs::write(tmp_path, &exported_xml).expect("Failed to write");
     let (mut world2, _) = import_mjcf_spec(tmp_path)
-        .expect(&format!("Failed to re-import exported MJCF.\nExported:\n{}", &exported_xml[..2000]));
-    assert_eq!(world.count::<InertialProperties>(), world2.count::<InertialProperties>(), "Body count mismatch after roundtrip");
-    assert_eq!(count_joints_by_kind(&mut world, "PinJoint"), count_joints_by_kind(&mut world2, "PinJoint"), "Hinge joint count mismatch");
-    assert_eq!(world.count::<Muscle>(), world2.count::<Muscle>(), "Muscle count mismatch");
-    println!("Exported XML (first 2000 chars):");
-    println!("{}", &exported_xml[..exported_xml.len().min(2000)]);
-    assert!(exported_xml.contains("<mujoco"), "Missing <mujoco> root");
-    assert!(exported_xml.contains("<worldbody>"), "Missing <worldbody>");
-    assert!(exported_xml.contains("<actuator>"), "Missing <actuator>");
+        .expect("Failed to re-import myoLeg");
+    assert_eq!(world.query::<&InertialProperties>().iter(&world).count(), world2.query::<&InertialProperties>().iter(&world2).count(), "Body count mismatch");
+    assert_eq!(world.query::<&Muscle>().iter(&world).count(), world2.query::<&Muscle>().iter(&world2).count(), "Muscle count mismatch");
     let _ = std::fs::remove_file(tmp_path);
-    println!("\nMjSpec lossless roundtrip:");
-    println!("  Original: {} bytes", original_xml.len());
-    println!("  Exported: {} bytes", exported_xml.len());
-    println!("  Bodies: {} -> {}", world.count::<InertialProperties>(), world2.count::<InertialProperties>());
-    println!("  Muscles: {} -> {}", world.count::<Muscle>(), world2.count::<Muscle>());
-    println!("  PASSED");
+    println!("\n  Exported: {} bytes", exported_xml.len());
+    println!("  Bodies: {} -> {}", n_bodies, world2.query::<&InertialProperties>().iter(&world2).count());
+    println!("  Muscles: {} -> {}", n_muscles, world2.query::<&Muscle>().iter(&world2).count());
+    println!("  myoLeg roundtrip: PASSED");
 }

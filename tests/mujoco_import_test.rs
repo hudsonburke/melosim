@@ -3,7 +3,6 @@
 use melosim::importer::mujoco::import_mjcf;
 use melosim::components::*;
 use melosim::world::World;
-use melosim::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 use std::path::Path;
 use std::process::Command;
@@ -20,15 +19,25 @@ fn ensure_myo_sim() {
     }
 }
 
+fn children_of(world: &mut World, entity: Entity) -> Vec<Entity> {
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    query.iter(world)
+        .filter(|(_, co)| co.parent == entity)
+        .map(|(e, _)| e)
+        .collect()
+}
+
 fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
-    let coords: Vec<Entity> = world.children_of(joint_entity).iter()
+    let child_entities = children_of(world, joint_entity);
+    let coords: Vec<Entity> = child_entities.iter()
         .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
         .copied()
         .collect();
     match coords.len() {
         0 => "WeldJoint",
         1 => {
-            for effect_entity in world.children_of(coords[0]) {
+            let coord_children = children_of(world, coords[0]);
+            for effect_entity in coord_children {
                 if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
                         TransformComponent::TranslationAlongAxis(_)
@@ -50,7 +59,11 @@ fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
 
 fn collect_joint_entities(world: &mut World) -> Vec<Entity> {
     let mut joints: Vec<Entity> = Vec::new();
-    for (coord_eid, _) in world.iter::<JointCoordinate>() {
+    let coord_entities: Vec<(Entity, JointCoordinate)> = {
+        let mut query = world.query::<(Entity, &JointCoordinate)>();
+        query.iter(world).map(|(e, c)| (e, c.clone())).collect()
+    };
+    for (coord_eid, _) in coord_entities {
         if let Some(co) = world.get::<ChildOf>(coord_eid) {
             let joint = co.parent;
             if !joints.contains(&joint) && world.get::<InertialProperties>(joint).is_none() {
@@ -68,7 +81,11 @@ fn count_joints_by_kind(world: &mut World, kind: &str) -> usize {
 }
 
 fn count_sites(world: &mut World) -> usize {
-    world.iter::<Position>().into_iter()
+    let site_entities: Vec<(Entity, Position)> = {
+        let mut query = world.query::<(Entity, &Position)>();
+        query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+    };
+    site_entities.iter()
         .filter(|(eid, _)| {
             world.get::<InertialProperties>(*eid).is_none()
                 && world.get::<Rotation>(*eid).is_none()
@@ -83,26 +100,27 @@ fn test_myoelbow_import() {
     let (mut world, _body_map) = import_mjcf(model_path)
         .expect("Failed to import myoelbow MJCF");
 
-    let n_inertials = world.count::<InertialProperties>();
+    let n_inertials = world.query::<&InertialProperties>().iter(&world).count();
     println!("Bodies (InertialProperties): {}", n_inertials);
     let n_hinge = count_joints_by_kind(&mut world, "PinJoint");
     println!("Hinge joints: {}", n_hinge);
     assert_eq!(n_hinge, 1, "Expected 1 hinge joint (r_elbow_flex)");
-    let n_coords = world.count::<JointCoordinate>();
+    let n_coords = world.query::<&JointCoordinate>().iter(&world).count();
     println!("Coordinates: {}", n_coords);
     assert_eq!(n_coords, 1, "Expected 1 coordinate for the hinge joint");
     let n_sites = count_sites(&mut world);
     println!("Sites: {}", n_sites);
     assert!(n_sites > 10, "Expected many path point sites (>10), got {}", n_sites);
-    let n_geoms = world.count::<DisplayGeometry>();
+    let n_geoms = world.query::<&DisplayGeometry>().iter(&world).count();
     println!("Display geometries: {}", n_geoms);
-    let n_muscles = world.count::<Muscle>();
+    let n_muscles = world.query::<&Muscle>().iter(&world).count();
     println!("Muscles: {}", n_muscles);
     assert_eq!(n_muscles, 6, "Expected 6 muscles");
-    let n_paths = world.count::<MusclePath>();
+    let n_paths = world.query::<&MusclePath>().iter(&world).count();
     println!("Muscle paths: {}", n_paths);
     assert_eq!(n_paths, 6, "Expected 6 muscle paths");
-    let errors = world.validate();
+    melosim::systems::run_systems(&mut world);
+    let errors = world.get_resource::<melosim::world::ErrorList>().map(|e| e.0.clone()).unwrap_or_default();
     if !errors.is_empty() {
         for e in &errors { println!("VALIDATION: {}", e); }
     }

@@ -4,10 +4,18 @@ use melosim::importer::mujoco::import_mjcf;
 use melosim::exporter::mujoco::world_to_mjcf;
 use melosim::components::*;
 use melosim::world::World;
-use melosim::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 use std::path::Path;
 use std::process::Command;
+
+
+fn children_of(world: &mut World, entity: Entity) -> Vec<Entity> {
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    query.iter(world)
+        .filter(|(_, co)| co.parent == entity)
+        .map(|(e, _)| e)
+        .collect()
+}
 
 fn ensure_myo_sim() {
     let fixture_dir = "tests/fixtures/myo_sim";
@@ -22,14 +30,14 @@ fn ensure_myo_sim() {
 }
 
 fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
-    let coords: Vec<Entity> = world.children_of(joint_entity).iter()
+    let coords: Vec<Entity> = children_of(world, joint_entity).iter()
         .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
         .copied()
         .collect();
     match coords.len() {
         0 => "WeldJoint",
         1 => {
-            for effect_entity in world.children_of(coords[0]) {
+            for effect_entity in children_of(world, coords[0]) {
                 if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
                         TransformComponent::TranslationAlongAxis(_)
@@ -51,7 +59,7 @@ fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
 
 fn collect_joint_entities(world: &mut World) -> Vec<Entity> {
     let mut joints: Vec<Entity> = Vec::new();
-    for (coord_eid, _) in world.iter::<JointCoordinate>() {
+    for (coord_eid, _) in { let mut q = world.query::<(Entity, &JointCoordinate)>(); q.iter(&world).map(|(e, c)| (e, c.clone())).collect::<Vec<_>>() } {
         if let Some(co) = world.get::<ChildOf>(coord_eid) {
             let joint = co.parent;
             if !joints.contains(&joint) && world.get::<InertialProperties>(joint).is_none() {
@@ -69,7 +77,7 @@ fn count_joints_by_kind(world: &mut World, kind: &str) -> usize {
 }
 
 fn count_sites(world: &mut World) -> usize {
-    world.iter::<Position>().into_iter()
+    { let mut q = world.query::<(Entity, &Position)>(); q.iter(&world).map(|(e, p)| (e, p.clone())).collect::<Vec<_>>() }.into_iter()
         .filter(|(eid, _)| {
             world.get::<InertialProperties>(*eid).is_none()
                 && world.get::<Rotation>(*eid).is_none()
@@ -120,11 +128,11 @@ fn test_myoelbow_roundtrip_structural() {
     );
 
     let checks = [
-        ("Bodies", world1.count::<InertialProperties>(), world2.count::<InertialProperties>()),
+        ("Bodies", { let mut q = world1.query::<&InertialProperties>(); q.iter(&world1).count() }, { let mut q = world2.query::<&InertialProperties>(); q.iter(&world2).count() }),
         ("Hinge joints", count_joints_by_kind(&mut world1, "PinJoint"), count_joints_by_kind(&mut world2, "PinJoint")),
-        ("Coordinates", world1.count::<JointCoordinate>(), world2.count::<JointCoordinate>()),
-        ("Muscles", world1.count::<Muscle>(), world2.count::<Muscle>()),
-        ("Muscle paths", world1.count::<MusclePath>(), world2.count::<MusclePath>()),
+        ("Coordinates", { let mut q = world1.query::<&JointCoordinate>(); q.iter(&world1).count() }, { let mut q = world2.query::<&JointCoordinate>(); q.iter(&world2).count() }),
+        ("Muscles", { let mut q = world1.query::<&Muscle>(); q.iter(&world1).count() }, { let mut q = world2.query::<&Muscle>(); q.iter(&world2).count() }),
+        ("Muscle paths", { let mut q = world1.query::<&MusclePath>(); q.iter(&world1).count() }, { let mut q = world2.query::<&MusclePath>(); q.iter(&world2).count() }),
     ];
     for (label, c1, c2) in &checks {
         println!("  {}: {} -> {}", label, c1, c2);
@@ -138,12 +146,12 @@ fn test_myoelbow_roundtrip_structural() {
     let hinges1 = find_hinge_joints(&mut world1);
     let hinges2 = find_hinge_joints(&mut world2);
     for (key1, name1) in &hinges1 {
-        let coord1 = world1.children_of(*key1).iter()
+        let coord1 = children_of(&mut world1, *key1).iter()
             .find(|&&c| world1.get::<JointCoordinate>(c).is_some())
             .copied();
         let mut axis1 = [0.0f64; 3];
         if let Some(coord_key) = coord1 {
-            for effect_entity in world1.children_of(coord_key) {
+            for effect_entity in children_of(&mut world1, coord_key) {
                 if let Some(effect) = world1.get::<CoordinateEffect>(effect_entity) {
                     if let TransformComponent::RotationAboutAxis(a) = effect.component { axis1 = a; }
                 }
@@ -151,12 +159,12 @@ fn test_myoelbow_roundtrip_structural() {
         }
         for (key2, name2) in &hinges2 {
             if name1 == name2 {
-                let coord2 = world2.children_of(*key2).iter()
+                let coord2 = children_of(&mut world2, *key2).iter()
                     .find(|&&c| world2.get::<JointCoordinate>(c).is_some())
                     .copied();
                 let mut axis2 = [0.0f64; 3];
                 if let Some(coord_key) = coord2 {
-                    for effect_entity in world2.children_of(coord_key) {
+                    for effect_entity in children_of(&mut world2, coord_key) {
                         if let Some(effect) = world2.get::<CoordinateEffect>(effect_entity) {
                             if let TransformComponent::RotationAboutAxis(a) = effect.component { axis2 = a; }
                         }
@@ -171,13 +179,13 @@ fn test_myoelbow_roundtrip_structural() {
     }
 
     for (key1, name1) in &hinges1 {
-        let coord1 = world1.children_of(*key1).iter()
+        let coord1 = children_of(&mut world1, *key1).iter()
             .find(|&&c| world1.get::<JointCoordinate>(c).is_some())
             .copied()
             .and_then(|c| world1.get::<JointCoordinate>(c));
         for (key2, name2) in &hinges2 {
             if name1 == name2 {
-                let coord2 = world2.children_of(*key2).iter()
+                let coord2 = children_of(&mut world2, *key2).iter()
                     .find(|&&c| world2.get::<JointCoordinate>(c).is_some())
                     .copied()
                     .and_then(|c| world2.get::<JointCoordinate>(c));
@@ -196,9 +204,9 @@ fn test_myoelbow_roundtrip_structural() {
         }
     }
 
-    for (key1, coord1) in world1.iter::<JointCoordinate>().into_iter() {
+    for (key1, coord1) in { let mut q = world1.query::<(Entity, &JointCoordinate)>(); q.iter(&world1).map(|(e, c)| (e, c.clone())).collect::<Vec<_>>() }.into_iter() {
         let name1 = world1.get::<Name>(key1).map(|n| n.value.clone());
-        for (key2, coord2) in world2.iter::<JointCoordinate>().into_iter() {
+        for (key2, coord2) in { let mut q = world2.query::<(Entity, &JointCoordinate)>(); q.iter(&world2).map(|(e, c)| (e, c.clone())).collect::<Vec<_>>() }.into_iter() {
             let name2 = world2.get::<Name>(key2).map(|n| n.value.clone());
             if name1 == name2 {
                 assert!((coord1.damping - coord2.damping).abs() < 1e-6, "Coord '{:?}': damping mismatch", name1);
@@ -207,10 +215,10 @@ fn test_myoelbow_roundtrip_structural() {
         }
     }
 
-    let mut muscle_names1: Vec<String> = world1.iter::<Muscle>().into_iter()
+    let mut muscle_names1: Vec<String> = { let mut q = world1.query::<(Entity, &Muscle)>(); q.iter(&world1).map(|(e, m)| (e, m.clone())).collect::<Vec<_>>() }.into_iter()
         .filter_map(|(k, _)| world1.get::<Name>(k).map(|n| n.value.clone()))
         .collect();
-    let mut muscle_names2: Vec<String> = world2.iter::<Muscle>().into_iter()
+    let mut muscle_names2: Vec<String> = { let mut q = world2.query::<(Entity, &Muscle)>(); q.iter(&world2).map(|(e, m)| (e, m.clone())).collect::<Vec<_>>() }.into_iter()
         .filter_map(|(k, _)| world2.get::<Name>(k).map(|n| n.value.clone()))
         .collect();
     muscle_names1.sort();

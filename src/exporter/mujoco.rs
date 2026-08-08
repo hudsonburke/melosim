@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::world::World;
-use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
@@ -25,10 +24,13 @@ pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
     xml.push_str("  </worldbody>\n");
 
     // ── tendon section ──
-    let has_tendons = world.iter::<MusclePath>().into_iter().next().is_some();
-    if has_tendons {
+    let tendon_entities: Vec<(Entity, MusclePath)> = {
+        let mut query = world.query::<(Entity, &MusclePath)>();
+        query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+    };
+    if !tendon_entities.is_empty() {
         xml.push_str("\n  <tendon>\n");
-        for (muscle_key, path) in world.iter::<MusclePath>() {
+        for (muscle_key, path) in tendon_entities {
             let tendon_name = world.get::<Name>(muscle_key)
                 .map(|n| format!("{}_tendon", n.value))
                 .unwrap_or_else(|| format!("tendon_{}", muscle_key.index()));
@@ -46,12 +48,18 @@ pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
     }
 
     // ── actuator section ──
-    let has_muscles = world.iter::<Muscle>().into_iter().next().is_some();
-    let has_coord_actuators = world.iter::<CoordinateActuator>().into_iter().next().is_some();
-    if has_muscles || has_coord_actuators {
+    let muscle_entities: Vec<(Entity, Muscle)> = {
+        let mut query = world.query::<(Entity, &Muscle)>();
+        query.iter(world).map(|(e, m)| (e, m.clone())).collect()
+    };
+    let actuator_entities: Vec<(Entity, CoordinateActuator)> = {
+        let mut query = world.query::<(Entity, &CoordinateActuator)>();
+        query.iter(world).map(|(e, a)| (e, a.clone())).collect()
+    };
+    if !muscle_entities.is_empty() || !actuator_entities.is_empty() {
         xml.push_str("\n  <actuator>\n");
 
-        for (muscle_key, _muscle) in world.iter::<Muscle>() {
+        for (muscle_key, _muscle) in muscle_entities {
             let name = world.get::<Name>(muscle_key).map(|n| n.value.as_str()).unwrap_or("unnamed_muscle");
             let params = world.get::<Millard2012Params>(muscle_key);
             let path = world.get::<MusclePath>(muscle_key);
@@ -74,7 +82,7 @@ pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
             xml.push_str("/>\n");
         }
 
-        for (act_key, act) in world.iter::<CoordinateActuator>() {
+        for (act_key, act) in actuator_entities {
             let name = world.get::<Name>(act_key).map(|n| n.value.as_str()).unwrap_or("unnamed_actuator");
             let coord_name = world.get::<Name>(act.coordinate).map(|n| n.value.as_str()).unwrap_or("unnamed_coord");
             xml.push_str(&format!("    <general name=\"{}\"", escape_attr(name)));
@@ -98,9 +106,21 @@ pub fn write_mjcf(world: &mut World, path: &str, model_name: &str) -> Result<(),
 
 // ── Helper functions ──
 
+fn children_of(world: &mut World, entity: Entity) -> Vec<Entity> {
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    query.iter(world)
+        .filter(|(_, co)| co.parent == entity)
+        .map(|(e, _)| e)
+        .collect()
+}
+
 fn build_children_map(world: &mut World) -> HashMap<Entity, Vec<Entity>> {
     let mut children: HashMap<Entity, Vec<Entity>> = HashMap::new();
-    for (entity, child_of) in world.iter::<ChildOf>() {
+    let child_of_entities: Vec<(Entity, ChildOf)> = {
+        let mut query = world.query::<(Entity, &ChildOf)>();
+        query.iter(world).map(|(e, c)| (e, c.clone())).collect()
+    };
+    for (entity, child_of) in child_of_entities {
         children.entry(child_of.parent).or_default().push(entity);
     }
     children
@@ -108,7 +128,11 @@ fn build_children_map(world: &mut World) -> HashMap<Entity, Vec<Entity>> {
 
 fn build_body_name_map(world: &mut World) -> HashMap<Entity, String> {
     let mut names = HashMap::new();
-    for (entity, _) in world.iter::<InertialProperties>() {
+    let inertial_entities: Vec<(Entity, InertialProperties)> = {
+        let mut query = world.query::<(Entity, &InertialProperties)>();
+        query.iter(world).map(|(e, i)| (e, i.clone())).collect()
+    };
+    for (entity, _) in inertial_entities {
         if let Some(name) = world.get::<Name>(entity) {
             names.insert(entity, name.value.clone());
         }
@@ -118,17 +142,23 @@ fn build_body_name_map(world: &mut World) -> HashMap<Entity, String> {
 
 fn find_root_bodies(world: &mut World) -> Vec<Entity> {
     let mut roots = Vec::new();
-    for (entity, child_of) in world.iter::<ChildOf>() {
-        // Root bodies: entities whose parent has no InertialProperties
-        // (i.e., parent is a joint or ground)
+    let child_of_entities: Vec<(Entity, ChildOf)> = {
+        let mut query = world.query::<(Entity, &ChildOf)>();
+        query.iter(world).map(|(e, c)| (e, c.clone())).collect()
+    };
+    for (entity, child_of) in child_of_entities {
         if world.get::<InertialProperties>(entity).is_some() {
-            if !world.get::<InertialProperties>(child_of.parent).is_some() {
+            if world.get::<InertialProperties>(child_of.parent).is_none() {
                 roots.push(entity);
             }
         }
     }
     // Also include bodies with no ChildOf (top-level bodies)
-    for (entity, _) in world.iter::<InertialProperties>() {
+    let inertial_entities: Vec<(Entity, InertialProperties)> = {
+        let mut query = world.query::<(Entity, &InertialProperties)>();
+        query.iter(world).map(|(e, i)| (e, i.clone())).collect()
+    };
+    for (entity, _) in inertial_entities {
         if world.get::<ChildOf>(entity).is_none() {
             roots.push(entity);
         }
@@ -140,7 +170,8 @@ fn is_joint_entity(world: &mut World, entity: Entity) -> bool {
     if world.get::<InertialProperties>(entity).is_some() {
         return false;
     }
-    for child in world.children_of(entity) {
+    let child_entities = children_of(world, entity);
+    for child in child_entities {
         if world.get::<InertialProperties>(child).is_some() {
             return true;
         }
@@ -184,7 +215,12 @@ fn emit_body_recursive(
 
     emit_body_joints(world, xml, entity, depth);
 
-    for (_geom_key, geom) in world.iter::<DisplayGeometry>() {
+    // Display geoms
+    let dg_entities: Vec<(Entity, DisplayGeometry)> = {
+        let mut query = world.query::<(Entity, &DisplayGeometry)>();
+        query.iter(world).map(|(e, g)| (e, g.clone())).collect()
+    };
+    for (_geom_key, geom) in dg_entities {
         if geom.body == entity {
             xml.push_str(&format!("{}  <geom name=\"{}\"",
                 indent, escape_attr(
@@ -200,7 +236,12 @@ fn emit_body_recursive(
         }
     }
 
-    for (site_key, _site_pos) in world.iter::<Position>() {
+    // Sites (entities with ChildOf parent == entity, but without InertialProperties, JointCoordinate, or Rotation)
+    let site_entities: Vec<(Entity, Position)> = {
+        let mut query = world.query::<(Entity, &Position)>();
+        query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+    };
+    for (site_key, _site_pos) in site_entities {
         if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == entity) {
             if world.get::<InertialProperties>(site_key).is_some() { continue; }
             if world.get::<JointCoordinate>(site_key).is_some() { continue; }
@@ -213,7 +254,12 @@ fn emit_body_recursive(
         }
     }
 
-    for (_wrap_key, wrap) in world.iter::<WrapGeom>() {
+    // Wrap geoms
+    let wg_entities: Vec<(Entity, WrapGeom)> = {
+        let mut query = world.query::<(Entity, &WrapGeom)>();
+        query.iter(world).map(|(e, w)| (e, w.clone())).collect()
+    };
+    for (_wrap_key, wrap) in wg_entities {
         if wrap.body == entity {
             let wrap_name = world.get::<Name>(_wrap_key).map(|n| n.value.as_str()).unwrap_or("wrap");
             match &wrap.geom_type {
@@ -250,12 +296,14 @@ fn emit_body_recursive(
 fn emit_body_joints(world: &mut World, xml: &mut String, body: Entity, depth: usize) {
     let ind = "  ".repeat(depth + 1);
 
-    for &child in &world.children_of(body) {
+    let body_children = children_of(world, body);
+    for child in body_children {
         if !is_joint_entity(world, child) { continue; }
         let name_owned = world.get::<Name>(child).map(|n| n.value.clone()).unwrap_or_else(|| "joint".to_string());
         let name = &name_owned;
 
-        let coords: Vec<Entity> = world.children_of(child).iter()
+        let joint_children = children_of(world, child);
+        let coords: Vec<Entity> = joint_children.iter()
             .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
             .copied()
             .collect();
@@ -265,7 +313,8 @@ fn emit_body_joints(world: &mut World, xml: &mut String, body: Entity, depth: us
             0 => "WeldJoint",
             1 => {
                 let mut found_kind = "PinJoint";
-                for effect_entity in world.children_of(coords[0]) {
+                let coord_children = children_of(world, coords[0]);
+                for effect_entity in coord_children {
                     if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                         match &effect.component {
                             TransformComponent::TranslationAlongAxis(_)
@@ -344,9 +393,11 @@ fn emit_body_joints(world: &mut World, xml: &mut String, body: Entity, depth: us
 }
 
 fn extract_joint_axis(world: &mut World, joint_entity: Entity) -> [f64; 3] {
-    for &coord in &world.children_of(joint_entity) {
+    let joint_children = children_of(world, joint_entity);
+    for coord in joint_children {
         if world.get::<JointCoordinate>(coord).is_some() {
-            for effect_entity in world.children_of(coord) {
+            let coord_children = children_of(world, coord);
+            for effect_entity in coord_children {
                 if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
                         TransformComponent::RotationAboutAxis(axis)
@@ -364,9 +415,11 @@ fn extract_joint_axis(world: &mut World, joint_entity: Entity) -> [f64; 3] {
 
 fn extract_joint_axes(world: &mut World, joint_entity: Entity, n: usize) -> Vec<[f64; 3]> {
     let mut axes = Vec::new();
-    for &coord in &world.children_of(joint_entity) {
+    let joint_children = children_of(world, joint_entity);
+    for coord in joint_children {
         if world.get::<JointCoordinate>(coord).is_some() {
-            for effect_entity in world.children_of(coord) {
+            let coord_children = children_of(world, coord);
+            for effect_entity in coord_children {
                 if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
                     match &effect.component {
                         TransformComponent::RotationAboutAxis(axis)
@@ -385,7 +438,8 @@ fn extract_joint_axes(world: &mut World, joint_entity: Entity, n: usize) -> Vec<
 }
 
 fn append_joint_dynamics(world: &mut World, xml: &mut String, joint_entity: Entity) {
-    for &coord_key in &world.children_of(joint_entity) {
+    let joint_children = children_of(world, joint_entity);
+    for coord_key in joint_children {
         if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
             if coord.stiffness != 0.0 {
                 xml.push_str(&format!(" stiffness=\"{}\"", coord.stiffness));
@@ -399,7 +453,11 @@ fn append_joint_dynamics(world: &mut World, xml: &mut String, joint_entity: Enti
 }
 
 fn find_site_name(world: &mut World, body: Entity, location: &[f64; 3]) -> Option<String> {
-    for (site_key, _pos) in world.iter::<Position>() {
+    let site_entities: Vec<(Entity, Position)> = {
+        let mut query = world.query::<(Entity, &Position)>();
+        query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+    };
+    for (site_key, _pos) in site_entities {
         if !world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) { continue; }
         if world.get::<InertialProperties>(site_key).is_some() { continue; }
         if world.get::<Rotation>(site_key).is_some() { continue; }

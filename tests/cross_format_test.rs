@@ -1,7 +1,6 @@
 use melosim::importer::opensim::{import_opensim_model, OpenSimModelData};
 use melosim::exporter::mujoco::world_to_mjcf;
 use melosim::world::World;
-use melosim::world::WorldExt;
 use std::fs;
 
 #[test]
@@ -23,10 +22,10 @@ fn test_opensim_to_mujoco_conversion() {
     }
 
     println!("OpenSim import (Rajagopal 2015):");
-    println!("  Bodies: {}", world.count::<melosim::components::InertialProperties>());
-    println!("  Coordinates: {}", world.count::<melosim::components::JointCoordinate>());
-    println!("  CoordinateEffects: {}", world.count::<melosim::components::CoordinateEffect>());
-    println!("  Muscles: {}", world.count::<melosim::components::Muscle>());
+    println!("  Bodies: {}", world.query::<&melosim::components::InertialProperties>().iter(&world).count());
+    println!("  Coordinates: {}", world.query::<&melosim::components::JointCoordinate>().iter(&world).count());
+    println!("  CoordinateEffects: {}", world.query::<&melosim::components::CoordinateEffect>().iter(&world).count());
+    println!("  Muscles: {}", world.query::<&melosim::components::Muscle>().iter(&world).count());
 
     // Export to MJCF
     let mjcf_xml = world_to_mjcf(&mut world, "Rajagopal2015");

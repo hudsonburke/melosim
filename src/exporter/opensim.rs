@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::world::World;
-use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
@@ -21,13 +20,20 @@ pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
     xml.push_str("  <BodySet>\n");
     xml.push_str("    <objects>\n");
 
-    for (body_key, _) in world.iter::<InertialProperties>() {
+    let body_entities: Vec<Entity> = {
+        let mut query = world.query::<Entity>();
+        query.iter(world).collect()
+    };
+
+    for body_key in body_entities {
+        if world.get::<InertialProperties>(body_key).is_none() { continue; }
         let name = body_names.get(&body_key).map(|s| s.as_str()).unwrap_or("unknown");
-        let parent = world.parent_of(body_key);
+        let parent = world.get::<ChildOf>(body_key).map(|co| co.parent);
         let is_ground = parent.is_none();
 
         if is_ground {
-            let has_children_with_inertials = world.children_of(body_key).iter()
+            let child_entities = children_of(world, body_key);
+            let has_children_with_inertials = child_entities.iter()
                 .any(|&child| world.get::<InertialProperties>(child).is_some()
                     || is_joint_entity(world, child));
             if !has_children_with_inertials {
@@ -60,13 +66,18 @@ pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
     xml.push_str("  </BodySet>\n");
 
     // ── ForceSet ──
-    let muscle_count = world.count::<Muscle>();
-    let actuator_count = world.count::<CoordinateActuator>();
+    let muscle_count = world.query::<&Muscle>().iter(&world).count();
+    let actuator_count = world.query::<&CoordinateActuator>().iter(&world).count();
     if muscle_count + actuator_count > 0 {
         xml.push_str("  <ForceSet>\n");
         xml.push_str("    <objects>\n");
         xml.push_str(&emit_muscles(world, &body_names, &coord_names));
-        for (act_key, act) in world.iter::<CoordinateActuator>() {
+
+        let actuator_entities: Vec<(Entity, CoordinateActuator)> = {
+            let mut query = world.query::<(Entity, &CoordinateActuator)>();
+            query.iter(world).map(|(e, a)| (e, a.clone())).collect()
+        };
+        for (act_key, act) in actuator_entities {
             let act_name = world.get::<Name>(act_key).map(|n| n.value.as_str()).unwrap_or("actuator");
             let coord_name = coord_names.get(&act.coordinate).map(|s| s.as_str()).unwrap_or("unknown");
             xml.push_str(&format!("      <CoordinateActuator name=\"{}\">\n", escape_attr(act_name)));
@@ -88,7 +99,7 @@ pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
         for &site_key in &markers {
             let marker_name = world.get::<Name>(site_key).map(|n| n.value.as_str()).unwrap_or("marker");
             xml.push_str(&format!("      <Marker name=\"{}\">\n", escape_attr(marker_name)));
-            let parent = world.parent_of(site_key);
+            let parent = world.get::<ChildOf>(site_key).map(|co| co.parent);
             let parent_name = parent
                 .and_then(|p| find_body_ancestor(world, p))
                 .and_then(|body| body_names.get(&body))
@@ -106,7 +117,7 @@ pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
     }
 
     // ── WrapObjectSet ──
-    let wrap_count = world.count::<WrapGeom>();
+    let wrap_count = world.query::<&WrapGeom>().iter(&world).count();
     if wrap_count > 0 {
         xml.push_str("  <WrapObjectSet>\n");
         xml.push_str("    <objects>\n");
@@ -127,11 +138,20 @@ pub fn write_osim(world: &mut World, path: &str, model_name: &str) -> Result<(),
 
 // ── Helpers ───────────────────────────────────────────
 
+fn children_of(world: &mut World, entity: Entity) -> Vec<Entity> {
+    let mut query = world.query::<(Entity, &ChildOf)>();
+    query.iter(world)
+        .filter(|(_, co)| co.parent == entity)
+        .map(|(e, _)| e)
+        .collect()
+}
+
 fn is_joint_entity(world: &mut World, entity: Entity) -> bool {
     if world.get::<InertialProperties>(entity).is_some() {
         return false;
     }
-    for child in world.children_of(entity) {
+    let child_entities = children_of(world, entity);
+    for child in child_entities {
         if world.get::<InertialProperties>(child).is_some() {
             return true;
         }
@@ -143,12 +163,17 @@ fn find_body_ancestor(world: &mut World, entity: Entity) -> Option<Entity> {
     if world.get::<InertialProperties>(entity).is_some() {
         return Some(entity);
     }
-    world.parent_of(entity).and_then(|p| find_body_ancestor(world, p))
+    let parent = world.get::<ChildOf>(entity).map(|co| co.parent);
+    parent.and_then(|p| find_body_ancestor(world, p))
 }
 
 fn find_site_entities(world: &mut World) -> Vec<Entity> {
     let mut sites = Vec::new();
-    for (entity, _pos) in world.iter::<Position>() {
+    let entities: Vec<(Entity, Position)> = {
+        let mut query = world.query::<(Entity, &Position)>();
+        query.iter(world).map(|(e, p)| (e, p.clone())).collect()
+    };
+    for (entity, _pos) in entities {
         if world.get::<ChildOf>(entity).is_none() { continue; }
         if world.get::<InertialProperties>(entity).is_some() { continue; }
         if world.get::<JointCoordinate>(entity).is_some() { continue; }
@@ -166,7 +191,11 @@ fn find_site_entities(world: &mut World) -> Vec<Entity> {
 
 fn build_body_name_map(world: &mut World) -> HashMap<Entity, String> {
     let mut map = HashMap::new();
-    for (id, name) in world.iter::<Name>() {
+    let name_entities: Vec<(Entity, Name)> = {
+        let mut query = world.query::<(Entity, &Name)>();
+        query.iter(world).map(|(e, n)| (e, n.clone())).collect()
+    };
+    for (id, name) in name_entities {
         if world.get::<InertialProperties>(id).is_some() {
             map.insert(id, name.value.clone());
         }
@@ -176,7 +205,11 @@ fn build_body_name_map(world: &mut World) -> HashMap<Entity, String> {
 
 fn build_coordinate_name_map(world: &mut World) -> HashMap<Entity, String> {
     let mut map = HashMap::new();
-    for (id, name) in world.iter::<Name>() {
+    let name_entities: Vec<(Entity, Name)> = {
+        let mut query = world.query::<(Entity, &Name)>();
+        query.iter(world).map(|(e, n)| (e, n.clone())).collect()
+    };
+    for (id, name) in name_entities {
         if world.get::<JointCoordinate>(id).is_some() {
             map.insert(id, name.value.clone());
         }
@@ -202,7 +235,12 @@ fn emit_body_display_geometry(world: &mut World, body_key: Entity) -> String {
     let mut has_geom = false;
     let mut geom_xml = String::new();
 
-    for (_key, dg) in world.iter::<DisplayGeometry>() {
+    let dg_entities: Vec<(Entity, DisplayGeometry)> = {
+        let mut query = world.query::<(Entity, &DisplayGeometry)>();
+        query.iter(world).map(|(e, g)| (e, g.clone())).collect()
+    };
+
+    for (_key, dg) in dg_entities {
         if dg.body == body_key {
             has_geom = true;
             geom_xml.push_str("              <DisplayGeometry>\n");
@@ -241,20 +279,27 @@ fn emit_muscles(
 ) -> String {
     let mut xml = String::new();
 
-    for (muscle_key, _muscle) in world.iter::<Muscle>() {
-        let path = world.iter::<MusclePath>()
-            .into_iter()
-            .find(|(_, p)| p.muscle == muscle_key)
-            .map(|(_, p)| p);
-        let params = world.iter::<Millard2012Params>()
-            .into_iter()
-            .find(|(_, p)| p.muscle == muscle_key)
-            .map(|(_, p)| p);
+    let muscle_entities: Vec<(Entity, Muscle)> = {
+        let mut query = world.query::<(Entity, &Muscle)>();
+        query.iter(world).map(|(e, m)| (e, m.clone())).collect()
+    };
+    let all_params: Vec<Millard2012Params> = {
+        let mut query = world.query::<&Millard2012Params>();
+        query.iter(world).map(|p| p.clone()).collect()
+    };
+    let all_paths: Vec<MusclePath> = {
+        let mut query = world.query::<&MusclePath>();
+        query.iter(world).map(|p| p.clone()).collect()
+    };
+
+    for (muscle_key, _muscle) in muscle_entities {
+        let path = all_paths.iter().find(|p| p.muscle == muscle_key).cloned();
+        let params = all_params.iter().find(|p| p.muscle == muscle_key).cloned();
 
         let muscle_name = world.get::<Name>(muscle_key).map(|n| n.value.as_str()).unwrap_or("muscle");
         xml.push_str(&format!("        <Millard2012EquilibriumMuscle name=\"{}\">\n", escape_attr(muscle_name)));
 
-        if let Some(p) = params {
+        if let Some(ref p) = params {
             xml.push_str(&format!("          <max_isometric_force>{}</max_isometric_force>\n", p.max_isometric_force));
             xml.push_str(&format!("          <optimal_fiber_length>{}</optimal_fiber_length>\n", p.optimal_fiber_length));
             xml.push_str(&format!("          <tendon_slack_length>{}</tendon_slack_length>\n", p.tendon_slack_length));
@@ -272,7 +317,7 @@ fn emit_muscles(
         xml.push_str("            <PathPointSet>\n");
         xml.push_str("              <objects>\n");
 
-        if let Some(p) = path {
+        if let Some(ref p) = path {
             for (i, pt) in p.points.iter().enumerate() {
                 let body_name = match pt {
                     PathPoint::BodyFixed { body, .. } | PathPoint::Moving { body, .. } => {
@@ -314,7 +359,12 @@ fn emit_wrap_objects(
 ) -> String {
     let mut xml = String::new();
 
-    for (wg_key, wg) in world.iter::<WrapGeom>() {
+    let wg_entities: Vec<(Entity, WrapGeom)> = {
+        let mut query = world.query::<(Entity, &WrapGeom)>();
+        query.iter(world).map(|(e, w)| (e, w.clone())).collect()
+    };
+
+    for (wg_key, wg) in wg_entities {
         let body_name = body_names.get(&wg.body).map(|s| s.as_str()).unwrap_or("ground");
         let elem_name = match wg.geom_type {
             WrapGeomType::Sphere { .. } => "WrapSphere",
@@ -348,7 +398,8 @@ fn emit_wrap_objects(
 }
 
 fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
-    let coords: Vec<Entity> = world.children_of(joint_entity).iter()
+    let child_entities = children_of(world, joint_entity);
+    let coords: Vec<Entity> = child_entities.iter()
         .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
         .copied()
         .collect();
@@ -357,8 +408,9 @@ fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
         0 => "WeldJoint",
         1 => {
             let coord = coords[0];
-            for effect in world.children_of(coord) {
-                if let Some(ce) = world.get::<CoordinateEffect>(effect) {
+            let effect_entities = children_of(world, coord);
+            for effect_entity in effect_entities {
+                if let Some(ce) = world.get::<CoordinateEffect>(effect_entity) {
                     return match &ce.component {
                         TransformComponent::RotationAboutAxis(_)
                         | TransformComponent::RotationX
@@ -382,9 +434,11 @@ fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
 
 fn collect_joint_effects(world: &mut World, joint_entity: Entity) -> Vec<(Entity, CoordinateEffect)> {
     let mut effects = Vec::new();
-    for &coord in &world.children_of(joint_entity) {
+    let coord_entities = children_of(world, joint_entity);
+    for coord in coord_entities {
         if world.get::<JointCoordinate>(coord).is_some() {
-            for effect_entity in world.children_of(coord) {
+            let effect_entities = children_of(world, coord);
+            for effect_entity in effect_entities {
                 if let Some(ce) = world.get::<CoordinateEffect>(effect_entity) {
                     effects.push((effect_entity, ce.clone()));
                 }
@@ -396,9 +450,9 @@ fn collect_joint_effects(world: &mut World, joint_entity: Entity) -> Vec<(Entity
 
 fn find_parent_joint(world: &mut World, child_key: Entity) -> Option<String> {
     let body_names = build_body_name_map(world);
-    let joint_entity = world.parent_of(child_key)?;
+    let joint_entity = world.get::<ChildOf>(child_key).map(|co| co.parent)?;
     if !is_joint_entity(world, joint_entity) { return None; }
-    let parent_body = world.parent_of(joint_entity)?;
+    let parent_body = world.get::<ChildOf>(joint_entity).map(|co| co.parent)?;
     let parent_name = body_names.get(&parent_body).map(|s| s.as_str()).unwrap_or("ground");
     let kind = infer_joint_kind(world, joint_entity);
     let effects = collect_joint_effects(world, joint_entity);
@@ -412,15 +466,11 @@ fn find_parent_joint(world: &mut World, child_key: Entity) -> Option<String> {
             xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
             xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
 
-            // Collect coord data first to avoid borrow conflicts
-            // Collect coord data using inline query to avoid borrow conflicts
-            let mut coord_q = world.query::<(Entity, &JointCoordinate)>();
-            let coord_entities: Vec<Entity> = coord_q.iter(world)
-                .filter(|(e, _)| {
-                    // Check if this coord is a child of joint_entity
-                    world.get::<ChildOf>(*e).map_or(false, |co| co.parent == joint_entity)
-                })
-                .map(|(e, _)| e)
+            // Collect coord data to avoid borrow conflicts
+            let joint_children = children_of(world, joint_entity);
+            let coord_entities: Vec<Entity> = joint_children.iter()
+                .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
+                .copied()
                 .collect();
 
             let coord_infos: Vec<(String, bool, f64, f64, Vec<Entity>)> = coord_entities.iter()
@@ -428,10 +478,7 @@ fn find_parent_joint(world: &mut World, child_key: Entity) -> Option<String> {
                     let name = world.get::<Name>(c).map(|n| n.value.clone()).unwrap_or_else(|| "coord".to_string());
                     let coord = world.get::<JointCoordinate>(c);
                     let (clamped, mn, mx) = coord.map(|c| (c.clamped, c.range_min, c.range_max)).unwrap_or((false, 0.0, 0.0));
-                    let mut effects_q = world.query::<Entity>();
-                    let effects: Vec<Entity> = effects_q.iter(world)
-                        .filter(|e| world.get::<ChildOf>(*e).map_or(false, |co| co.parent == c))
-                        .collect();
+                    let effects = children_of(world, c);
                     (name, clamped, mn, mx, effects)
                 })
                 .collect();
@@ -507,7 +554,9 @@ fn find_parent_joint(world: &mut World, child_key: Entity) -> Option<String> {
             xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
             xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
             xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-            for &coord_key in &world.children_of(joint_entity) {
+
+            let joint_children = children_of(world, joint_entity);
+            for coord_key in joint_children {
                 if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
                     let coord_name = world.get::<Name>(coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
                     xml.push_str("            <CoordinateSet>\n");
@@ -525,7 +574,7 @@ fn find_parent_joint(world: &mut World, child_key: Entity) -> Option<String> {
                     xml.push_str("            </CoordinateSet>\n");
                 }
             }
-            emit_spatial_transform_from_effects(world, joint_entity, &effects, &mut xml);
+            emit_spatial_transform_from_effects(&mut xml, &effects);
             xml.push_str("          </CustomJoint>\n        </Joint>\n");
             Some(xml)
         }
@@ -562,10 +611,8 @@ fn emit_joint_function(xml: &mut String, tag: &str, function: &JointFunction) {
 }
 
 fn emit_spatial_transform_from_effects(
-    _world: &mut World,
-    _joint_entity: Entity,
-    effects: &[(Entity, CoordinateEffect)],
     xml: &mut String,
+    effects: &[(Entity, CoordinateEffect)],
 ) {
     xml.push_str("            <SpatialTransform>\n");
     let mut effects_by_slot: std::collections::HashMap<String, &CoordinateEffect> =
