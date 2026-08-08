@@ -1,5 +1,6 @@
 use melosim::components::*;
 use melosim::world::World;
+use melosim::world::WorldExt;
 
 // ── Main ──
 
@@ -7,7 +8,7 @@ fn main() {
     let mut world = World::new();
 
     // ── Bodies ──
-    let ground = world.spawn();
+    let ground = world.spawn_entity();
     world.attach(
         ground,
         InertialProperties {
@@ -23,7 +24,7 @@ fn main() {
         },
     );
 
-    let pelvis = world.spawn();
+    let pelvis = world.spawn_entity();
     world.attach(
         pelvis,
         InertialProperties {
@@ -39,7 +40,7 @@ fn main() {
         },
     );
 
-    let femur = world.spawn();
+    let femur = world.spawn_entity();
     world.attach(
         femur,
         InertialProperties {
@@ -78,7 +79,7 @@ fn main() {
     );
 
     // ── CustomJoint (knee with coupled motion) ──
-    let knee_flexion = world.spawn();
+    let knee_flexion = world.spawn_entity();
     world.attach(
         knee_flexion,
         JointCoordinate {
@@ -103,9 +104,10 @@ fn main() {
         femur,
         pelvis,
         vec![knee_flexion],
+        None,
     );
 
-    let flex_effect = world.spawn();
+    let flex_effect = world.spawn_entity();
     world.set_parent(flex_effect, knee_flexion);
     world.attach(
         flex_effect,
@@ -118,7 +120,7 @@ fn main() {
         },
     );
 
-    let ap_translate = world.spawn();
+    let ap_translate = world.spawn_entity();
     world.set_parent(ap_translate, knee_flexion);
     world.attach(
         ap_translate,
@@ -131,7 +133,7 @@ fn main() {
     );
 
     // ── Site (muscle attachment point) ──
-    let _asis = world.spawn();
+    let _asis = world.spawn_entity();
     world.set_parent(_asis, pelvis);
     world.attach(_asis, Position::new(0.01, 0.02, 0.13));
 

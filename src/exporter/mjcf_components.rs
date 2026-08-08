@@ -7,8 +7,8 @@ use bevy_ecs::prelude::Entity;
 impl ExportAs<Mjcf> for Muscle {
     fn export_as(&self, entity: Entity, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
-        let params = ctx.world.get::<Millard2012Params>(entity);
-        let path = ctx.world.get::<MusclePath>(entity);
+        let params = ctx.muscle_params(entity);
+        let path = ctx.muscle_path(entity);
 
         let tendon_name = path.map(|_| format!("{}_tendon", name));
         let force = params.map(|p| p.max_isometric_force).unwrap_or(1000.0);

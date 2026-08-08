@@ -4,6 +4,7 @@
 // Validation is just a system that checks invariants.
 
 use crate::world::{World, ErrorList};
+use crate::world::WorldExt;
 use bevy_ecs::prelude::*;
 
 /// A named system that operates on the World.
@@ -40,12 +41,12 @@ pub fn check_has<T: Component>(
 }
 
 /// Iterate all instances of T, call validate on each, collect errors.
-pub fn validate_all<T: Validate + Component>(world: &mut World) {
+pub fn validate_all<T: Validate + Component + Clone>(world: &mut World) {
     let mut local_errors = Vec::new();
     for (key, component) in world.iter::<T>() {
         local_errors.extend(component.validate(key, world));
     }
-    let errors = world.get_resource_or_default::<ErrorList>();
+    let mut errors = world.get_resource_or_insert_with(ErrorList::default);
     errors.0.extend(local_errors);
 }
 

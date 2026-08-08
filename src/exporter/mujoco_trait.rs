@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use super::trait_export::{escape_attr, ExportAs, ExportCtx};
 use crate::components::*;
 use crate::world::World;
+use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
@@ -164,57 +165,58 @@ fn emit_body_joints(
     body: Entity,
     indent: &str,
 ) {
-    let joints: Vec<(Entity, String)> = world.children_of(body).iter()
-        .filter(|&&k| is_joint_entity(world, k))
-        .filter_map(|&k| {
-            let coords: Vec<Entity> = world.children_of(k).iter()
-                .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
-                .copied()
-                .collect();
-            let name = ctx.name_or_unnamed(k);
-            let n_coords = coords.len();
-            let kind = match n_coords {
-                0 => "WeldJoint",
-                1 => {
-                    let mut found = "PinJoint";
-                    for effect_entity in world.children_of(coords[0]) {
-                        if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
-                            match &effect.component {
-                                TransformComponent::TranslationAlongAxis(_)
-                                | TransformComponent::TranslationX
-                                | TransformComponent::TranslationY
-                                | TransformComponent::TranslationZ => { found = "SlideJoint"; }
-                                _ => {}
-                            }
+    let body_children = world.children_of(body);
+    let mut joint_infos: Vec<(Entity, String)> = Vec::new();
+
+    for &k in &body_children {
+        if !is_joint_entity(world, k) { continue; }
+        let coords: Vec<Entity> = world.children_of(k).iter()
+            .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
+            .copied()
+            .collect();
+        let name = ctx.name_or_unnamed(k);
+        let n_coords = coords.len();
+        let kind = match n_coords {
+            0 => "WeldJoint",
+            1 => {
+                let mut found = "PinJoint";
+                for effect_entity in world.children_of(coords[0]) {
+                    if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
+                        match &effect.component {
+                            TransformComponent::TranslationAlongAxis(_)
+                            | TransformComponent::TranslationX
+                            | TransformComponent::TranslationY
+                            | TransformComponent::TranslationZ => { found = "SlideJoint"; }
+                            _ => {}
                         }
                     }
-                    found
                 }
-                2 => "UniversalJoint",
-                3 => "BallJoint",
-                6 => "FreeJoint",
-                _ => "CustomJoint",
-            };
-            match kind {
-                "WeldJoint" => None,
-                "FreeJoint" => Some(format!(r#"<freejoint name="{}"/>"#, escape_attr(name))),
-                _ => {
-                    let axis = [0.0, 0.0, 1.0];
-                    let jtype = match kind {
-                        "PinJoint" => "hinge",
-                        "SlideJoint" => "slide",
-                        "BallJoint" => "ball",
-                        _ => "hinge",
-                    };
-                    Some(format!(r#"<joint name="{}" type="{}" axis="{} {} {}"/>"#,
-                        escape_attr(name), jtype, axis[0], axis[1], axis[2]))
-                }
+                found
             }
-            .map(|s| (k, s))
-        })
-        .collect();
+            2 => "UniversalJoint",
+            3 => "BallJoint",
+            6 => "FreeJoint",
+            _ => "CustomJoint",
+        };
+        let element = match kind {
+            "WeldJoint" => continue,
+            "FreeJoint" => format!(r#"<freejoint name="{}"/>"#, escape_attr(name)),
+            _ => {
+                let axis = [0.0, 0.0, 1.0];
+                let jtype = match kind {
+                    "PinJoint" => "hinge",
+                    "SlideJoint" => "slide",
+                    "BallJoint" => "ball",
+                    _ => "hinge",
+                };
+                format!(r#"<joint name="{}" type="{}" axis="{} {} {}"/>"#,
+                    escape_attr(name), jtype, axis[0], axis[1], axis[2])
+            }
+        };
+        joint_infos.push((k, element));
+    }
 
-    for (_, element) in joints {
+    for (_, element) in joint_infos {
         xml.push_str(&format!("{}  {}\n", indent, element));
     }
 }

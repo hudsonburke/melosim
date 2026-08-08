@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use crate::components::*;
 use crate::math::Transform;
 use crate::world::World;
+use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 // ── Intermediate Data Types ───────────────────────────
@@ -245,7 +246,7 @@ pub fn import_opensim_body(
     world: &mut World,
     data: &OpenSimBodyData,
 ) -> Result<Entity, String> {
-    let body_entity = world.spawn();
+    let body_entity = world.spawn_entity();
     world.attach(body_entity, InertialProperties {
         mass: data.mass,
         com: data.mass_center,
@@ -277,7 +278,7 @@ pub fn import_opensim_marker(
     data: &OpenSimMarkerData,
     body_key: Entity,
 ) -> Entity {
-    let site_entity = world.spawn();
+    let site_entity = world.spawn_entity();
     world.set_parent(site_entity, body_key);
     world.attach(site_entity, Position::new(
         data.location[0], data.location[1], data.location[2],
@@ -294,7 +295,7 @@ pub fn import_coordinate_actuator(
     let coord_key = coord_map.get(&data.coordinate).copied().ok_or_else(|| {
         format!("CoordinateActuator '{}': coordinate '{}' not found", data.name, data.coordinate)
     })?;
-    let entity = world.spawn();
+    let entity = world.spawn_entity();
     world.attach(entity, CoordinateActuator {
         coordinate: coord_key,
         optimal_force: data.optimal_force,
@@ -311,11 +312,11 @@ pub fn import_opensim_muscle(
     body_map: &HashMap<String, Entity>,
     coord_map: &HashMap<String, Entity>,
 ) -> Result<Entity, String> {
-    let muscle_entity = world.spawn();
+    let muscle_entity = world.spawn_entity();
     world.attach(muscle_entity, Muscle);
     world.attach(muscle_entity, Name { value: data.name.clone() });
 
-    let params_entity = world.spawn();
+    let params_entity = world.spawn_entity();
     world.attach(params_entity, Millard2012Params {
         muscle: muscle_entity,
         max_isometric_force: data.max_isometric_force,
@@ -362,7 +363,7 @@ pub fn import_opensim_muscle(
         path_points.push(path_point);
     }
 
-    let path_entity = world.spawn();
+    let path_entity = world.spawn_entity();
     world.attach(path_entity, MusclePath {
         muscle: muscle_entity,
         points: path_points,
@@ -408,7 +409,7 @@ pub fn import_opensim_wrap(
         }
     };
 
-    let entity = world.spawn();
+    let entity = world.spawn_entity();
     world.attach(entity, WrapGeom {
         body: body_key,
         transform,
@@ -432,7 +433,7 @@ pub fn import_opensim_display_geometry(
         rotation: euler_to_quaternion(data.orientation),
     };
 
-    let entity = world.spawn();
+    let entity = world.spawn_entity();
     world.attach(entity, DisplayGeometry {
         body: body_key,
         mesh_file: data.mesh_file.clone(),
@@ -473,12 +474,12 @@ fn import_pin_joint(
     child_key: Entity,
 ) -> Result<Entity, String> {
     let axis = data.axis.ok_or_else(|| format!("PinJoint '{}' missing axis", data.name))?;
-    let joint_entity = world.spawn();
+    let joint_entity = world.spawn_entity();
     world.set_parent(joint_entity, parent_key);
     world.set_parent(child_key, joint_entity);
 
     if let Some(coord) = &data.coordinate {
-        let coord_entity = world.spawn();
+        let coord_entity = world.spawn_entity();
         world.set_parent(coord_entity, joint_entity);
         world.attach(coord_entity, JointCoordinate {
             range_min: coord.range_min,
@@ -494,7 +495,7 @@ fn import_pin_joint(
         });
         world.attach(coord_entity, Name { value: coord.name.clone() });
 
-        let effect_entity = world.spawn();
+        let effect_entity = world.spawn_entity();
         world.set_parent(effect_entity, coord_entity);
         world.attach(effect_entity, CoordinateEffect {
             component: TransformComponent::RotationAboutAxis(axis),
@@ -512,7 +513,7 @@ fn import_weld_joint(
     parent_key: Entity,
     child_key: Entity,
 ) -> Result<Entity, String> {
-    let joint_entity = world.spawn();
+    let joint_entity = world.spawn_entity();
     world.set_parent(joint_entity, parent_key);
     world.set_parent(child_key, joint_entity);
     update_child_frame(world, parent_key, child_key, data);
@@ -525,13 +526,13 @@ fn import_ball_joint(
     parent_key: Entity,
     child_key: Entity,
 ) -> Result<Entity, String> {
-    let joint_entity = world.spawn();
+    let joint_entity = world.spawn_entity();
     world.set_parent(joint_entity, parent_key);
     world.set_parent(child_key, joint_entity);
 
     let mut coord_refs = Vec::new();
     if let Some(coord) = &data.coordinate {
-        let coord_entity = world.spawn();
+        let coord_entity = world.spawn_entity();
         world.set_parent(coord_entity, joint_entity);
         world.attach(coord_entity, JointCoordinate {
             range_min: coord.range_min,
@@ -551,7 +552,7 @@ fn import_ball_joint(
     let coord_for_effects = coord_refs.first().copied();
     for axis in &axes {
         if let Some(coord_id) = coord_for_effects {
-            let effect_entity = world.spawn();
+            let effect_entity = world.spawn_entity();
             world.set_parent(effect_entity, coord_id);
             world.attach(effect_entity, CoordinateEffect {
                 component: TransformComponent::RotationAboutAxis(*axis),
@@ -570,20 +571,20 @@ fn import_free_joint(
     parent_key: Entity,
     child_key: Entity,
 ) -> Result<Entity, String> {
-    let joint_entity = world.spawn();
+    let joint_entity = world.spawn_entity();
     world.set_parent(joint_entity, parent_key);
     world.set_parent(child_key, joint_entity);
 
     let rot_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     for axis in &rot_axes {
-        let coord_entity = world.spawn();
+        let coord_entity = world.spawn_entity();
         world.set_parent(coord_entity, joint_entity);
         world.attach(coord_entity, JointCoordinate {
             range_min: -1e10, range_max: 1e10, default_value: 0.0,
             stiffness: 0.0, damping: 0.0, clamped: false, locked: false,
             prescribed_function: None,
         });
-        let effect_entity = world.spawn();
+        let effect_entity = world.spawn_entity();
         world.set_parent(effect_entity, coord_entity);
         world.attach(effect_entity, CoordinateEffect {
             component: TransformComponent::RotationAboutAxis(*axis),
@@ -592,14 +593,14 @@ fn import_free_joint(
     }
     let trans_axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     for axis in &trans_axes {
-        let coord_entity = world.spawn();
+        let coord_entity = world.spawn_entity();
         world.set_parent(coord_entity, joint_entity);
         world.attach(coord_entity, JointCoordinate {
             range_min: -1e10, range_max: 1e10, default_value: 0.0,
             stiffness: 0.0, damping: 0.0, clamped: false, locked: false,
             prescribed_function: None,
         });
-        let effect_entity = world.spawn();
+        let effect_entity = world.spawn_entity();
         world.set_parent(effect_entity, coord_entity);
         world.attach(effect_entity, CoordinateEffect {
             component: TransformComponent::TranslationAlongAxis(*axis),
@@ -623,14 +624,14 @@ fn import_universal_joint(
         return Err(format!("UniversalJoint '{}' needs 2 coordinates, got {}", data.name, coords.len()));
     }
 
-    let joint_entity = world.spawn();
+    let joint_entity = world.spawn_entity();
     world.set_parent(joint_entity, parent_key);
     world.set_parent(child_key, joint_entity);
 
     let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
     let mut coord_refs = Vec::new();
     for coord in coords {
-        let coord_entity = world.spawn();
+        let coord_entity = world.spawn_entity();
         world.set_parent(coord_entity, joint_entity);
         world.attach(coord_entity, JointCoordinate {
             range_min: coord.range_min, range_max: coord.range_max,
@@ -644,7 +645,7 @@ fn import_universal_joint(
 
     for (i, coord_id) in coord_refs.iter().enumerate() {
         let axis = axes[i % axes.len()];
-        let effect_entity = world.spawn();
+        let effect_entity = world.spawn_entity();
         world.set_parent(effect_entity, *coord_id);
         world.attach(effect_entity, CoordinateEffect {
             component: TransformComponent::RotationAboutAxis(axis),
@@ -667,13 +668,13 @@ fn import_custom_joint(
     let st = data.spatial_transform.as_ref()
         .ok_or_else(|| format!("CustomJoint '{}' missing spatial_transform", data.name))?;
 
-    let joint_entity = world.spawn();
+    let joint_entity = world.spawn_entity();
     world.set_parent(joint_entity, parent_key);
     world.set_parent(child_key, joint_entity);
 
     let mut coord_ids: HashMap<String, Entity> = HashMap::new();
     for coord in coords {
-        let coord_entity = world.spawn();
+        let coord_entity = world.spawn_entity();
         world.set_parent(coord_entity, joint_entity);
         world.attach(coord_entity, JointCoordinate {
             range_min: coord.range_min, range_max: coord.range_max,
@@ -724,7 +725,7 @@ fn import_custom_joint(
                 },
             };
 
-            let effect_entity = world.spawn();
+            let effect_entity = world.spawn_entity();
             world.set_parent(effect_entity, *coord_id);
             world.attach(effect_entity, CoordinateEffect { component, function });
         }

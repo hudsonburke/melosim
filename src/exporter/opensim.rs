@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::world::World;
+use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
@@ -87,8 +88,9 @@ pub fn world_to_osim(world: &mut World, model_name: &str) -> String {
         for &site_key in &markers {
             let marker_name = world.get::<Name>(site_key).map(|n| n.value.as_str()).unwrap_or("marker");
             xml.push_str(&format!("      <Marker name=\"{}\">\n", escape_attr(marker_name)));
-            let parent_name = world.get::<ChildOf>(site_key)
-                .and_then(|co| find_body_ancestor(world, co.parent))
+            let parent = world.parent_of(site_key);
+            let parent_name = parent
+                .and_then(|p| find_body_ancestor(world, p))
                 .and_then(|body| body_names.get(&body))
                 .map(|s| s.as_str())
                 .unwrap_or("ground");
@@ -378,13 +380,13 @@ fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
     }
 }
 
-fn collect_joint_effects(world: &mut World, joint_entity: Entity) -> Vec<(Entity, &CoordinateEffect)> {
+fn collect_joint_effects(world: &mut World, joint_entity: Entity) -> Vec<(Entity, CoordinateEffect)> {
     let mut effects = Vec::new();
     for &coord in &world.children_of(joint_entity) {
         if world.get::<JointCoordinate>(coord).is_some() {
             for effect_entity in world.children_of(coord) {
                 if let Some(ce) = world.get::<CoordinateEffect>(effect_entity) {
-                    effects.push((effect_entity, ce));
+                    effects.push((effect_entity, ce.clone()));
                 }
             }
         }
@@ -409,28 +411,51 @@ fn find_parent_joint(world: &mut World, child_key: Entity) -> Option<String> {
             xml.push_str("            <orientation_in_parent>0 0 0</orientation_in_parent>\n");
             xml.push_str("            <location_in_child>0 0 0</location_in_child>\n");
             xml.push_str("            <orientation_in_child>0 0 0</orientation_in_child>\n");
-            for &coord_key in &world.children_of(joint_entity) {
-                if let Some(coord) = world.get::<JointCoordinate>(coord_key) {
-                    let coord_name = world.get::<Name>(coord_key).map(|n| n.value.as_str()).unwrap_or("coord");
-                    xml.push_str("            <CoordinateSet>\n");
-                    xml.push_str(&format!("              <Coordinate name=\"{}\">\n", escape_attr(coord_name)));
-                    let mut axis = [0.0f64; 3];
-                    for effect_entity in world.children_of(coord_key) {
-                        if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
-                            if let TransformComponent::RotationAboutAxis(a) = effect.component {
-                                axis = a;
-                            }
+
+            // Collect coord data first to avoid borrow conflicts
+            // Collect coord data using inline query to avoid borrow conflicts
+            let mut coord_q = world.query::<(Entity, &JointCoordinate)>();
+            let coord_entities: Vec<Entity> = coord_q.iter(world)
+                .filter(|(e, _)| {
+                    // Check if this coord is a child of joint_entity
+                    world.get::<ChildOf>(*e).map_or(false, |co| co.parent == joint_entity)
+                })
+                .map(|(e, _)| e)
+                .collect();
+
+            let coord_infos: Vec<(String, bool, f64, f64, Vec<Entity>)> = coord_entities.iter()
+                .map(|&c| {
+                    let name = world.get::<Name>(c).map(|n| n.value.clone()).unwrap_or_else(|| "coord".to_string());
+                    let coord = world.get::<JointCoordinate>(c);
+                    let (clamped, mn, mx) = coord.map(|c| (c.clamped, c.range_min, c.range_max)).unwrap_or((false, 0.0, 0.0));
+                    let mut effects_q = world.query::<Entity>();
+                    let effects: Vec<Entity> = effects_q.iter(world)
+                        .filter(|e| world.get::<ChildOf>(*e).map_or(false, |co| co.parent == c))
+                        .collect();
+                    (name, clamped, mn, mx, effects)
+                })
+                .collect();
+
+            for (coord_name, clamped, range_min, range_max, effect_keys) in coord_infos {
+                xml.push_str("            <CoordinateSet>\n");
+                xml.push_str(&format!("              <Coordinate name=\"{}\">\n", escape_attr(&coord_name)));
+                let mut axis = [0.0f64; 3];
+                for effect_entity in effect_keys {
+                    if let Some(effect) = world.get::<CoordinateEffect>(effect_entity) {
+                        if let TransformComponent::RotationAboutAxis(a) = effect.component {
+                            axis = a;
                         }
                     }
-                    xml.push_str(&format!("                <axis>{} {} {}</axis>\n", axis[0], axis[1], axis[2]));
-                    if coord.clamped {
-                        xml.push_str(&format!("                <range_min>{}</range_min>\n", coord.range_min));
-                        xml.push_str(&format!("                <range_max>{}</range_max>\n", coord.range_max));
-                    }
-                    xml.push_str("              </Coordinate>\n");
-                    xml.push_str("            </CoordinateSet>\n");
                 }
+                xml.push_str(&format!("                <axis>{} {} {}</axis>\n", axis[0], axis[1], axis[2]));
+                if clamped {
+                    xml.push_str(&format!("                <range_min>{}</range_min>\n", range_min));
+                    xml.push_str(&format!("                <range_max>{}</range_max>\n", range_max));
+                }
+                xml.push_str("              </Coordinate>\n");
+                xml.push_str("            </CoordinateSet>\n");
             }
+
             xml.push_str("            <reverse>false</reverse>\n");
             xml.push_str("          </PinJoint>\n        </Joint>\n");
             Some(xml)
@@ -539,7 +564,7 @@ fn emit_joint_function(xml: &mut String, tag: &str, function: &JointFunction) {
 fn emit_spatial_transform_from_effects(
     _world: &mut World,
     _joint_entity: Entity,
-    effects: &[(Entity, &CoordinateEffect)],
+    effects: &[(Entity, CoordinateEffect)],
     xml: &mut String,
 ) {
     xml.push_str("            <SpatialTransform>\n");

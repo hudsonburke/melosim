@@ -1,6 +1,7 @@
 use melosim::importer::opensim::{import_opensim_model, OpenSimModelData};
 use melosim::exporter::mujoco::world_to_mjcf;
 use melosim::world::World;
+use melosim::world::WorldExt;
 use std::fs;
 
 #[test]

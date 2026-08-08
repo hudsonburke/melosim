@@ -1,6 +1,7 @@
 use melosim::components::*;
 use melosim::importer::opensim::{import_opensim_model, load_opensim_json};
 use melosim::world::World;
+use melosim::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 #[test]
@@ -43,7 +44,7 @@ fn test_import_simple_knee() {
     let errors = world.validate();
     assert!(errors.is_empty(), "Validation errors: {:?}", errors);
 
-    let effects: Vec<&CoordinateEffect> = world.iter::<CoordinateEffect>()
+    let effects: Vec<CoordinateEffect> = world.iter::<CoordinateEffect>()
         .into_iter()
         .map(|(_, e)| e)
         .collect();

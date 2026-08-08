@@ -3,6 +3,7 @@
 use melosim::importer::mujoco::import_mjcf;
 use melosim::components::*;
 use melosim::world::World;
+use melosim::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 use std::path::Path;
 use std::process::Command;
@@ -19,7 +20,7 @@ fn ensure_myo_sim() {
     }
 }
 
-fn infer_joint_kind(world: &World, joint_entity: Entity) -> &'static str {
+fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
     let coords: Vec<Entity> = world.children_of(joint_entity).iter()
         .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
         .copied()
@@ -47,7 +48,7 @@ fn infer_joint_kind(world: &World, joint_entity: Entity) -> &'static str {
     }
 }
 
-fn collect_joint_entities(world: &World) -> Vec<Entity> {
+fn collect_joint_entities(world: &mut World) -> Vec<Entity> {
     let mut joints: Vec<Entity> = Vec::new();
     for (coord_eid, _) in world.iter::<JointCoordinate>() {
         if let Some(co) = world.get::<ChildOf>(coord_eid) {
@@ -60,13 +61,13 @@ fn collect_joint_entities(world: &World) -> Vec<Entity> {
     joints
 }
 
-fn count_joints_by_kind(world: &World, kind: &str) -> usize {
+fn count_joints_by_kind(world: &mut World, kind: &str) -> usize {
     collect_joint_entities(world).iter()
         .filter(|&&j| infer_joint_kind(world, j) == kind)
         .count()
 }
 
-fn count_sites(world: &World) -> usize {
+fn count_sites(world: &mut World) -> usize {
     world.iter::<Position>().into_iter()
         .filter(|(eid, _)| {
             world.get::<InertialProperties>(*eid).is_none()
@@ -84,13 +85,13 @@ fn test_myoelbow_import() {
 
     let n_inertials = world.count::<InertialProperties>();
     println!("Bodies (InertialProperties): {}", n_inertials);
-    let n_hinge = count_joints_by_kind(&world, "PinJoint");
+    let n_hinge = count_joints_by_kind(&mut world, "PinJoint");
     println!("Hinge joints: {}", n_hinge);
     assert_eq!(n_hinge, 1, "Expected 1 hinge joint (r_elbow_flex)");
     let n_coords = world.count::<JointCoordinate>();
     println!("Coordinates: {}", n_coords);
     assert_eq!(n_coords, 1, "Expected 1 coordinate for the hinge joint");
-    let n_sites = count_sites(&world);
+    let n_sites = count_sites(&mut world);
     println!("Sites: {}", n_sites);
     assert!(n_sites > 10, "Expected many path point sites (>10), got {}", n_sites);
     let n_geoms = world.count::<DisplayGeometry>();

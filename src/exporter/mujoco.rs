@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::components::*;
 use crate::world::World;
+use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
@@ -251,7 +252,8 @@ fn emit_body_joints(world: &mut World, xml: &mut String, body: Entity, depth: us
 
     for &child in &world.children_of(body) {
         if !is_joint_entity(world, child) { continue; }
-        let name = world.get::<Name>(child).map(|n| n.value.as_str()).unwrap_or("joint");
+        let name_owned = world.get::<Name>(child).map(|n| n.value.clone()).unwrap_or_else(|| "joint".to_string());
+        let name = &name_owned;
 
         let coords: Vec<Entity> = world.children_of(child).iter()
             .filter(|&&c| world.get::<JointCoordinate>(c).is_some())

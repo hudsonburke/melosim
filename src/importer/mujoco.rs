@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::components::*;
 use crate::math::{Quaternion, Transform, Vec3};
 use crate::world::World;
+use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 use mujoco_rs::wrappers::mj_model::*;
@@ -18,7 +19,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
     let mut world = World::new();
 
     // ── Ground body (entity 0) ──
-    let ground = world.spawn();
+    let ground = world.spawn_entity();
     world.attach(ground, InertialProperties {
         mass: 0.0, com: [0.0; 3], inertia: [0.0; 6],
     });
@@ -38,7 +39,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
 
     // ── Import bodies (skip body 0 = worldbody) ──
     for i in 1..nbody {
-        let entity = world.spawn();
+        let entity = world.spawn_entity();
         let mass = model.body_mass()[i];
         let ipos = model.body_ipos()[i];
         let inertia_diag = model.body_inertia()[i];
@@ -81,14 +82,14 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
         let dof_adr = model.jnt_dofadr()[j];
         let damping = if dof_adr >= 0 { model.dof_damping()[dof_adr as usize] } else { 0.0 };
 
-        let joint_entity = world.spawn();
+        let joint_entity = world.spawn_entity();
         world.attach(joint_entity, Name { value: jnt_name });
         world.set_parent(joint_entity, body_a);
         world.set_parent(body_b, joint_entity);
 
         match jnt_type {
             mjtJoint_::mjJNT_HINGE => {
-                let coord_entity = world.spawn();
+                let coord_entity = world.spawn_entity();
                 let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
                     .unwrap_or("unnamed_coord");
                 world.set_parent(coord_entity, joint_entity);
@@ -100,7 +101,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
                     clamped: has_limits, locked: false, prescribed_function: None,
                 });
                 coord_map.insert(j as i32, coord_entity);
-                let effect_entity = world.spawn();
+                let effect_entity = world.spawn_entity();
                 world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
                     component: TransformComponent::RotationAboutAxis(axis_arr),
@@ -108,7 +109,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
                 });
             }
             mjtJoint_::mjJNT_SLIDE => {
-                let coord_entity = world.spawn();
+                let coord_entity = world.spawn_entity();
                 let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
                     .unwrap_or("unnamed_coord");
                 world.set_parent(coord_entity, joint_entity);
@@ -120,7 +121,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
                     clamped: has_limits, locked: false, prescribed_function: None,
                 });
                 coord_map.insert(j as i32, coord_entity);
-                let effect_entity = world.spawn();
+                let effect_entity = world.spawn_entity();
                 world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
                     component: TransformComponent::TranslationAlongAxis(axis_arr),
@@ -138,7 +139,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
         let parent = *body_map.get(&body_id)
             .ok_or_else(|| format!("Site {} attached to unmapped body {}", s, body_id))?;
         let pos = model.site_pos()[s];
-        let site_entity = world.spawn();
+        let site_entity = world.spawn_entity();
         world.set_parent(site_entity, parent);
         world.attach(site_entity, Position::new(pos[0], pos[1], pos[2]));
         let site_name = model.id_to_name(MjtObj::mjOBJ_SITE, s)
@@ -179,7 +180,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
             scale = model.mesh_scale()[mid];
         }
 
-        let geom_entity = world.spawn();
+        let geom_entity = world.spawn_entity();
         world.attach(geom_entity, DisplayGeometry {
             body, mesh_file, scale,
             color: [rgba[0] as f64, rgba[1] as f64, rgba[2] as f64],
@@ -253,7 +254,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
             || actuator_biastype[a] == mjtBias_::mjBIAS_MUSCLE;
 
         if is_muscle {
-            let muscle_entity = world.spawn();
+            let muscle_entity = world.spawn_entity();
             world.attach(muscle_entity, Muscle);
             world.attach(muscle_entity, Name { value: act_name.clone() });
             let max_force = actuator_gear[a][0];
@@ -288,7 +289,7 @@ pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> 
         } else if actuator_trntype[a] == mjtTrn_::mjTRN_JOINT {
             let joint_id = actuator_trnid[a][0];
             if let Some(&coord_entity) = coord_map.get(&joint_id) {
-                let act_entity = world.spawn();
+                let act_entity = world.spawn_entity();
                 world.attach(act_entity, Name { value: act_name });
                 world.attach(act_entity, CoordinateActuator {
                     coordinate: coord_entity,

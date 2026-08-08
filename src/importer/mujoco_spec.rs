@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::components::*;
 use crate::math::{Quaternion, Transform, Vec3};
 use crate::world::World;
+use crate::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 
 use mujoco_rs::wrappers::mj_editing::*;
@@ -30,7 +31,7 @@ pub fn import_mjcf_spec(path: &str) -> Result<(World, HashMap<String, Entity>), 
     let mut body_map: HashMap<String, Entity> = HashMap::new();
 
     // ── Ground body (entity 0) ──
-    let ground = world.spawn();
+    let ground = world.spawn_entity();
     world.attach(ground, InertialProperties {
         mass: 0.0, com: [0.0; 3], inertia: [0.0; 6],
     });
@@ -62,7 +63,7 @@ fn import_body_recursive(
         return Ok(());
     }
 
-    let entity = world.spawn();
+    let entity = world.spawn_entity();
     let body_name = body.name().to_string();
     let mass = body.mass();
     let com = *body.ipos();
@@ -81,7 +82,7 @@ fn import_body_recursive(
     import_body_joints(world, body, entity, parent_entity);
 
     for site in body.site_iter(false) {
-        let site_entity = world.spawn();
+        let site_entity = world.spawn_entity();
         let site_name = site.name().to_string();
         let site_pos = *site.pos();
         world.set_parent(site_entity, entity);
@@ -90,7 +91,7 @@ fn import_body_recursive(
     }
 
     for geom in body.geom_iter(false) {
-        let geom_entity = world.spawn();
+        let geom_entity = world.spawn_entity();
         let geom_name = geom.name().to_string();
         let geom_pos = *geom.pos();
         let geom_quat = *geom.quat();
@@ -137,14 +138,14 @@ fn import_body_joints(
         let damping = damping_arr[0];
         let stiffness = stiffness_arr[0];
 
-        let joint_entity = world.spawn();
+        let joint_entity = world.spawn_entity();
         world.attach(joint_entity, Name { value: jnt_name.clone() });
         world.set_parent(joint_entity, parent_entity);
         world.set_parent(child_entity, joint_entity);
 
         match jnt_type {
             MjtJoint::mjJNT_HINGE => {
-                let coord_entity = world.spawn();
+                let coord_entity = world.spawn_entity();
                 world.set_parent(coord_entity, joint_entity);
                 world.attach(coord_entity, Name { value: jnt_name });
                 world.attach(coord_entity, JointCoordinate {
@@ -154,7 +155,7 @@ fn import_body_joints(
                     stiffness, damping, clamped: limited, locked: false,
                     prescribed_function: None,
                 });
-                let effect_entity = world.spawn();
+                let effect_entity = world.spawn_entity();
                 world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
                     component: TransformComponent::RotationAboutAxis(axis),
@@ -162,7 +163,7 @@ fn import_body_joints(
                 });
             }
             MjtJoint::mjJNT_SLIDE => {
-                let coord_entity = world.spawn();
+                let coord_entity = world.spawn_entity();
                 world.set_parent(coord_entity, joint_entity);
                 world.attach(coord_entity, Name { value: jnt_name });
                 world.attach(coord_entity, JointCoordinate {
@@ -172,7 +173,7 @@ fn import_body_joints(
                     stiffness, damping, clamped: limited, locked: false,
                     prescribed_function: None,
                 });
-                let effect_entity = world.spawn();
+                let effect_entity = world.spawn_entity();
                 world.set_parent(effect_entity, coord_entity);
                 world.attach(effect_entity, CoordinateEffect {
                     component: TransformComponent::TranslationAlongAxis(axis),
@@ -195,7 +196,7 @@ fn import_actuator(
     let is_muscle = actuator.dyntype() == mujoco_rs::mujoco_c::mjtDyn_::mjDYN_MUSCLE;
 
     if is_muscle {
-        let muscle_entity = world.spawn();
+        let muscle_entity = world.spawn_entity();
         world.attach(muscle_entity, Muscle);
         world.attach(muscle_entity, Name { value: act_name.clone() });
         world.attach(muscle_entity, Millard2012Params {
@@ -260,7 +261,7 @@ fn import_actuator(
                 .map(|(coord_key, _)| coord_key);
 
             if let Some(coord_key) = matched_coord {
-                let act_entity = world.spawn();
+                let act_entity = world.spawn_entity();
                 world.attach(act_entity, Name { value: act_name });
                 world.attach(act_entity, CoordinateActuator {
                     coordinate: coord_key,

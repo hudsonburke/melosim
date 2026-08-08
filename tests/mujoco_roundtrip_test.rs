@@ -4,6 +4,7 @@ use melosim::importer::mujoco::import_mjcf;
 use melosim::exporter::mujoco::world_to_mjcf;
 use melosim::components::*;
 use melosim::world::World;
+use melosim::world::WorldExt;
 use bevy_ecs::prelude::Entity;
 use std::path::Path;
 use std::process::Command;
@@ -20,7 +21,7 @@ fn ensure_myo_sim() {
     }
 }
 
-fn infer_joint_kind(world: &World, joint_entity: Entity) -> &'static str {
+fn infer_joint_kind(world: &mut World, joint_entity: Entity) -> &'static str {
     let coords: Vec<Entity> = world.children_of(joint_entity).iter()
         .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
         .copied()
@@ -48,7 +49,7 @@ fn infer_joint_kind(world: &World, joint_entity: Entity) -> &'static str {
     }
 }
 
-fn collect_joint_entities(world: &World) -> Vec<Entity> {
+fn collect_joint_entities(world: &mut World) -> Vec<Entity> {
     let mut joints: Vec<Entity> = Vec::new();
     for (coord_eid, _) in world.iter::<JointCoordinate>() {
         if let Some(co) = world.get::<ChildOf>(coord_eid) {
@@ -61,13 +62,13 @@ fn collect_joint_entities(world: &World) -> Vec<Entity> {
     joints
 }
 
-fn count_joints_by_kind(world: &World, kind: &str) -> usize {
+fn count_joints_by_kind(world: &mut World, kind: &str) -> usize {
     collect_joint_entities(world).iter()
         .filter(|&&j| infer_joint_kind(world, j) == kind)
         .count()
 }
 
-fn count_sites(world: &World) -> usize {
+fn count_sites(world: &mut World) -> usize {
     world.iter::<Position>().into_iter()
         .filter(|(eid, _)| {
             world.get::<InertialProperties>(*eid).is_none()
@@ -76,18 +77,23 @@ fn count_sites(world: &World) -> usize {
         .count()
 }
 
-fn find_hinge_joints(world: &World) -> Vec<(Entity, Option<String>)> {
-    collect_joint_entities(world).iter()
-        .filter(|&&j| infer_joint_kind(world, j) == "PinJoint")
-        .map(|&j| (j, world.get::<Name>(j).map(|n| n.value.clone())))
-        .collect()
+fn find_hinge_joints(world: &mut World) -> Vec<(Entity, Option<String>)> {
+    let joints = collect_joint_entities(world);
+    let mut result = Vec::new();
+    for &j in &joints {
+        if infer_joint_kind(world, j) == "PinJoint" {
+            let name = world.get::<Name>(j).map(|n| n.value.clone());
+            result.push((j, name));
+        }
+    }
+    result
 }
 
 #[test]
 fn test_myoelbow_export() {
     ensure_myo_sim();
     let model_path = "tests/fixtures/myo_sim/elbow/myoelbow_1dof6muscles.xml";
-    let (world, _) = import_mjcf(model_path).expect("Failed to import");
+    let (mut world, _) = import_mjcf(model_path).expect("Failed to import");
     let xml = world_to_mjcf(&mut world, "MyoElbow_export");
     assert!(xml.contains("<mujoco model=\"MyoElbow_export\">"));
     assert!(xml.contains("<worldbody>"));
@@ -105,17 +111,17 @@ fn test_myoelbow_export() {
 fn test_myoelbow_roundtrip_structural() {
     ensure_myo_sim();
     let model_path = "tests/fixtures/myo_sim/elbow/myoelbow_1dof6muscles.xml";
-    let (world1, _) = import_mjcf(model_path).expect("Failed to import");
+    let (mut world1, _) = import_mjcf(model_path).expect("Failed to import");
     let xml = world_to_mjcf(&mut world1, "MyoElbow_roundtrip");
     let tmp_path = "/tmp/melosim_roundtrip_test.xml";
     std::fs::write(tmp_path, &xml).expect("Failed to write temp file");
-    let (world2, _) = import_mjcf(tmp_path).expect(
+    let (mut world2, _) = import_mjcf(tmp_path).expect(
         &format!("Failed to re-import exported MJCF.\nExported XML:\n{}", xml)
     );
 
     let checks = [
         ("Bodies", world1.count::<InertialProperties>(), world2.count::<InertialProperties>()),
-        ("Hinge joints", count_joints_by_kind(&world1, "PinJoint"), count_joints_by_kind(&world2, "PinJoint")),
+        ("Hinge joints", count_joints_by_kind(&mut world1, "PinJoint"), count_joints_by_kind(&mut world2, "PinJoint")),
         ("Coordinates", world1.count::<JointCoordinate>(), world2.count::<JointCoordinate>()),
         ("Muscles", world1.count::<Muscle>(), world2.count::<Muscle>()),
         ("Muscle paths", world1.count::<MusclePath>(), world2.count::<MusclePath>()),
@@ -125,12 +131,12 @@ fn test_myoelbow_roundtrip_structural() {
         assert_eq!(c1, c2, "{} count mismatch: {} vs {}", label, c1, c2);
     }
 
-    let n_sites1 = count_sites(&world1);
-    let n_sites2 = count_sites(&world2);
+    let n_sites1 = count_sites(&mut world1);
+    let n_sites2 = count_sites(&mut world2);
     println!("  Sites: {} -> {} (may differ)", n_sites1, n_sites2);
 
-    let hinges1 = find_hinge_joints(&world1);
-    let hinges2 = find_hinge_joints(&world2);
+    let hinges1 = find_hinge_joints(&mut world1);
+    let hinges2 = find_hinge_joints(&mut world2);
     for (key1, name1) in &hinges1 {
         let coord1 = world1.children_of(*key1).iter()
             .find(|&&c| world1.get::<JointCoordinate>(c).is_some())
