@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use bevy_ecs::prelude::*;
 
 /// A muscle entity — the identity component.
 ///
@@ -8,7 +7,7 @@ use crate::id::EntityID;
 /// (`Millard2012Params`, `HillTypeMuscleParams`, etc.).
 ///
 /// In Rajagopal 2015, all 80 muscles are `Millard2012EquilibriumMuscle`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Muscle;
 
 /// Millard 2012 equilibrium muscle model parameters.
@@ -17,9 +16,9 @@ pub struct Muscle;
 /// used by Rajagopal 2015. Defaults are applied by OpenSim's
 /// `extendFinalizeFromProperties()` at model init for any fields not
 /// explicitly set in the `.osim` file.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Millard2012Params {
-    pub muscle: EntityID,
+    pub muscle: Entity,
     pub max_isometric_force: f64,
     pub optimal_fiber_length: f64,
     pub tendon_slack_length: f64,
@@ -34,7 +33,7 @@ pub struct Millard2012Params {
 }
 
 /// Runtime muscle state (not persisted — computed during simulation).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct MuscleState {
     pub fiber_length: f64,
     pub fiber_velocity: f64,
@@ -45,7 +44,7 @@ pub struct MuscleState {
 ///
 /// For Millard 2012 muscles (Rajagopal), use `Millard2012Params` instead.
 /// This is kept for backward compatibility with simpler Hill-type models.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct HillTypeMuscleParams {
     pub max_force: f64,
     pub optimal_fiber_length: f64,
@@ -56,9 +55,9 @@ pub struct HillTypeMuscleParams {
 
 /// Placeholder for force-length curve data.
 /// Will be expanded when custom curves need to be stored for round-trip.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct ForceLengthCurve {}
 
 /// Placeholder for force-velocity curve data.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct ForceVelocityCurve {}

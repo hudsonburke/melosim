@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use bevy_ecs::prelude::*;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct TendonParams {
     pub spring_length: f64,
     pub width: f64,

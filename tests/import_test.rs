@@ -1,6 +1,7 @@
 use melosim::components::*;
 use melosim::importer::opensim::{import_opensim_model, load_opensim_json};
 use melosim::world::World;
+use bevy_ecs::prelude::Entity;
 
 #[test]
 fn test_import_simple_hip() {
@@ -15,13 +16,10 @@ fn test_import_simple_hip() {
     let mut world = World::new();
     import_opensim_model(&mut world, &model).expect("Import failed");
 
-    // Validate: 3 bodies + 2 joints (intermediate nodes) + 1 coordinate + 2 markers (sites)
     assert_eq!(world.count::<InertialProperties>(), 3);
-    assert_eq!(world.count::<JointCoordinate>(), 7); // 6 from FreeJoint + 1 from CustomJoint
-    // 2 markers imported as Position + ChildOf (no Site marker)
-    assert_eq!(world.count::<ChildOf>(), world.count::<ChildOf>()); // just verify it compiles
+    assert_eq!(world.count::<JointCoordinate>(), 7);
+    assert_eq!(world.count::<ChildOf>(), world.count::<ChildOf>());
 
-    // Validate the world — all entity references should resolve
     let errors = world.validate();
     assert!(errors.is_empty(), "Validation errors: {:?}", errors);
 }
@@ -38,21 +36,18 @@ fn test_import_simple_knee() {
     let mut world = World::new();
     import_opensim_model(&mut world, &model).expect("Import failed");
 
-    // Validate counts
     assert_eq!(world.count::<InertialProperties>(), 3);
-    assert_eq!(world.count::<JointCoordinate>(), 7); // 6 from FreeJoint + 1 from CustomJoint
-    assert_eq!(world.count::<CoordinateEffect>(), 9); // 6 from FreeJoint + 3 from CustomJoint
+    assert_eq!(world.count::<JointCoordinate>(), 7);
+    assert_eq!(world.count::<CoordinateEffect>(), 9);
 
-    // Validate the world
     let errors = world.validate();
     assert!(errors.is_empty(), "Validation errors: {:?}", errors);
 
-    // Verify the CoordinateEffect functions
     let effects: Vec<&CoordinateEffect> = world.iter::<CoordinateEffect>()
+        .into_iter()
         .map(|(_, e)| e)
         .collect();
-    // 6 Linear from FreeJoint (3 rotation + 3 translation) + 1 from PinJoint = 7
-    assert_eq!(effects.len(), 9); // 6 from FreeJoint + 3 from CustomJoint
+    assert_eq!(effects.len(), 9);
 }
 
 #[test]
@@ -70,10 +65,8 @@ fn test_import_simple_muscle() {
     let mut world = World::new();
     import_opensim_model(&mut world, &model).expect("Import failed");
 
-    // Validate counts
     assert_eq!(world.count::<InertialProperties>(), 3);
-    assert_eq!(world.count::<JointCoordinate>(), 7); // 6 from FreeJoint + 1 from CustomJoint
-    // Component types
+    assert_eq!(world.count::<JointCoordinate>(), 7);
     assert_eq!(world.count::<Muscle>(), 1);
     assert_eq!(world.count::<MusclePath>(), 1);
     assert_eq!(world.count::<Millard2012Params>(), 1);
@@ -81,12 +74,10 @@ fn test_import_simple_muscle() {
     assert_eq!(world.count::<DisplayGeometry>(), 1);
     assert_eq!(world.count::<CoordinateActuator>(), 1);
 
-    // Validate the world
     let errors = world.validate();
     assert!(errors.is_empty(), "Validation errors: {:?}", errors);
 
-    // Verify CoordinateActuator references the knee_flexion coordinate
-    for (_key, act) in world.iter::<CoordinateActuator>() {
+    for (_key, act) in world.iter::<CoordinateActuator>().into_iter() {
         let coord_name = world.get::<Name>(act.coordinate)
             .map(|n| n.value.as_str())
             .unwrap_or("");
@@ -94,11 +85,10 @@ fn test_import_simple_muscle() {
         assert_eq!(act.optimal_force, 50.0);
     }
 
-    // Verify muscle was created with correct name
-    let name = world.iter::<Name>().find(|(_, n)| n.value == "rectus_femoris_r");
+    let name = world.iter::<Name>().into_iter().find(|(_, n)| n.value == "rectus_femoris_r");
     assert!(name.is_some(), "Should find muscle named rectus_femoris_r");
-    // Verify WrapGeom was created with correct type
-    for (_key, wrap) in world.iter::<WrapGeom>() {
+
+    for (_key, wrap) in world.iter::<WrapGeom>().into_iter() {
         match &wrap.geom_type {
             WrapGeomType::Cylinder { radius, length } => {
                 assert_eq!(*radius, 0.03);
@@ -107,8 +97,8 @@ fn test_import_simple_muscle() {
             _ => panic!("Expected Cylinder wrap geom"),
         }
     }
-    // Verify DisplayGeometry
-    for (_key, geom) in world.iter::<DisplayGeometry>() {
+
+    for (_key, geom) in world.iter::<DisplayGeometry>().into_iter() {
         assert_eq!(geom.mesh_file, Some("femur.vtp".to_string()));
         assert_eq!(geom.color, [0.8, 0.8, 0.8]);
     }

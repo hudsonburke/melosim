@@ -26,7 +26,7 @@ pub use spatial::*;
 pub use tendon::*;
 pub use wrap::*;
 
-use crate::id::EntityID;
+use bevy_ecs::prelude::Entity;
 use crate::world::World;
 
 /// Validation trait for components that have invariants.
@@ -35,5 +35,5 @@ use crate::world::World;
 /// The generic `validate_all::<T>()` function iterates all instances
 /// and collects errors into the world's error resource.
 pub trait Validate {
-    fn validate(&self, entity: EntityID, world: &World) -> Vec<String>;
+    fn validate(&self, entity: Entity, world: &World) -> Vec<String>;
 }

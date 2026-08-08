@@ -10,11 +10,10 @@ edition = "2024"
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-anymap2 = "0.13"
-inventory = "0.3"
 mujoco-rs = { version = "5", features = [
   "auto-download-mujoco",
 ], optional = true }
+bevy_ecs = "0.15"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

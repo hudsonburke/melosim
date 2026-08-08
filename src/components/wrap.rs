@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use bevy_ecs::prelude::*;
 use crate::math::Transform;
 
 /// A wrapping surface that a muscle-tendon path can wrap over.
@@ -10,10 +9,10 @@ use crate::math::Transform;
 ///
 /// In Rajagopal 2015, wrapping surfaces are used for muscles that
 /// wrap around bones and joints (e.g., the quadriceps around the femur).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct WrapGeom {
     /// The body this wrap surface is rigidly attached to.
-    pub body: EntityID,
+    pub body: Entity,
     /// Transform from body frame to wrap surface frame.
     pub transform: Transform,
     /// The shape of the wrapping surface.
@@ -21,7 +20,7 @@ pub struct WrapGeom {
 }
 
 /// Supported wrapping surface types.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum WrapGeomType {
     Sphere { radius: f64 },
     Cylinder { radius: f64, length: f64 },

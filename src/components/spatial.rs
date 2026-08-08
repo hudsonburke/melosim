@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
+use bevy_ecs::prelude::*;
 use crate::math::{Vec3, Quaternion};
 
 /// A 3D position in the parent's coordinate system.
 /// Used alone for sites/landmarks (no rotation).
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Position {
     pub x: f64,
     pub y: f64,
@@ -32,7 +32,7 @@ impl From<Vec3> for Position {
 
 /// A rotation in the parent's coordinate system.
 /// Combined with Position, this defines a full 6-DOF frame.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Copy, Debug)]
 pub struct Rotation {
     pub quaternion: Quaternion,
 }

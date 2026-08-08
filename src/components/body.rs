@@ -1,7 +1,10 @@
-use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use bevy_ecs::prelude::*;
+use super::Validate;
+use crate::world::World;
+use crate::systems::check_has;
+use super::spatial::Position;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct InertialProperties {
     pub mass: f64,
     pub com: [f64; 3],
@@ -12,25 +15,20 @@ pub struct InertialProperties {
 /// Used for attaching exoskeleton parts — the user places 3-4
 /// stations, the system computes the frame, and the attachment
 /// follows automatically when the body scales.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct StationDefinedFrame {
     /// Station providing the frame origin.
-    pub origin: EntityID,
+    pub origin: Entity,
     /// Station defining the X axis direction (from origin).
-    pub axis_x: EntityID,
+    pub axis_x: Entity,
     /// Station defining the Y axis direction (from origin).
-    pub axis_y: EntityID,
+    pub axis_y: Entity,
 }
 
 // ── Validation ────────────────────────────────────────
 
-use super::Validate;
-use crate::world::World;
-use crate::systems::{System, validate_all, check_has};
-use super::spatial::Position;
-
 impl Validate for StationDefinedFrame {
-    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+    fn validate(&self, entity: Entity, world: &World) -> Vec<String> {
         [
             check_has::<Position>(world, entity, "origin", self.origin),
             check_has::<Position>(world, entity, "axis_x", self.axis_x),
@@ -38,5 +36,3 @@ impl Validate for StationDefinedFrame {
         ].into_iter().flatten().collect()
     }
 }
-
-inventory::submit! { System::new("validate_station_defined_frame", |w| validate_all::<StationDefinedFrame>(w)) }

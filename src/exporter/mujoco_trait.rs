@@ -1,18 +1,13 @@
 // ── MuJoCo MJCF XML Exporter (trait-based) ───────────
-//
-// Component rendering delegated to ExportAs<Mjcf> impls
-// in mjcf_components.rs. This file handles only format structure:
-// body hierarchy, section organization, and cross-cutting concerns.
 
 use std::collections::HashMap;
 
 use super::trait_export::{escape_attr, ExportAs, ExportCtx};
 use crate::components::*;
-use crate::id::EntityID;
 use crate::world::World;
+use bevy_ecs::prelude::Entity;
 
-/// Export the World to an MJCF XML string.
-pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
+pub fn world_to_mjcf(world: &mut World, model_name: &str) -> String {
     let ctx = ExportCtx::new(world);
     let mut xml = String::new();
 
@@ -24,34 +19,25 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
     let children_map = build_children_map(world);
     let roots = find_root_bodies(world);
 
-    // ── worldbody ──
     xml.push_str("  <worldbody>\n");
     for &root_id in &roots {
         emit_body_recursive(world, &ctx, &mut xml, root_id, &children_map, 2);
     }
     xml.push_str("  </worldbody>\n");
 
-    // ── tendon section ──
-    let has_tendons = world.iter::<MusclePath>().next().is_some();
+    let has_tendons = world.iter::<MusclePath>().into_iter().next().is_some();
     if has_tendons {
         xml.push_str("\n  <tendon>\n");
         for (muscle_key, path) in world.iter::<MusclePath>() {
-            let tendon_name = ctx
-                .name(muscle_key)
+            let tendon_name = ctx.name(muscle_key)
                 .map(|n| format!("{}_tendon", n))
-                .unwrap_or_else(|| format!("tendon_{}", muscle_key.0));
+                .unwrap_or_else(|| format!("tendon_{}", muscle_key.index()));
             xml.push_str(&format!("    <spatial name=\"{}\">\n", escape_attr(&tendon_name)));
             for point in &path.points {
-                match point {
-                    PathPoint::BodyFixed { body, location } => {
-                        if let Some(site_name) = find_site_name(world, *body, location) {
-                            xml.push_str(&format!(
-                                "      <site site=\"{}\"/>\n",
-                                escape_attr(&site_name)
-                            ));
-                        }
+                if let PathPoint::BodyFixed { body, location } = point {
+                    if let Some(site_name) = find_site_name(world, *body, location) {
+                        xml.push_str(&format!("      <site site=\"{}\"/>\n", escape_attr(&site_name)));
                     }
-                    PathPoint::Moving { .. } => {}
                 }
             }
             xml.push_str("    </spatial>\n");
@@ -59,9 +45,8 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
         xml.push_str("  </tendon>\n");
     }
 
-    // ── actuator section ──
-    let has_muscles = world.iter::<Muscle>().next().is_some();
-    let has_coord_actuators = world.iter::<CoordinateActuator>().next().is_some();
+    let has_muscles = world.iter::<Muscle>().into_iter().next().is_some();
+    let has_coord_actuators = world.iter::<CoordinateActuator>().into_iter().next().is_some();
     if has_muscles || has_coord_actuators {
         xml.push_str("\n  <actuator>\n");
         for (muscle_key, muscle) in world.iter::<Muscle>() {
@@ -85,27 +70,24 @@ pub fn world_to_mjcf(world: &World, model_name: &str) -> String {
     xml
 }
 
-/// Write MJCF to a file.
-pub fn write_mjcf(world: &World, path: &str, model_name: &str) -> Result<(), String> {
+pub fn write_mjcf(world: &mut World, path: &str, model_name: &str) -> Result<(), String> {
     let xml = world_to_mjcf(world, model_name);
     std::fs::write(path, &xml).map_err(|e| format!("Failed to write {}: {}", path, e))
 }
 
-// ── Body hierarchy ────────────────────────────────────
+// ── Body hierarchy ──
 
 fn emit_body_recursive(
-    world: &World,
+    world: &mut World,
     ctx: &ExportCtx,
     xml: &mut String,
-    entity: EntityID,
-    children_map: &HashMap<EntityID, Vec<EntityID>>,
+    entity: Entity,
+    children_map: &HashMap<Entity, Vec<Entity>>,
     depth: usize,
 ) {
     let indent = "  ".repeat(depth);
     let name = ctx.name_or_unnamed(entity);
-
     xml.push_str(&format!("{}<body name=\"{}\"", indent, escape_attr(name)));
-
     if let Some(pos) = world.get::<Position>(entity) {
         if pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0 {
             xml.push_str(&format!(" pos=\"{} {} {}\"", pos.x, pos.y, pos.z));
@@ -119,17 +101,14 @@ fn emit_body_recursive(
     }
     xml.push_str(">\n");
 
-    // Inertial properties
     if let Some(inertial) = world.get::<InertialProperties>(entity) {
         if let Some(element) = inertial.export_as(entity, ctx) {
-            xml.push_str(&format!("{}  {}\n", indent, element));
+            xml.push_str(&format!("{}  {}\\n", indent, element));
         }
     }
 
-    // Joints (child entities that are joint intermediate nodes)
     emit_body_joints(world, ctx, xml, entity, &indent);
 
-    // Display geometries
     for (geom_key, geom) in world.iter::<DisplayGeometry>() {
         if geom.body == entity {
             if let Some(element) = geom.export_as(geom_key, ctx) {
@@ -138,7 +117,6 @@ fn emit_body_recursive(
         }
     }
 
-    // Sites (entities with Position + ChildOf, no InertialProperties, no Rotation, no JointCoordinate)
     for (site_key, _site_pos) in world.iter::<Position>() {
         if world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == entity) {
             if world.get::<InertialProperties>(site_key).is_some() { continue; }
@@ -152,7 +130,6 @@ fn emit_body_recursive(
         }
     }
 
-    // Wrap geometries
     for (wrap_key, wrap) in world.iter::<WrapGeom>() {
         if wrap.body == entity {
             if let Some(element) = wrap.export_as(wrap_key, ctx) {
@@ -161,7 +138,6 @@ fn emit_body_recursive(
         }
     }
 
-    // Recurse into children that are bodies
     if let Some(children) = children_map.get(&entity) {
         for &child in children {
             if world.get::<InertialProperties>(child).is_some() {
@@ -173,32 +149,25 @@ fn emit_body_recursive(
     xml.push_str(&format!("{}</body>\n", indent));
 }
 
-/// Check if an entity is a joint intermediate node.
-fn is_joint_entity(world: &World, entity: EntityID) -> bool {
-    if world.get::<InertialProperties>(entity).is_some() {
-        return false;
-    }
+fn is_joint_entity(world: &mut World, entity: Entity) -> bool {
+    if world.get::<InertialProperties>(entity).is_some() { return false; }
     for child in world.children_of(entity) {
-        if world.get::<InertialProperties>(child).is_some() {
-            return true;
-        }
+        if world.get::<InertialProperties>(child).is_some() { return true; }
     }
     false
 }
 
 fn emit_body_joints(
-    world: &World,
+    world: &mut World,
     ctx: &ExportCtx,
     xml: &mut String,
-    body: EntityID,
+    body: Entity,
     indent: &str,
 ) {
-    // Find children of this body that are joint entities
-    let joints: Vec<(EntityID, String)> = world.children_of(body).iter()
+    let joints: Vec<(Entity, String)> = world.children_of(body).iter()
         .filter(|&&k| is_joint_entity(world, k))
         .filter_map(|&k| {
-            // Export the joint based on its coordinate count
-            let coords: Vec<EntityID> = world.children_of(k).iter()
+            let coords: Vec<Entity> = world.children_of(k).iter()
                 .filter(|&&c| world.get::<JointCoordinate>(c).is_some())
                 .copied()
                 .collect();
@@ -226,12 +195,11 @@ fn emit_body_joints(
                 6 => "FreeJoint",
                 _ => "CustomJoint",
             };
-            // Generate simple joint XML
             match kind {
                 "WeldJoint" => None,
                 "FreeJoint" => Some(format!(r#"<freejoint name="{}"/>"#, escape_attr(name))),
                 _ => {
-                    let axis = [0.0, 0.0, 1.0]; // Default
+                    let axis = [0.0, 0.0, 1.0];
                     let jtype = match kind {
                         "PinJoint" => "hinge",
                         "SlideJoint" => "slide",
@@ -251,27 +219,24 @@ fn emit_body_joints(
     }
 }
 
-fn build_children_map(world: &World) -> HashMap<EntityID, Vec<EntityID>> {
-    let mut children: HashMap<EntityID, Vec<EntityID>> = HashMap::new();
+fn build_children_map(world: &mut World) -> HashMap<Entity, Vec<Entity>> {
+    let mut children: HashMap<Entity, Vec<Entity>> = HashMap::new();
     for (entity, child_of) in world.iter::<ChildOf>() {
         children.entry(child_of.parent).or_default().push(entity);
     }
     children
 }
 
-fn find_root_bodies(world: &World) -> Vec<EntityID> {
+fn find_root_bodies(world: &mut World) -> Vec<Entity> {
     let mut roots = Vec::new();
     for (entity, child_of) in world.iter::<ChildOf>() {
-        if child_of.parent == EntityID(0) {
-            if world.get::<InertialProperties>(entity).is_some() {
+        if world.get::<InertialProperties>(entity).is_some() {
+            if !world.get::<InertialProperties>(child_of.parent).is_some() {
                 roots.push(entity);
             }
         }
     }
     for (entity, _) in world.iter::<InertialProperties>() {
-        if entity == EntityID(0) {
-            continue;
-        }
         if world.get::<ChildOf>(entity).is_none() {
             roots.push(entity);
         }
@@ -279,15 +244,12 @@ fn find_root_bodies(world: &World) -> Vec<EntityID> {
     roots
 }
 
-fn find_site_name(world: &World, body: EntityID, location: &[f64; 3]) -> Option<String> {
+fn find_site_name(world: &mut World, body: Entity, location: &[f64; 3]) -> Option<String> {
     for (site_key, _pos) in world.iter::<Position>() {
-        if !world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) {
-            continue;
-        }
+        if !world.get::<ChildOf>(site_key).map_or(false, |co| co.parent == body) { continue; }
         if world.get::<InertialProperties>(site_key).is_some() { continue; }
         if world.get::<Rotation>(site_key).is_some() { continue; }
         if world.get::<JointCoordinate>(site_key).is_some() { continue; }
-
         if let Some(pos) = world.get::<Position>(site_key) {
             let dx = pos.x - location[0];
             let dy = pos.y - location[1];

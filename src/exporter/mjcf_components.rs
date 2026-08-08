@@ -1,17 +1,11 @@
 // ── MJCF component exporters ─────────────────────────
-//
-// Each component type implements ExportAs<Mjcf> to define how it
-// renders into MJCF XML. The exporter (mod.rs) calls these via
-// the trait, keeping component logic decoupled from format structure.
 
 use super::trait_export::{escape_attr, ExportAs, ExportCtx, Mjcf};
 use crate::components::*;
-use crate::id::EntityID;
-
-// ── Muscles ───────────────────────────────────────────
+use bevy_ecs::prelude::Entity;
 
 impl ExportAs<Mjcf> for Muscle {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
+    fn export_as(&self, entity: Entity, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
         let params = ctx.world.get::<Millard2012Params>(entity);
         let path = ctx.world.get::<MusclePath>(entity);
@@ -36,10 +30,8 @@ impl ExportAs<Mjcf> for Muscle {
     }
 }
 
-// ── Actuators ─────────────────────────────────────────
-
 impl ExportAs<Mjcf> for CoordinateActuator {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
+    fn export_as(&self, entity: Entity, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
         let coord_name = ctx.name_or_unnamed(self.coordinate);
         Some(format!(
@@ -50,10 +42,8 @@ impl ExportAs<Mjcf> for CoordinateActuator {
     }
 }
 
-// ── Geometry ──────────────────────────────────────────
-
 impl ExportAs<Mjcf> for DisplayGeometry {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
+    fn export_as(&self, entity: Entity, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
         Some(format!(
             r#"<geom name="{}" type="sphere" size="{} {} {}" pos="{} {} {}" rgba="{} {} {} {}"/>"#,
@@ -66,7 +56,7 @@ impl ExportAs<Mjcf> for DisplayGeometry {
 }
 
 impl ExportAs<Mjcf> for WrapGeom {
-    fn export_as(&self, entity: EntityID, ctx: &ExportCtx) -> Option<String> {
+    fn export_as(&self, entity: Entity, ctx: &ExportCtx) -> Option<String> {
         let name = ctx.name_or_unnamed(entity);
         let pos = format!("{} {} {}",
             self.transform.translation.x, self.transform.translation.y, self.transform.translation.z);
@@ -88,7 +78,7 @@ impl ExportAs<Mjcf> for WrapGeom {
 }
 
 impl ExportAs<Mjcf> for InertialProperties {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
+    fn export_as(&self, _entity: Entity, _ctx: &ExportCtx) -> Option<String> {
         let i = &self.inertia;
         Some(format!(
             r#"<inertial pos="{} {} {}" mass="{}" fullinertia="{} {} {} {} {} {}"/>"#,
@@ -98,28 +88,18 @@ impl ExportAs<Mjcf> for InertialProperties {
     }
 }
 
-// ── Components with no standalone MJCF representation ──
-
 impl ExportAs<Mjcf> for Millard2012Params {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
-        None // Consumed by Muscle's export_as
-    }
+    fn export_as(&self, _entity: Entity, _ctx: &ExportCtx) -> Option<String> { None }
 }
 
 impl ExportAs<Mjcf> for MusclePath {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
-        None // Emitted as <tendon><spatial> in the coordinator
-    }
+    fn export_as(&self, _entity: Entity, _ctx: &ExportCtx) -> Option<String> { None }
 }
 
 impl ExportAs<Mjcf> for JointCoordinate {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
-        None // Joint coordinate dynamics appended by the exporter
-    }
+    fn export_as(&self, _entity: Entity, _ctx: &ExportCtx) -> Option<String> { None }
 }
 
 impl ExportAs<Mjcf> for Name {
-    fn export_as(&self, _entity: EntityID, _ctx: &ExportCtx) -> Option<String> {
-        None // Consumed by ctx.name()
-    }
+    fn export_as(&self, _entity: Entity, _ctx: &ExportCtx) -> Option<String> { None }
 }

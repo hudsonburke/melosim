@@ -1,5 +1,4 @@
 use melosim::components::*;
-use melosim::systems;
 use melosim::world::World;
 
 // ── Main ──
@@ -60,7 +59,6 @@ fn main() {
     world.set_parent(pelvis, ground);
 
     // ── Simple joints using convenience builders ──
-    // add_free: creates joint entity as intermediate node
     let _pelvis_free = world.add_free(ground, pelvis);
 
     let _hip = world.add_hinge(
@@ -70,7 +68,7 @@ fn main() {
         Some((-2.0, 0.5)),
     );
 
-    // ── UniversalJoint (e.g., lumbar spine) ──
+    // ── UniversalJoint ──
     let _lumbar = world.add_universal(
         pelvis,
         femur,
@@ -79,8 +77,7 @@ fn main() {
         Some((-0.5, 0.5)),
     );
 
-    // ── CustomJoint (e.g., knee with coupled motion) ──
-    // 1. Create coordinate entity
+    // ── CustomJoint (knee with coupled motion) ──
     let knee_flexion = world.spawn();
     world.attach(
         knee_flexion,
@@ -102,14 +99,12 @@ fn main() {
         },
     );
 
-    // 2. Create the Joint as intermediate node (coordinates set as children)
     let _knee = world.add_custom(
         femur,
         pelvis,
         vec![knee_flexion],
     );
 
-    // 3. Create CoordinateEffects as children of coordinates
     let flex_effect = world.spawn();
     world.set_parent(flex_effect, knee_flexion);
     world.attach(
@@ -136,15 +131,13 @@ fn main() {
     );
 
     // ── Site (muscle attachment point) ──
-    // Sites are now just entities with ChildOf + Position (no marker needed)
     let _asis = world.spawn();
     world.set_parent(_asis, pelvis);
     world.attach(_asis, Position::new(0.01, 0.02, 0.13));
 
     // ── Run systems (validation, etc.) ──
-    systems::run_systems(&mut world);
-    systems::print_errors(&mut world);
+    melosim::systems::run_systems(&mut world);
+    melosim::systems::print_errors(&mut world);
 
-    println!("\nBuild World:\n  {:?}", world);
-    println!("  component count: {}", world.components.len());
+    println!("\nBuild World:\n  {}", world.debug_summary());
 }

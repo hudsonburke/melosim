@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use bevy_ecs::prelude::*;
 
 /// A single degree of freedom (generalized coordinate).
 ///
@@ -8,7 +7,7 @@ use crate::id::EntityID;
 /// (e.g., "find all locked coordinates") without touching every joint.
 ///
 /// In the hierarchy, a coordinate is a child of its joint entity via ChildOf.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct JointCoordinate {
     pub range_min: f64,
     pub range_max: f64,
@@ -28,7 +27,7 @@ pub struct JointCoordinate {
 /// components (rotation/translation about axes).
 ///
 /// In the hierarchy, an effect is a child of its coordinate entity via ChildOf.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct CoordinateEffect {
     /// Which spatial transform component this effect drives.
     pub component: TransformComponent,
@@ -40,7 +39,7 @@ pub struct CoordinateEffect {
 ///
 /// Includes the original 6 axis-aligned components plus
 /// arbitrary-axis rotation/translation for general joints.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum TransformComponent {
     RotationX,
     RotationY,
@@ -62,7 +61,7 @@ pub enum TransformComponent {
 /// - `Constant`: fixed offset (e.g., a fixed translation that doesn't vary)
 /// - `Linear`: slope * q + intercept (e.g., a simple gear ratio)
 /// - `Polynomial`: c0 + c1*q + c2*q^2 + ... (coupled motion in knee joints)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum JointFunction {
     /// f(q) = c
     Constant(f64),
@@ -76,19 +75,18 @@ pub enum JointFunction {
 
 use super::Validate;
 use super::relationship::ChildOf;
-use crate::systems::{System, validate_all};
 use crate::world::World;
 
 impl Validate for JointCoordinate {
-    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+    fn validate(&self, entity: Entity, world: &World) -> Vec<String> {
         if self.clamped && self.range_min > self.range_max {
             let name = world
                 .get::<super::Name>(entity)
                 .map(|n| n.value.clone())
                 .unwrap_or_default();
             vec![format!(
-                "{:?} JointCoordinate '{}' has invalid range [{},{}]",
-                entity.0, name, self.range_min, self.range_max
+                "JointCoordinate '{}' has invalid range [{},{}]",
+                name, self.range_min, self.range_max
             )]
         } else {
             Vec::new()
@@ -97,24 +95,19 @@ impl Validate for JointCoordinate {
 }
 
 impl Validate for CoordinateEffect {
-    fn validate(&self, entity: EntityID, world: &World) -> Vec<String> {
+    fn validate(&self, entity: Entity, world: &World) -> Vec<String> {
         let mut errors = Vec::new();
         if let Some(co) = world.get::<ChildOf>(entity) {
             if world.get::<JointCoordinate>(co.parent).is_none() {
                 errors.push(format!(
-                    "{:?} CoordinateEffect parent {:?} is missing JointCoordinate",
-                    entity.0, co.parent.0
+                    "CoordinateEffect parent is missing JointCoordinate"
                 ));
             }
         } else {
             errors.push(format!(
-                "{:?} CoordinateEffect is missing ChildOf component",
-                entity.0
+                "CoordinateEffect is missing ChildOf component"
             ));
         }
         errors
     }
 }
-
-inventory::submit! { System::new("validate_coordinate", |w| validate_all::<JointCoordinate>(w)) }
-inventory::submit! { System::new("validate_coordinate_effect", |w| validate_all::<CoordinateEffect>(w)) }

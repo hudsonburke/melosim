@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use bevy_ecs::prelude::*;
 
 /// A muscle's geometric path through the body.
 ///
@@ -7,9 +6,9 @@ use crate::id::EntityID;
 /// routing of the muscle-tendon unit through path points on bodies.
 /// Path points can be fixed on a body or move dynamically with a coordinate
 /// (e.g., a point that shifts with knee flexion to model wrapping).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct MusclePath {
-    pub muscle: EntityID,
+    pub muscle: Entity,
     pub points: Vec<PathPoint>,
 }
 
@@ -18,18 +17,18 @@ pub struct MusclePath {
 /// - `BodyFixed`: fixed location on a body (most common)
 /// - `Moving`: location changes with a coordinate (used for wrapping
 ///    around joints like the knee)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum PathPoint {
     /// A point fixed on a body, specified in the body's local frame.
     BodyFixed {
-        body: EntityID,
+        body: Entity,
         location: [f64; 3],
     },
     /// A point whose location depends on a coordinate value.
     /// The function maps coordinate value → location offset in body frame.
     Moving {
-        body: EntityID,
-        coordinate: EntityID,
+        body: Entity,
+        coordinate: Entity,
         /// Map from coordinate value to the 3D location offset.
         /// Stored as 3 Polynomial functions, one per axis (X, Y, Z).
         location_functions: [Vec<f64>; 3],

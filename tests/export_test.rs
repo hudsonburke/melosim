@@ -1,26 +1,19 @@
 // ── Exporter tests ────────────────────────────────────
-// Validates that the exporter produces valid .osim XML from a World.
-// These tests run without OpenSim — they use JSON fixture data.
 
 use melosim::exporter::opensim::world_to_osim;
 use melosim::importer::opensim::{import_opensim_model, load_opensim_json};
 use melosim::world::World;
 use melosim::components::*;
-use melosim::id::EntityID;
+use bevy_ecs::prelude::Entity;
 
-/// Basic checks on the XML output structure.
 fn check_xml_structure(xml: &str) {
     assert!(xml.starts_with("<?xml"), "XML should start with declaration");
-    assert!(
-        xml.contains("<OpenSimDocument Version=\"30000\">"),
-        "Should have OpenSimDocument root"
-    );
+    assert!(xml.contains("<OpenSimDocument Version=\"30000\">"), "Should have OpenSimDocument root");
     assert!(xml.contains("<Model"), "Should have Model element");
     assert!(xml.contains("</Model>"), "Should close Model");
     assert!(xml.contains("</OpenSimDocument>"), "Should close OpenSimDocument");
 }
 
-/// Count occurrences of a substring in XML.
 fn count_xml_tags(xml: &str, tag: &str) -> usize {
     xml.matches(&format!("<{} ", tag)).count()
         + xml.matches(&format!("<{}>", tag)).count()
@@ -33,28 +26,17 @@ fn test_export_simple_hip() {
     let mut world = World::new();
     import_opensim_model(&mut world, &model).expect("Import failed");
 
-    let xml = world_to_osim(&world, "SimpleHipTest");
-
-    // Check basic structure
+    let xml = world_to_osim(&mut world, "SimpleHipTest");
     check_xml_structure(&xml);
     assert!(xml.contains("SimpleHipTest"), "Model name should be in output");
-
-    // Check bodies have real names from fixture (not auto-generated body_N)
     assert!(xml.contains("<Body name=\"pelvis\""), "Should contain body pelvis");
     assert!(xml.contains("<Body name=\"femur_r\""), "Should contain body femur_r");
-
-    // Check joints
     assert!(xml.contains("<FreeJoint"), "Should contain FreeJoint");
     assert!(xml.contains("<PinJoint"), "Should contain PinJoint");
-
-    // Check markers have correct names
     assert!(xml.contains("<Marker name=\"RASI\""), "Should contain RASI marker");
     assert!(xml.contains("<Marker name=\"RTHI\""), "Should contain RTHI marker");
-
-    // Check body properties
     assert!(xml.contains("<mass>11.78"), "Should contain pelvis mass");
 
-    // Verify XML is well-formed (basic check — matching open/close tags)
     let open_models = xml.matches("<Model").count();
     let close_models = xml.matches("</Model>").count();
     assert_eq!(open_models, close_models, "Model tag mismatch");
@@ -71,65 +53,36 @@ fn test_export_simple_muscle() {
     let mut world = World::new();
     import_opensim_model(&mut world, &model).expect("Import failed");
 
-    let xml = world_to_osim(&world, "SimpleMuscleTest");
-
-    // Check basic structure
+    let xml = world_to_osim(&mut world, "SimpleMuscleTest");
     check_xml_structure(&xml);
 
-    // Check ForceSet with muscle + actuator
     assert!(xml.contains("<ForceSet>"), "Should contain ForceSet");
-    assert!(
-        xml.contains("Millard2012EquilibriumMuscle"),
-        "Should contain muscle type"
-    );
-    assert!(
-        xml.contains("rectus_femoris_r"),
-        "Should contain muscle name"
-    );
-    assert!(
-        xml.contains("CoordinateActuator"),
-        "Should contain CoordinateActuator"
-    );
-    assert!(
-        xml.contains("knee_actuator"),
-        "Should contain actuator name"
-    );
-    assert!(
-        xml.contains("<optimal_force>50</optimal_force>"),
-        "Should contain optimal_force"
-    );
-
-    // Check muscle parameters
+    assert!(xml.contains("Millard2012EquilibriumMuscle"), "Should contain muscle type");
+    assert!(xml.contains("rectus_femoris_r"), "Should contain muscle name");
+    assert!(xml.contains("CoordinateActuator"), "Should contain CoordinateActuator");
+    assert!(xml.contains("knee_actuator"), "Should contain actuator name");
+    assert!(xml.contains("<optimal_force>50</optimal_force>"), "Should contain optimal_force");
     assert!(xml.contains("<max_isometric_force>1169"), "Should contain force");
     assert!(xml.contains("<optimal_fiber_length>0.114"), "Should contain fiber length");
     assert!(xml.contains("<tendon_slack_length>0.344"), "Should contain slack length");
-
-    // Check geometry path
     assert!(xml.contains("<GeometryPath>"), "Should contain GeometryPath");
     assert!(xml.contains("<PathPointSet>"), "Should contain PathPointSet");
-
-    // Check wrap objects
     assert!(xml.contains("<WrapCylinder"), "Should contain WrapCylinder");
-
-    // Check display geometry inside bodies
     assert!(xml.contains("<DisplayGeometry"), "Should contain DisplayGeometry");
     assert!(xml.contains("femur.vtp"), "Should contain mesh file ref");
 
-    // Verify tag matching
     let open_forces = count_xml_tags(&xml, "ForceSet");
     let close_forces = xml.matches("</ForceSet>").count();
     assert_eq!(open_forces, close_forces, "ForceSet tag mismatch");
 }
-
-// ── Model editing API tests ───────────────────────────
 
 #[test]
 fn test_find_by_name() {
     let mut world = World::new();
     let e1 = world.spawn();
     let e2 = world.spawn();
-    world.attach(e1, Name { value: "forearm".into() });
-    world.attach(e2, Name { value: "cuff".into() });
+    world.attach(e1, Name::new("forearm"));
+    world.attach(e2, Name::new("cuff"));
 
     assert_eq!(world.find_by_name("forearm"), Some(e1));
     assert_eq!(world.find_by_name("cuff"), Some(e2));
@@ -140,28 +93,20 @@ fn test_find_by_name() {
 fn test_body_construction() {
     let mut world = World::new();
 
-    // Create a forearm body
     let forearm = world.spawn();
     world.attach(forearm, InertialProperties {
-        mass: 1.5,
-        com: [0.0; 3],
-        inertia: [0.0; 6],
+        mass: 1.5, com: [0.0; 3], inertia: [0.0; 6],
     });
-    world.attach(forearm, Name { value: "r_forearm".into() });
-    world.set_parent(forearm, EntityID(0));
+    world.attach(forearm, Name::new("r_forearm"));
 
-    // Build a cuff with mass and mesh using generic attach
     let cuff = world.spawn();
     world.attach(cuff, InertialProperties {
-        mass: 0.5,
-        com: [0.0; 3],
-        inertia: [0.0; 6],
+        mass: 0.5, com: [0.0; 3], inertia: [0.0; 6],
     });
     world.set_parent(cuff, forearm);
-    world.attach(cuff, Name { value: "arm_cuff".into() });
+    world.attach(cuff, Name::new("arm_cuff"));
     world.attach(cuff, MeshGeometry { mesh: "assets/cuff.stl".into() });
 
-    // Verify all components
     let inertial = world.get::<InertialProperties>(cuff).expect("cuff should have InertialProperties");
     assert_eq!(inertial.mass, 0.5);
 
@@ -179,9 +124,8 @@ fn test_body_construction() {
 fn test_get_mut() {
     let mut world = World::new();
     let e = world.spawn();
-    world.attach(e, Name { value: "test".into() });
+    world.attach(e, Name::new("test"));
 
-    // Modify the name
     if let Some(name) = world.get_mut::<Name>(e) {
         name.value = "modified".into();
     }
@@ -203,12 +147,10 @@ fn test_hierarchy() {
     world.set_parent(body, joint);
     world.set_parent(child, body);
 
-    // Verify hierarchy
     assert_eq!(world.parent_of(joint), Some(ground));
     assert_eq!(world.parent_of(body), Some(joint));
     assert_eq!(world.parent_of(child), Some(body));
 
-    // Verify children
     let ground_children = world.children_of(ground);
     assert!(ground_children.contains(&joint));
 

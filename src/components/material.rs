@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use bevy_ecs::prelude::*;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Material {
     pub density: f64,
     pub youngs_modulus: f64,

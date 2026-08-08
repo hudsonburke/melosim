@@ -28,7 +28,7 @@ fn test_opensim_to_mujoco_conversion() {
     println!("  Muscles: {}", world.count::<melosim::components::Muscle>());
 
     // Export to MJCF
-    let mjcf_xml = world_to_mjcf(&world, "Rajagopal2015");
+    let mjcf_xml = world_to_mjcf(&mut world, "Rajagopal2015");
     let out_path = "/tmp/rajagopal_from_opensim.xml";
     fs::write(out_path, &mjcf_xml).expect("Failed to write MJCF");
 

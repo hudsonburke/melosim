@@ -1,139 +1,95 @@
+use bevy_ecs::prelude::*;
+use bevy_ecs::world::World as BevyWorld;
 use crate::components::*;
-use crate::id::EntityID;
+use std::ops::{Deref, DerefMut};
 
-use anymap2::AnyMap;
+/// Resource to hold validation errors.
+#[derive(Resource, Default, Clone)]
+pub struct ErrorList(pub Vec<String>);
 
-/// Type alias for per-type component storage.
-/// Dense `Vec<Option<T>>` indexed by EntityID (u32).
-/// `None` means the entity does not have this component type.
-pub type ComponentStorage<T> = Vec<Option<T>>;
+impl Deref for World {
+    type Target = BevyWorld;
+    fn deref(&self) -> &Self::Target {
+        &self.ecs
+    }
+}
 
-/// The dynamic Build World. Components are stored in AnyMap-keyed
-/// `Vec<Option<T>>` vectors, indexed by dense EntityID (u32).
+impl DerefMut for World {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ecs
+    }
+}
+
+/// The melosim World — wraps `bevy_ecs::World` with convenience methods.
 ///
-/// - `spawn()` allocates a new entity ID.
-/// - `attach::<T>(entity, component)` stores a component on an entity.
-/// - `get::<T>(entity)` retrieves a component.
-///
-/// Resources (singletons) are stored separately in `resources: AnyMap`.
+/// Components are stored in Bevy's archetype-based storage.
+/// Resources (singletons) are stored in Bevy's resource storage.
 ///
 /// Adding a new component type does NOT require modifying this struct:
-/// downstream crates just call `world.attach::<MyType>(entity, val)`.
+/// downstream crates just call `world.ecs.spawn(MyComponent { ... })`.
 pub struct World {
-    pub components: AnyMap,
-    pub resources: AnyMap,
-    /// Monotonic counter for EntityID assignment.
-    /// Each spawn() increments this.
-    pub next_id: u32,
+    pub ecs: BevyWorld,
 }
 
 impl World {
     pub fn new() -> Self {
-        Self {
-            components: AnyMap::new(),
-            resources: AnyMap::new(),
-            next_id: 0,
-        }
+        Self { ecs: BevyWorld::new() }
     }
 
     // ── Entity lifecycle ──
 
-    /// Spawn a new entity. Returns its unique EntityID.
-    pub fn spawn(&mut self) -> EntityID {
-        let id = self.next_id;
-        self.next_id += 1;
-        EntityID(id)
+    /// Spawn a new entity. Returns its unique Entity.
+    pub fn spawn(&mut self) -> Entity {
+        self.ecs.spawn(()).id()
+    }
+
+    /// Spawn an entity with a bundle of components. Returns its Entity.
+    pub fn spawn_with<B: Bundle>(&mut self, bundle: B) -> Entity {
+        self.ecs.spawn(bundle).id()
     }
 
     // ── Component access ──
 
-    fn ensure_storage<T: 'static>(&mut self) -> &mut ComponentStorage<T> {
-        self.components
-            .entry::<ComponentStorage<T>>()
-            .or_insert_with(Vec::new)
-    }
-
     /// Attach a component to an entity.
-    pub fn attach<T: 'static>(&mut self, entity: EntityID, component: T) {
-        let storage = self.ensure_storage::<T>();
-        let idx = entity.0 as usize;
-        if idx >= storage.len() {
-            storage.reserve(idx + 1 - storage.len());
-            while storage.len() <= idx {
-                storage.push(None);
-            }
-        }
-        storage[idx] = Some(component);
+    pub fn attach<T: Component>(&mut self, entity: Entity, component: T) {
+        self.ecs.entity_mut(entity).insert(component);
     }
 
-    /// Get a component by EntityID.
-    pub fn get<T: 'static>(&self, entity: EntityID) -> Option<&T> {
-        self.components
-            .get::<ComponentStorage<T>>()
-            .and_then(|storage| storage.get(entity.0 as usize)?.as_ref())
+    /// Get a component by Entity.
+    pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
+        self.ecs.get::<T>(entity)
     }
 
-    /// Get a mutable component by EntityID.
-    pub fn get_mut<T: 'static>(&mut self, entity: EntityID) -> Option<&mut T> {
-        self.components
-            .get_mut::<ComponentStorage<T>>()
-            .and_then(|storage| storage.get_mut(entity.0 as usize)?.as_mut())
-    }
-
-    /// Iterate over all entities that have component T.
-    pub fn iter<T: 'static>(&self) -> impl Iterator<Item = (EntityID, &T)> {
-        self.components
-            .get::<ComponentStorage<T>>()
-            .into_iter()
-            .flat_map(|storage| {
-                storage
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, opt)| opt.as_ref().map(|c| (EntityID(i as u32), c)))
-            })
-    }
-
-    /// Get the raw storage for type T (creates if missing for mutable access).
-    pub fn storage<T: 'static>(&self) -> Option<&ComponentStorage<T>> {
-        self.components.get::<ComponentStorage<T>>()
-    }
-
-    /// Get the mutable storage for type T (creates if missing).
-    pub fn storage_mut<T: 'static>(&mut self) -> &mut ComponentStorage<T> {
-        self.ensure_storage::<T>()
+    /// Get a mutable component by Entity.
+    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
+        self.ecs.get_mut::<T>(entity).map(|m| m.into_inner())
     }
 
     /// Count entities that have component T.
-    pub fn count<T: 'static>(&self) -> usize {
-        self.components
-            .get::<ComponentStorage<T>>()
-            .map_or(0, |storage| {
-                storage.iter().filter_map(|x| x.as_ref()).count()
-            })
+    pub fn count<T: Component>(&mut self) -> usize {
+        self.ecs.query::<&T>().iter(&self.ecs).count()
+    }
+
+    /// Iterate over all entities that have component T.
+    pub fn iter<T: Component>(&mut self) -> Vec<(Entity, &T)> {
+        self.ecs.query::<(Entity, &T)>().iter(&self.ecs).collect()
+    }
+
+    /// Get all entity IDs that have component T (returns owned values, no borrow held).
+    pub fn entities_with<T: Component>(&mut self) -> Vec<Entity> {
+        self.ecs.query_filtered::<Entity, &T>().iter(&self.ecs).collect()
     }
 
     /// Remove a component from an entity. Returns the component if it existed.
-    pub fn remove<T: 'static>(&mut self, entity: EntityID) -> Option<T> {
-        self.components
-            .get_mut::<ComponentStorage<T>>()
-            .and_then(|storage| {
-                let idx = entity.0 as usize;
-                if idx < storage.len() {
-                    storage[idx].take()
-                } else {
-                    None
-                }
-            })
+    pub fn remove<T: Component>(&mut self, entity: Entity) {
+        self.ecs.entity_mut(entity).remove::<T>();
     }
 
     // ── Parent-child relationships ──
 
     /// Set the parent of an entity. Attaches `ChildOf` and maintains
     /// the `Children` list on the parent.
-    ///
-    /// If the entity already has a parent, removes it from the old
-    /// parent's Children list first.
-    pub fn set_parent(&mut self, child: EntityID, parent: EntityID) {
+    pub fn set_parent(&mut self, child: Entity, parent: Entity) {
         // If child already has a parent, remove from old parent's Children
         if let Some(old_parent) = self.get::<ChildOf>(child).map(|c| c.parent) {
             if old_parent != parent {
@@ -147,30 +103,18 @@ impl World {
         self.attach(child, ChildOf { parent });
 
         // Add to parent's Children list
-        let children = self
-            .components
-            .entry::<ComponentStorage<Children>>()
-            .or_insert_with(Vec::new);
-        let idx = parent.0 as usize;
-        if idx >= children.len() {
-            children.reserve(idx + 1 - children.len());
-            while children.len() <= idx {
-                children.push(None);
-            }
-        }
-        if let Some(ref mut list) = children[idx] {
-            if !list.entities.contains(&child) {
-                list.entities.push(child);
+        let mut children = self.ecs.entity_mut(parent);
+        if let Some(mut children_comp) = children.get_mut::<Children>() {
+            if !children_comp.entities.contains(&child) {
+                children_comp.entities.push(child);
             }
         } else {
-            children[idx] = Some(Children {
-                entities: vec![child],
-            });
+            children.insert(Children { entities: vec![child] });
         }
     }
 
     /// Remove a child from a parent's Children list.
-    fn remove_child(&mut self, parent: EntityID, child: EntityID) {
+    fn remove_child(&mut self, parent: Entity, child: Entity) {
         if let Some(children) = self.get_mut::<Children>(parent) {
             children.entities.retain(|&e| e != child);
         }
@@ -180,16 +124,17 @@ impl World {
 
     /// Find an entity by its Name component value.
     /// Returns the first entity with a matching name.
-    pub fn find_by_name(&self, name: &str) -> Option<EntityID> {
+    pub fn find_by_name(&mut self, name: &str) -> Option<Entity> {
         self.iter::<Name>()
+            .into_iter()
             .find(|(_, n)| n.value == name)
             .map(|(eid, _)| eid)
     }
 
     /// Find all entities with a given Name component value.
-    /// Useful when multiple entities share a name (e.g., bilateral models).
-    pub fn find_all_by_name(&self, name: &str) -> Vec<EntityID> {
+    pub fn find_all_by_name(&mut self, name: &str) -> Vec<Entity> {
         self.iter::<Name>()
+            .into_iter()
             .filter(|(_, n)| n.value == name)
             .map(|(eid, _)| eid)
             .collect()
@@ -198,18 +143,18 @@ impl World {
     // ── Relationship queries ──
 
     /// Get the parent entity via ChildOf relationship.
-    pub fn parent_of(&self, entity: EntityID) -> Option<EntityID> {
+    pub fn parent_of(&self, entity: Entity) -> Option<Entity> {
         self.get::<ChildOf>(entity).map(|c| c.parent)
     }
 
     /// Get all children of an entity.
-    /// Uses the Children component (O(1)) if available, falls back to scanning.
-    pub fn children_of(&self, entity: EntityID) -> Vec<EntityID> {
+    pub fn children_of(&mut self, entity: Entity) -> Vec<Entity> {
         if let Some(children) = self.get::<Children>(entity) {
             children.entities.clone()
         } else {
             // Fallback: scan ChildOf components
             self.iter::<ChildOf>()
+                .into_iter()
                 .filter(|(_, c)| c.parent == entity)
                 .map(|(eid, _)| eid)
                 .collect()
@@ -219,9 +164,7 @@ impl World {
     // ── Typed relationships ──
 
     /// "entity is positioned relative to frame."
-    /// Maintains InFrame on child and FrameContents on frame.
-    pub fn set_in_frame(&mut self, entity: EntityID, frame: EntityID) {
-        // Remove from old frame's contents if already in one
+    pub fn set_in_frame(&mut self, entity: Entity, frame: Entity) {
         if let Some(old_frame) = self.get::<InFrame>(entity).map(|r| r.0) {
             if old_frame != frame {
                 self.remove_from_frame_contents(old_frame, entity);
@@ -234,8 +177,7 @@ impl World {
     }
 
     /// "joint connects to this frame (child side)."
-    /// Maintains Connects on joint and ConnectedJoints on frame.
-    pub fn set_connects(&mut self, joint: EntityID, frame: EntityID) {
+    pub fn set_connects(&mut self, joint: Entity, frame: Entity) {
         if let Some(old_frame) = self.get::<Connects>(joint).map(|r| r.0) {
             if old_frame != frame {
                 self.remove_from_connected_joints(old_frame, joint);
@@ -248,8 +190,7 @@ impl World {
     }
 
     /// "coordinate belongs to this joint."
-    /// Maintains HasDOF on coord and JointDOFs on joint.
-    pub fn set_has_dof(&mut self, coord: EntityID, joint: EntityID) {
+    pub fn set_has_dof(&mut self, coord: Entity, joint: Entity) {
         if let Some(old_joint) = self.get::<HasDOF>(coord).map(|r| r.0) {
             if old_joint != joint {
                 self.remove_from_joint_dofs(old_joint, coord);
@@ -262,8 +203,7 @@ impl World {
     }
 
     /// "effect reads from this coordinate."
-    /// Maintains Drives on effect and CoordinateEffects on coord.
-    pub fn set_drives(&mut self, effect: EntityID, coord: EntityID) {
+    pub fn set_drives(&mut self, effect: Entity, coord: Entity) {
         if let Some(old_coord) = self.get::<Drives>(effect).map(|r| r.0) {
             if old_coord != coord {
                 self.remove_from_coordinate_effects(old_coord, effect);
@@ -277,49 +217,41 @@ impl World {
 
     // ── Typed relationship queries ──
 
-    /// Get the frame this entity is positioned in.
-    pub fn in_frame(&self, entity: EntityID) -> Option<EntityID> {
+    pub fn in_frame(&self, entity: Entity) -> Option<Entity> {
         self.get::<InFrame>(entity).map(|r| r.0)
     }
 
-    /// Get all entities positioned in this frame.
-    pub fn frame_contents(&self, frame: EntityID) -> Vec<EntityID> {
+    pub fn frame_contents(&self, frame: Entity) -> Vec<Entity> {
         self.get::<FrameContents>(frame)
             .map(|c| c.entities.clone())
             .unwrap_or_default()
     }
 
-    /// Get the frame this joint connects to (child side).
-    pub fn connects_to(&self, joint: EntityID) -> Option<EntityID> {
+    pub fn connects_to(&self, joint: Entity) -> Option<Entity> {
         self.get::<Connects>(joint).map(|r| r.0)
     }
 
-    /// Get all joints that connect to this frame.
-    pub fn connected_joints(&self, frame: EntityID) -> Vec<EntityID> {
+    pub fn connected_joints(&self, frame: Entity) -> Vec<Entity> {
         self.get::<ConnectedJoints>(frame)
             .map(|c| c.entities.clone())
             .unwrap_or_default()
     }
 
-    /// Get the joint this coordinate belongs to.
-    pub fn joint_of(&self, coord: EntityID) -> Option<EntityID> {
+    pub fn joint_of(&self, coord: Entity) -> Option<Entity> {
         self.get::<HasDOF>(coord).map(|r| r.0)
     }
 
-    /// Get all coordinates (DOFs) in this joint.
-    pub fn joint_dofs(&self, joint: EntityID) -> Vec<EntityID> {
+    pub fn joint_dofs(&self, joint: Entity) -> Vec<Entity> {
         self.get::<JointDOFs>(joint)
             .map(|d| d.entities.clone())
             .unwrap_or_default()
     }
 
-    /// Get the coordinate this effect reads from.
-    pub fn drives(&self, effect: EntityID) -> Option<EntityID> {
+    pub fn drives(&self, effect: Entity) -> Option<Entity> {
         self.get::<Drives>(effect).map(|r| r.0)
     }
 
-    /// Get all effects driven by this coordinate.
-    pub fn coordinate_effects(&self, coord: EntityID) -> Vec<EntityID> {
+    pub fn coordinate_effects(&self, coord: Entity) -> Vec<Entity> {
         self.get::<CoordinateEffects>(coord)
             .map(|e| e.entities.clone())
             .unwrap_or_default()
@@ -327,89 +259,69 @@ impl World {
 
     // ── Internal helpers for typed relationships ──
 
-    fn add_to_frame_contents(&mut self, frame: EntityID, entity: EntityID) {
-        let storage = self.components
-            .entry::<ComponentStorage<FrameContents>>()
-            .or_insert_with(Vec::new);
-        let idx = frame.0 as usize;
-        if idx >= storage.len() {
-            storage.reserve(idx + 1 - storage.len());
-            while storage.len() <= idx { storage.push(None); }
-        }
-        if let Some(ref mut list) = storage[idx] {
-            if !list.entities.contains(&entity) { list.entities.push(entity); }
+    fn add_to_frame_contents(&mut self, frame: Entity, entity: Entity) {
+        let mut parent_entity = self.ecs.entity_mut(frame);
+        if let Some(mut contents) = parent_entity.get_mut::<FrameContents>() {
+            if !contents.entities.contains(&entity) {
+                contents.entities.push(entity);
+            }
         } else {
-            storage[idx] = Some(FrameContents { entities: vec![entity] });
+            parent_entity.insert(FrameContents { entities: vec![entity] });
         }
     }
 
-    fn remove_from_frame_contents(&mut self, frame: EntityID, entity: EntityID) {
+    fn remove_from_frame_contents(&mut self, frame: Entity, entity: Entity) {
         if let Some(contents) = self.get_mut::<FrameContents>(frame) {
             contents.entities.retain(|&e| e != entity);
         }
     }
 
-    fn add_to_connected_joints(&mut self, frame: EntityID, joint: EntityID) {
-        let storage = self.components
-            .entry::<ComponentStorage<ConnectedJoints>>()
-            .or_insert_with(Vec::new);
-        let idx = frame.0 as usize;
-        if idx >= storage.len() {
-            storage.reserve(idx + 1 - storage.len());
-            while storage.len() <= idx { storage.push(None); }
-        }
-        if let Some(ref mut list) = storage[idx] {
-            if !list.entities.contains(&joint) { list.entities.push(joint); }
+    fn add_to_connected_joints(&mut self, frame: Entity, joint: Entity) {
+        let mut parent_entity = self.ecs.entity_mut(frame);
+        if let Some(mut list) = parent_entity.get_mut::<ConnectedJoints>() {
+            if !list.entities.contains(&joint) {
+                list.entities.push(joint);
+            }
         } else {
-            storage[idx] = Some(ConnectedJoints { entities: vec![joint] });
+            parent_entity.insert(ConnectedJoints { entities: vec![joint] });
         }
     }
 
-    fn remove_from_connected_joints(&mut self, frame: EntityID, joint: EntityID) {
+    fn remove_from_connected_joints(&mut self, frame: Entity, joint: Entity) {
         if let Some(cj) = self.get_mut::<ConnectedJoints>(frame) {
             cj.entities.retain(|&e| e != joint);
         }
     }
 
-    fn add_to_joint_dofs(&mut self, joint: EntityID, coord: EntityID) {
-        let storage = self.components
-            .entry::<ComponentStorage<JointDOFs>>()
-            .or_insert_with(Vec::new);
-        let idx = joint.0 as usize;
-        if idx >= storage.len() {
-            storage.reserve(idx + 1 - storage.len());
-            while storage.len() <= idx { storage.push(None); }
-        }
-        if let Some(ref mut list) = storage[idx] {
-            if !list.entities.contains(&coord) { list.entities.push(coord); }
+    fn add_to_joint_dofs(&mut self, joint: Entity, coord: Entity) {
+        let mut parent_entity = self.ecs.entity_mut(joint);
+        if let Some(mut list) = parent_entity.get_mut::<JointDOFs>() {
+            if !list.entities.contains(&coord) {
+                list.entities.push(coord);
+            }
         } else {
-            storage[idx] = Some(JointDOFs { entities: vec![coord] });
+            parent_entity.insert(JointDOFs { entities: vec![coord] });
         }
     }
 
-    fn remove_from_joint_dofs(&mut self, joint: EntityID, coord: EntityID) {
+    fn remove_from_joint_dofs(&mut self, joint: Entity, coord: Entity) {
         if let Some(dofs) = self.get_mut::<JointDOFs>(joint) {
             dofs.entities.retain(|&e| e != coord);
         }
     }
 
-    fn add_to_coordinate_effects(&mut self, coord: EntityID, effect: EntityID) {
-        let storage = self.components
-            .entry::<ComponentStorage<CoordinateEffects>>()
-            .or_insert_with(Vec::new);
-        let idx = coord.0 as usize;
-        if idx >= storage.len() {
-            storage.reserve(idx + 1 - storage.len());
-            while storage.len() <= idx { storage.push(None); }
-        }
-        if let Some(ref mut list) = storage[idx] {
-            if !list.entities.contains(&effect) { list.entities.push(effect); }
+    fn add_to_coordinate_effects(&mut self, coord: Entity, effect: Entity) {
+        let mut parent_entity = self.ecs.entity_mut(coord);
+        if let Some(mut list) = parent_entity.get_mut::<CoordinateEffects>() {
+            if !list.entities.contains(&effect) {
+                list.entities.push(effect);
+            }
         } else {
-            storage[idx] = Some(CoordinateEffects { entities: vec![effect] });
+            parent_entity.insert(CoordinateEffects { entities: vec![effect] });
         }
     }
 
-    fn remove_from_coordinate_effects(&mut self, coord: EntityID, effect: EntityID) {
+    fn remove_from_coordinate_effects(&mut self, coord: Entity, effect: Entity) {
         if let Some(effects) = self.get_mut::<CoordinateEffects>(coord) {
             effects.entities.retain(|&e| e != effect);
         }
@@ -417,44 +329,44 @@ impl World {
 
     // ── Resource access ──
 
-    pub fn get_resource<T: 'static>(&self) -> Option<&T> {
-        self.resources.get::<T>()
+    pub fn get_resource<T: Resource>(&self) -> Option<&T> {
+        self.ecs.get_resource::<T>()
     }
 
-    pub fn get_resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
-        self.resources.get_mut::<T>()
+    pub fn get_resource_mut<T: Resource>(&mut self) -> Option<&mut T> {
+        self.ecs.get_resource_mut::<T>().map(|m| m.into_inner())
     }
 
-    pub fn insert_resource<T: 'static>(&mut self, resource: T) {
-        self.resources.insert(resource);
+    pub fn insert_resource<T: Resource>(&mut self, resource: T) {
+        self.ecs.insert_resource(resource);
     }
 
-    pub fn get_resource_or_default<T: Default + 'static>(&mut self) -> &mut T {
-        self.resources.entry::<T>().or_insert_with(T::default)
+    pub fn get_resource_or_default<T: Resource + Default>(&mut self) -> &mut T {
+        if self.ecs.get_resource::<T>().is_none() {
+            self.ecs.insert_resource(T::default());
+        }
+        self.ecs.get_resource_mut::<T>().unwrap().into_inner()
     }
 
     // ── Validation ──
 
     pub fn validate(&mut self) -> Vec<String> {
         crate::systems::run_systems(self);
-        self.get_resource::<Vec<String>>()
-            .cloned()
+        self.get_resource::<ErrorList>()
+            .map(|e| e.0.clone())
             .unwrap_or_default()
     }
 
     // ── Convenience joint builders ──
 
     /// Add a hinge (pin) joint between two frame entities.
-    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
-    /// with 1 coordinate entity and a RotationAboutAxis effect.
-    /// Returns the joint entity.
     pub fn add_hinge(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
+        parent_frame: Entity,
+        child_frame: Entity,
         axis: [f64; 3],
         limits: Option<(f64, f64)>,
-    ) -> EntityID {
+    ) -> Entity {
         let joint_entity = self.spawn();
 
         // Hierarchy: joint is child of parent frame, child frame is child of joint
@@ -487,22 +399,17 @@ impl World {
     }
 
     /// Add a slide (prismatic) joint between two frame entities.
-    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
-    /// with 1 coordinate entity and a TranslationAlongAxis effect.
     pub fn add_slide(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
+        parent_frame: Entity,
+        child_frame: Entity,
         axis: [f64; 3],
         limits: Option<(f64, f64)>,
-    ) -> EntityID {
+    ) -> Entity {
         let joint_entity = self.spawn();
-
-        // Hierarchy
         self.set_parent(joint_entity, parent_frame);
         self.set_parent(child_frame, joint_entity);
 
-        // Create coordinate (child of joint)
         let coord_entity = self.spawn();
         self.set_parent(coord_entity, joint_entity);
         self.attach(coord_entity, JointCoordinate {
@@ -516,7 +423,6 @@ impl World {
             prescribed_function: None,
         });
 
-        // Create CoordinateEffect (child of coordinate)
         let effect_entity = self.spawn();
         self.set_parent(effect_entity, coord_entity);
         self.attach(effect_entity, CoordinateEffect {
@@ -528,17 +434,13 @@ impl World {
     }
 
     /// Add a ball (spherical) joint between two frame entities.
-    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
-    /// with 3 coordinate entities and 3 RotationAboutAxis effects.
     pub fn add_ball(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
+        parent_frame: Entity,
+        child_frame: Entity,
         limits: Option<(f64, f64)>,
-    ) -> EntityID {
+    ) -> Entity {
         let joint_entity = self.spawn();
-
-        // Hierarchy
         self.set_parent(joint_entity, parent_frame);
         self.set_parent(child_frame, joint_entity);
 
@@ -570,16 +472,12 @@ impl World {
     }
 
     /// Add a free (6-DOF) joint between two frame entities.
-    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
-    /// with 6 coordinate entities (3 rotation + 3 translation) and effects.
     pub fn add_free(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
-    ) -> EntityID {
+        parent_frame: Entity,
+        child_frame: Entity,
+    ) -> Entity {
         let joint_entity = self.spawn();
-
-        // Hierarchy
         self.set_parent(joint_entity, parent_frame);
         self.set_parent(child_frame, joint_entity);
 
@@ -633,36 +531,27 @@ impl World {
     }
 
     /// Add a fixed (weld) joint between two frame entities.
-    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy
-    /// with no coordinates or effects.
     pub fn add_fixed(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
-    ) -> EntityID {
+        parent_frame: Entity,
+        child_frame: Entity,
+    ) -> Entity {
         let joint_entity = self.spawn();
-
-        // Hierarchy
         self.set_parent(joint_entity, parent_frame);
         self.set_parent(child_frame, joint_entity);
-
         joint_entity
     }
 
     /// Add a universal joint between two frame entities.
-    /// Creates a joint entity as an intermediate node in the ChildOf hierarchy,
-    /// with 2 coordinate entities and 2 RotationAboutAxis effects.
     pub fn add_universal(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
+        parent_frame: Entity,
+        child_frame: Entity,
         axis1: [f64; 3],
         axis2: [f64; 3],
         limits: Option<(f64, f64)>,
-    ) -> EntityID {
+    ) -> Entity {
         let joint_entity = self.spawn();
-
-        // Hierarchy
         self.set_parent(joint_entity, parent_frame);
         self.set_parent(child_frame, joint_entity);
 
@@ -691,21 +580,16 @@ impl World {
     }
 
     /// Add a custom joint between two frame entities with pre-created coordinates.
-    /// The caller is responsible for creating CoordinateEffect entities.
-    /// Coordinates are set as children of the joint entity.
     pub fn add_custom(
         &mut self,
-        parent_frame: EntityID,
-        child_frame: EntityID,
-        coordinates: Vec<EntityID>,
-    ) -> EntityID {
+        parent_frame: Entity,
+        child_frame: Entity,
+        coordinates: Vec<Entity>,
+    ) -> Entity {
         let joint_entity = self.spawn();
-
-        // Hierarchy
         self.set_parent(joint_entity, parent_frame);
         self.set_parent(child_frame, joint_entity);
 
-        // Set coordinates as children of the joint
         for &coord in &coordinates {
             self.set_parent(coord, joint_entity);
         }
@@ -714,24 +598,15 @@ impl World {
     }
 }
 
-impl std::fmt::Debug for World {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = f.debug_struct("World");
-        s.field("inertials", &self.count::<InertialProperties>())
-            .field("coordinates", &self.count::<JointCoordinate>())
-            .field("coordinate_effects", &self.count::<CoordinateEffect>())
-            .field("child_of", &self.count::<ChildOf>())
-            .field("children", &self.count::<Children>())
-            .field("positions", &self.count::<Position>())
-            .field("rotations", &self.count::<Rotation>())
-            .field("materials", &self.count::<Material>())
-            .field("muscles", &self.count::<Muscle>())
-            .field("coordinate_actuators", &self.count::<CoordinateActuator>())
-            .field("millard_params", &self.count::<Millard2012Params>())
-            .field("wraps", &self.count::<WrapGeom>())
-            .field("display_geoms", &self.count::<DisplayGeometry>())
-            .field("muscle_params", &self.count::<HillTypeMuscleParams>());
-        s.field("next_id", &self.next_id);
-        s.finish()
+impl World {
+    pub fn debug_summary(&mut self) -> String {
+        format!(
+            "World {{ inertials: {}, coordinates: {}, effects: {}, muscles: {}, geoms: {} }}",
+            self.count::<InertialProperties>(),
+            self.count::<JointCoordinate>(),
+            self.count::<CoordinateEffect>(),
+            self.count::<Muscle>(),
+            self.count::<DisplayGeometry>(),
+        )
     }
 }

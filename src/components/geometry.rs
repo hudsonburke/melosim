@@ -1,14 +1,13 @@
-use serde::{Deserialize, Serialize};
-use crate::id::EntityID;
+use bevy_ecs::prelude::*;
 use crate::math::Transform;
 
 /// A display/mesh geometry attached to a body for visualization.
 ///
 /// OpenSim serializes these in each Body's `<VisibleObject>` element.
 /// They're purely visual — not used in simulation.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct DisplayGeometry {
-    pub body: EntityID,
+    pub body: Entity,
     pub mesh_file: Option<String>,
     pub scale: [f64; 3],
     pub color: [f64; 3],
@@ -23,7 +22,7 @@ pub struct DisplayGeometry {
 
 /// A mesh geometry reference (file path).
 /// Used for both display and collision geometry in some imports.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct MeshGeometry {
     pub mesh: String,
 }
@@ -31,23 +30,23 @@ pub struct MeshGeometry {
 /// Primitive geometry shapes.
 /// These are kept as standalone structs for import/export convenience.
 /// In the ECS, entities use `DisplayGeometry` for visualization.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Sphere {
     pub radius: f64,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Cylinder {
     pub radius: f64,
     pub length: f64,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Capsule {
     pub radius: f64,
     pub length: f64,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct BoxGeom {
     pub half_extents: [f64; 3],
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Plane;

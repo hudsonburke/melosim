@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use bevy_ecs::prelude::*;
 
 /// A human-readable name for any entity.
 ///
@@ -7,11 +7,27 @@ use serde::{Deserialize, Serialize};
 ///
 /// Attach to any entity that needs identity:
 /// ```ignore
-/// let entity = world.spawn();
-/// world.attach(entity, InertialProperties { mass: 11.78, ... });
-/// world.attach(entity, Name { value: "pelvis".into() });
+/// let entity = world.spawn(Name::new("pelvis")).id();
 /// ```
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug)]
 pub struct Name {
     pub value: String,
+}
+
+impl Name {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self { value: value.into() }
+    }
+}
+
+impl From<&str> for Name {
+    fn from(s: &str) -> Self {
+        Self { value: s.to_string() }
+    }
+}
+
+impl From<String> for Name {
+    fn from(s: String) -> Self {
+        Self { value: s }
+    }
 }
