@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::*;
+use bevy::prelude::*;
 
 /// A muscle entity — the identity component.
 ///
@@ -17,7 +17,6 @@ pub struct Muscle;
 /// `extendFinalizeFromProperties()` at model init for any fields not
 /// explicitly set in the `.osim` file.
 #[derive(Component, Clone, Debug)]
-#[requires(requirements = "HillTypeMuscleParams")]
 pub struct Millard2012Params {
     pub pennation_angle_at_optimal: f64,
     pub max_contraction_velocity: f64,

@@ -1,7 +1,6 @@
-use bevy::prelude::*;
 use nalgebra::Isometry3;
 
-use crate::model::{FixedFrame, Joint, to_bevy_transform};
+use crate::model::to_bevy_transform;
 
 type Iso3 = Isometry3<f64>;
 

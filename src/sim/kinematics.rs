@@ -1,39 +1,34 @@
 use bevy::prelude::*;
-use nalgebra::{Isometry3, Vector3};
+use nalgebra::Isometry3;
 
-use crate::model::{Coordinate, DrivesCoordinate, FixedFrame, Joint, Polynomial, Twist};
-
-type Iso3 = Isometry3<f64>;
+use crate::model::{Coordinate, CoordinateState, DrivesCoordinate, Function, Joint, Twist};
 
 /// Walk the kinematic tree from root to leaves, computing each body's
 /// world-frame transform from its parent joint's PoE evaluation.
 ///
-/// Triggers on any change to Joint, Twist, Polynomial, or Coordinate
+/// Triggers on any change to Joint, Twist, Function, or CoordinateState
 /// so the simulation stays in sync with editor edits.
 pub fn forward_kinematics(
     joints: Query<
         (Entity, &Children),
-        (With<Joint>, Or<(Changed<Joint>, Changed<Coordinate>)>),
+        (With<Joint>, Or<(Changed<Joint>, Changed<CoordinateState>)>),
     >,
-    twists: Query<(&Twist, &DrivesCoordinate, Option<&Polynomial>)>,
-    coordinates: Query<&Coordinate>,
-    parents: Query<&Children>,
+    twists: Query<(&Twist, &DrivesCoordinate, Option<&Function>)>,
+    states: Query<&CoordinateState>,
 ) {
-    for (joint_entity, children) in &joints {
-        let transform = evaluate_joint(joint_entity, &twists, &coordinates);
-
-        // Propagate to child bodies/frames.
-        // For now, just log — rendering sync will be in render::sync.
-        debug!("Joint {:?}: {:?}", joint_entity, transform);
+    for (joint_entity, _children) in &joints {
+        let _transform = evaluate_joint(joint_entity, &twists, &states);
+        // TODO: propagate to child bodies/frames, write to rendering sync
+        debug!("Joint {:?}", joint_entity);
     }
 }
 
 /// Evaluate the product-of-exponentials for a single joint.
 fn evaluate_joint(
     joint: Entity,
-    twists: &Query<(&Twist, &DrivesCoordinate, Option<&Polynomial>)>,
-    coordinates: &Query<&Coordinate>,
-) -> Iso3 {
+    twists: &Query<(&Twist, &DrivesCoordinate, Option<&Function>)>,
+    states: &Query<&CoordinateState>,
+) -> Isometry3<f64> {
     // TODO: walk Children, composing Twist::exp for each axis
-    Iso3::identity()
+    Isometry3::identity()
 }

@@ -1,23 +1,24 @@
 use bevy::prelude::*;
-use nalgebra::{Isometry3, Point3, Quaternion, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Translation, UnitQuaternion, Vector3};
+
+use super::Function;
 
 // nalgebra type aliases — all f64 for simulation precision
 type Vec3 = Vector3<f64>;
-type Quat = Quaternion<f64>;
 type UQuat = UnitQuaternion<f64>;
 type Iso3 = Isometry3<f64>;
 
 // ── Core types ────────────────────────────────────────
 
-/// An independent scalar degree of freedom.
+/// A generalized coordinate definition (persistent model data).
 ///
-/// Coordinates are the generalized coordinates of the system.
-/// Each is a single float that can be driven by actuators, constrained
-/// by coupling, and mapped to rigid body transforms via axes.
+/// Defines the properties of a scalar degree of freedom: its range,
+/// defaults, stiffness, and damping. Written by the editor, read by
+/// the simulation. The current value lives in `CoordinateState`.
 #[derive(Component, Clone, Debug)]
 pub struct Coordinate {
-    pub value: f64,
     pub default_value: f64,
+    pub default_speed: f64,
     pub range: (f64, f64),
     pub clamped: bool,
     pub locked: bool,
@@ -28,8 +29,8 @@ pub struct Coordinate {
 impl Default for Coordinate {
     fn default() -> Self {
         Self {
-            value: 0.0,
             default_value: 0.0,
+            default_speed: 0.0,
             range: (-std::f64::consts::PI, std::f64::consts::PI),
             clamped: true,
             locked: false,
@@ -37,6 +38,17 @@ impl Default for Coordinate {
             damping: 0.0,
         }
     }
+}
+
+/// Runtime state of a generalized coordinate (transient simulation data).
+///
+/// Written by the simulation integrator, read for display and muscle
+/// path computation. Separated from `Coordinate` so the model definition
+/// is never accidentally mutated during simulation.
+#[derive(Component, Clone, Debug, Default)]
+pub struct CoordinateState {
+    pub value: f64,
+    pub velocity: f64,
 }
 
 /// Marker for a joint entity.
@@ -70,33 +82,6 @@ pub struct FixedFrame(pub Iso3);
 pub struct Twist {
     pub angular: Vec3, // ω — rotation axis (not necessarily unit)
     pub linear: Vec3,  // v — translation direction
-}
-
-/// Polynomial mapping f(q) = a0 + a1*q + a2*q^2 + ...
-///
-/// Applied to a coordinate value before scaling the twist.
-/// Identity (f(q) = q) is [0.0, 1.0].
-#[derive(Component, Clone, Debug)]
-pub struct Polynomial(pub Vec<f64>);
-
-impl Polynomial {
-    pub fn evaluate(&self, q: f64) -> f64 {
-        self.0
-            .iter()
-            .enumerate()
-            .fold(0.0, |acc, (i, &c)| acc + c * q.powi(i as i32))
-    }
-
-    pub fn derivative(&self) -> Polynomial {
-        Polynomial(
-            self.0
-                .iter()
-                .enumerate()
-                .skip(1)
-                .map(|(i, &c)| c * i as f64)
-                .collect(),
-        )
-    }
 }
 
 // ── Relationships ─────────────────────────────────────
@@ -135,8 +120,8 @@ pub struct Coupling {
 
 #[derive(Clone, Debug)]
 pub enum CouplingKind {
-    /// q_a = f(q_b) — direct equality with optional polynomial.
-    Equality(Polynomial),
+    /// q_a = f(q_b) — coordinate coupler with function.
+    Equality(Function),
     /// Tendon: path length = f(q_a, q_b, ...).
     Tendon,
     /// Gear: q_a * ratio = q_b.
@@ -160,33 +145,27 @@ impl Twist {
 
         if w_norm < 1e-12 {
             // Pure translation
-            return Iso3::new(v * theta, UQuat::identity());
+            return Iso3::from_parts(Translation::from(v * theta), UQuat::identity());
         }
 
         // Rotation via exponential map so(3) → SO(3)
-        // exp(ω·θ) = (cos(‖ωθ‖/2), sin(‖ωθ‖/2)·ωθ/‖ωθ‖)
-        let w_theta = w * theta;
-        let half_norm = w_theta.norm() * 0.5;
-        let q = if half_norm < 1e-12 {
-            UQuat::identity()
-        } else {
-            let axis = w_theta / (half_norm * 2.0);
-            UQuat::new(Quat::from_parts(half_norm.cos(), axis * half_norm.sin()))
-        };
+        let angle = w_norm * theta;
+        let q = UQuat::from_scaled_axis(w * theta);
 
-        // Translation from the se(3) exponential formula
-        let sin_full = half_norm.sin() * 2.0 * half_norm.cos(); // sin(‖ωθ‖)
-        let cos_full = 1.0 - 2.0 * half_norm.sin().powi(2); // cos(‖ωθ‖)
+        // Translation from the se(3) exponential formula:
+        // t = v·θ + (1-cos(‖ωθ‖))/(‖ω‖²)·(ω×v) + (‖ωθ‖-sin(‖ωθ‖))/(‖ω‖³)·(ω×(ω×v))
+        let sin_angle = angle.sin();
+        let cos_angle = angle.cos();
 
         let w_cross_v = w.cross(&v);
         let w_cross_w_cross_v = w.cross(&w_cross_v);
         let w2 = w_norm * w_norm;
 
         let t = v * theta
-            + w_cross_v * (1.0 - cos_full) / w2
-            + w_cross_w_cross_v * (theta * w_norm - sin_full) / (w2 * w_norm);
+            + w_cross_v * (1.0 - cos_angle) / w2
+            + w_cross_w_cross_v * (angle - sin_angle) / (w2 * w_norm);
 
-        Iso3::new(t, q)
+        Iso3::from_parts(Translation::from(t), q)
     }
 }
 
@@ -195,7 +174,8 @@ impl Twist {
 /// Evaluate the product-of-exponentials transform for a joint.
 ///
 /// Walks the joint's axis children in insertion order, composing
-/// exp(ξ_i · f_i(q_i)) for each axis.
+/// exp(ξ_i · f_i(q_i)) for each axis. Reads the current coordinate
+/// value from `CoordinateState`.
 pub fn evaluate_joint(joint: Entity, world: &World) -> Iso3 {
     let Some(children) = world.get::<Children>(joint) else {
         return Iso3::identity();
@@ -203,7 +183,7 @@ pub fn evaluate_joint(joint: Entity, world: &World) -> Iso3 {
 
     let mut transform = Iso3::identity();
 
-    for &child in &children.0 {
+    for child in children.iter() {
         let Some(twist) = world.get::<Twist>(child) else {
             continue;
         };
@@ -212,11 +192,11 @@ pub fn evaluate_joint(joint: Entity, world: &World) -> Iso3 {
             continue;
         };
 
-        let coord = world.get::<Coordinate>(drives.0);
-        let poly = world.get::<Polynomial>(child);
+        let state = world.get::<CoordinateState>(drives.0);
+        let func = world.get::<Function>(child);
 
-        let q = coord.map(|c| c.value).unwrap_or(0.0);
-        let f = poly.map(|p| p.evaluate(q)).unwrap_or(q);
+        let q = state.map(|s| s.value).unwrap_or(0.0);
+        let f = func.map(|f| f.evaluate(q)).unwrap_or(q);
 
         transform = transform * twist.exp(f);
     }
@@ -228,120 +208,12 @@ pub fn evaluate_joint(joint: Entity, world: &World) -> Iso3 {
 ///
 /// Returns the spatial velocity (angular, linear) contributed by
 /// this axis to the coordinate's generalized velocity.
-pub fn axis_jacobian(twist: &Twist, poly: &Polynomial, q: f64) -> (Vec3, Vec3) {
-    let df = poly.derivative().evaluate(q);
+pub fn axis_jacobian(twist: &Twist, func: &Function, q: f64) -> (Vec3, Vec3) {
+    let df = func.derivative().evaluate(q);
     (twist.angular * df, twist.linear * df)
 }
 
-// ── BSN scene templates ───────────────────────────────
-
-/// Revolute joint: one coordinate, rotation about an axis.
-pub fn hinge(axis: [f64; 3]) -> impl Scene {
-    let axis = Vec3::from(axis);
-    bsn! {
-        Joint
-        Children [
-            (#q0 Coordinate { ..default() })
-            (Twist { angular: axis, linear: Vec3::zeros() }
-                DrivesCoordinate(#q0)
-                Polynomial(vec![0.0, 1.0]))
-        ]
-    }
-}
-
-/// Prismatic joint: one coordinate, translation along an axis.
-pub fn slide(axis: [f64; 3]) -> impl Scene {
-    let axis = Vec3::from(axis);
-    bsn! {
-        Joint
-        Children [
-            (#q0 Coordinate { ..default() })
-            (Twist { angular: Vec3::zeros(), linear: axis }
-                DrivesCoordinate(#q0)
-                Polynomial(vec![0.0, 1.0]))
-        ]
-    }
-}
-
-/// Ball joint: three coordinates, sequential rotations about X, Y, Z.
-pub fn ball() -> impl Scene {
-    bsn! {
-        Joint
-        Children [
-            (#qx Coordinate { ..default() })
-            (#qy Coordinate { ..default() })
-            (#qz Coordinate { ..default() })
-            (Twist { angular: Vec3::x(), linear: Vec3::zeros() }
-                DrivesCoordinate(#qx)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::y(), linear: Vec3::zeros() }
-                DrivesCoordinate(#qy)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::z(), linear: Vec3::zeros() }
-                DrivesCoordinate(#qz)
-                Polynomial(vec![0.0, 1.0]))
-        ]
-    }
-}
-
-/// Free joint: six coordinates, three translation + three rotation.
-pub fn free() -> impl Scene {
-    bsn! {
-        Joint
-        Children [
-            (#tx Coordinate { range: (-1e10, 1e10), ..default() })
-            (#ty Coordinate { range: (-1e10, 1e10), ..default() })
-            (#tz Coordinate { range: (-1e10, 1e10), ..default() })
-            (#rx Coordinate { ..default() })
-            (#ry Coordinate { ..default() })
-            (#rz Coordinate { ..default() })
-            (Twist { angular: Vec3::zeros(), linear: Vec3::x() }
-                DrivesCoordinate(#tx)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::zeros(), linear: Vec3::y() }
-                DrivesCoordinate(#ty)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::zeros(), linear: Vec3::z() }
-                DrivesCoordinate(#tz)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::x(), linear: Vec3::zeros() }
-                DrivesCoordinate(#rx)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::y(), linear: Vec3::zeros() }
-                DrivesCoordinate(#ry)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: Vec3::z(), linear: Vec3::zeros() }
-                DrivesCoordinate(#rz)
-                Polynomial(vec![0.0, 1.0]))
-        ]
-    }
-}
-
-/// Weld (fixed) joint: no coordinates, no axes.
-pub fn weld() -> impl Scene {
-    bsn! { Joint }
-}
-
-/// Universal joint: two coordinates, rotation about two axes.
-pub fn universal(axis_a: [f64; 3], axis_b: [f64; 3]) -> impl Scene {
-    let a = Vec3::from(axis_a);
-    let b = Vec3::from(axis_b);
-    bsn! {
-        Joint
-        Children [
-            (#qa Coordinate { ..default() })
-            (#qb Coordinate { ..default() })
-            (Twist { angular: a, linear: Vec3::zeros() }
-                DrivesCoordinate(#qa)
-                Polynomial(vec![0.0, 1.0]))
-            (Twist { angular: b, linear: Vec3::zeros() }
-                DrivesCoordinate(#qb)
-                Polynomial(vec![0.0, 1.0]))
-        ]
-    }
-}
-
-// ── Spawn helpers (non-BSN, for scripting / systems) ──
+// ── Spawn helpers ─────────────────────────────────────
 
 /// Spawn a hinge joint between two frames.
 pub fn spawn_hinge(
@@ -351,7 +223,9 @@ pub fn spawn_hinge(
     axis: [f64; 3],
 ) -> Entity {
     let axis = Vec3::from(axis);
-    let coord = commands.spawn(Coordinate::default()).id();
+    let coord = commands
+        .spawn((Coordinate::default(), CoordinateState::default()))
+        .id();
     let axis_ent = commands
         .spawn((
             Twist {
@@ -359,7 +233,7 @@ pub fn spawn_hinge(
                 linear: Vec3::zeros(),
             },
             DrivesCoordinate(coord),
-            Polynomial(vec![0.0, 1.0]),
+            Function::Polynomial(vec![0.0, 1.0]),
         ))
         .id();
 
@@ -371,24 +245,25 @@ pub fn spawn_hinge(
 
 /// Spawn a custom joint with arbitrary axes.
 ///
-/// Each entry in `axes` is (twist, default_value, polynomial_coeffs).
+/// Each entry in `axes` is (twist, default_value, function).
 pub fn spawn_custom(
     commands: &mut Commands,
     parent_frame: Entity,
     child_frame: Entity,
-    axes: Vec<(Twist, f64, Vec<f64>)>,
+    axes: Vec<(Twist, f64, Function)>,
 ) -> Entity {
     let joint = commands.spawn((Joint, ChildOf(parent_frame))).id();
-    for (twist, default_val, coeffs) in axes {
+    for (twist, default_val, func) in axes {
         let coord = commands
-            .spawn(Coordinate {
-                default_value: default_val,
-                ..default()
-            })
+            .spawn((
+                Coordinate {
+                    default_value: default_val,
+                    ..default()
+                },
+                CoordinateState::default(),
+            ))
             .id();
-        let axis_ent = commands
-            .spawn((twist, DrivesCoordinate(coord), Polynomial(coeffs)))
-            .id();
+        let axis_ent = commands.spawn((twist, DrivesCoordinate(coord), func)).id();
         commands.entity(axis_ent).insert(ChildOf(joint));
     }
     commands.entity(child_frame).insert(ChildOf(joint));

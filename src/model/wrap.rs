@@ -1,5 +1,4 @@
-use bevy_ecs::prelude::*;
-use crate::math::Transform;
+use bevy::prelude::*;
 
 /// A wrapping surface that a muscle-tendon path can wrap over.
 ///
