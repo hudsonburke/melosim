@@ -1,16 +1,9 @@
-use bevy_ecs::prelude::*;
-
-pub struct MelosimPlugin;
-
-impl Plugin for MelosimPlugin {
-    fn build(&self, app: &mut App) {
-        // Add your systems and resources here
-    }
-}
+use bevy::prelude::*;
+use melosim::{editor::EditorPlugin, render::RenderPlugin, sim::SimPlugin};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(MelosimPlugin)
+        .add_plugins((SimPlugin, RenderPlugin, EditorPlugin))
         .run();
 }

@@ -1,9 +1,15 @@
-use bevy_ecs::prelude::*;
+use bevy::prelude::*;
+
+#[derive(Component)]
+pub struct Site(Vec3);
+
+#[derive(Component, Default)]
+pub struct Frame(Transform);
 
 #[derive(Component)]
 pub struct InertialProperties {
     pub mass: f64,
-    pub com: [f64; 3],
+    pub mass_center: [f64; 3],
     pub inertia: [f64; 6],
 }
 

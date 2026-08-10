@@ -17,17 +17,12 @@ pub struct Muscle;
 /// `extendFinalizeFromProperties()` at model init for any fields not
 /// explicitly set in the `.osim` file.
 #[derive(Component, Clone, Debug)]
+#[requires(requirements = "HillTypeMuscleParams")]
 pub struct Millard2012Params {
-    pub muscle: Entity,
-    pub max_isometric_force: f64,
-    pub optimal_fiber_length: f64,
-    pub tendon_slack_length: f64,
     pub pennation_angle_at_optimal: f64,
     pub max_contraction_velocity: f64,
     pub activation_time_constant: f64,
     pub deactivation_time_constant: f64,
-    pub minimum_activation: f64,
-    pub fiber_damping: f64,
     pub ignore_activation_dynamics: bool,
     pub ignore_tendon_compliance: bool,
 }
@@ -46,11 +41,12 @@ pub struct MuscleState {
 /// This is kept for backward compatibility with simpler Hill-type models.
 #[derive(Component, Clone, Debug)]
 pub struct HillTypeMuscleParams {
-    pub max_force: f64,
+    pub max_isometric_force: f64,
     pub optimal_fiber_length: f64,
     pub tendon_slack_length: f64,
-    pub pcsa: f64,
-    pub pennation_angle: f64,
+    pub pennation_angle_at_optimal: f64,
+    pub minimum_activation: f64,
+    pub fiber_damping: f64,
 }
 
 /// Placeholder for force-length curve data.
