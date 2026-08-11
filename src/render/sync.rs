@@ -1,17 +1,31 @@
-use nalgebra::Isometry3;
+use bevy::prelude::*;
 
-use crate::model::to_bevy_transform;
+use crate::model::{
+    evaluate_joint, to_bevy_transform, CoordinateState, DrivesCoordinate, FixedFrame, Function,
+    Joint, Twist,
+};
 
-type Iso3 = Isometry3<f64>;
-
-/// After simulation runs in FixedUpdate, write results to Bevy's
-/// Transform components so the renderer can display them.
+/// Copy fixed-frame offsets (sim f64) into render Transforms.
 ///
-/// Runs in PostUpdate — after all simulation and editor systems,
-/// before the frame is rendered.
-pub fn sync_simulation_to_transform(
-    // TODO: query bodies/joints that have simulation-computed world transforms
-    // and write them to Bevy Transform components via to_bevy_transform
+/// Frames never move relative to their parent, so this only runs when a
+/// `FixedFrame` is added.
+pub fn sync_fixed_frames(mut frames: Query<(&FixedFrame, &mut Transform), Added<FixedFrame>>) {
+    for (frame, mut transform) in &mut frames {
+        *transform = to_bevy_transform(&frame.0);
+    }
+}
+
+/// Sync system: evaluate each joint's PoE transform (sim f64) and write it
+/// to the joint entity's own Transform. Frames and bodies nested below the
+/// joint follow via Bevy's transform propagation.
+///
+/// Runs in PostUpdate, before `TransformSystems::Propagate`.
+pub fn sync_kinematics(
+    mut joints: Query<(&Children, &mut Transform), With<Joint>>,
+    twists: Query<(&Twist, &DrivesCoordinate, Option<&Function>)>,
+    states: Query<&CoordinateState>,
 ) {
-    // Stub — will be populated when kinematics produces world-frame isometries
+    for (children, mut transform) in &mut joints {
+        *transform = to_bevy_transform(&evaluate_joint(children, &twists, &states));
+    }
 }

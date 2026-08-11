@@ -31,6 +31,36 @@ pub enum Function {
 }
 
 impl Function {
+    /// f(q) = slope * q + intercept
+    pub fn linear(slope: f64, intercept: f64) -> Self {
+        Function::Linear { slope, intercept }
+    }
+
+    /// f(q) = q (identity)
+    pub fn identity() -> Self {
+        Function::Linear { slope: 1.0, intercept: 0.0 }
+    }
+
+    /// f(q) = c (constant)
+    pub fn constant(c: f64) -> Self {
+        Function::Constant(c)
+    }
+
+    /// f(q) = a0 + a1*q + a2*q^2 + ...
+    pub fn polynomial(coeffs: Vec<f64>) -> Self {
+        Function::Polynomial(coeffs)
+    }
+
+    /// Piecewise linear from x/y knot pairs.
+    pub fn piecewise_linear(x: Vec<f64>, y: Vec<f64>) -> Self {
+        Function::PiecewiseLinear { x, y }
+    }
+
+    /// Natural cubic spline from x/y knot pairs.
+    pub fn cubic_spline(x: Vec<f64>, y: Vec<f64>) -> Self {
+        Function::CubicSpline { x, y }
+    }
+
     /// Evaluate f(q).
     pub fn evaluate(&self, q: f64) -> f64 {
         match self {
