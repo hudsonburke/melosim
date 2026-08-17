@@ -1,33 +1,25 @@
 use bevy::prelude::*;
 
-// ── Muscle/Cable → Site references ──
+// ── Muscle/Cable path definition ──
 
-/// The origin site of a path (muscle or cable).
+/// Ordered list of path entities for a muscle or cable.
 ///
-/// Single entity — every path has exactly one origin. This is a plain
-/// component, not a relationship target, because it's always one entity.
-/// The corresponding `HasOrigin` on the site points back to the muscle/cable.
-#[derive(Component, Clone, Debug, FromTemplate)]
-pub struct OriginSite(pub Entity);
-
-/// The insertion site of a path (muscle or cable).
+/// Each element is either a `Site` (attachment point) or a
+/// `WrappingSurface` (geometry to wrap around). The evaluation system
+/// computes the path through space:
 ///
-/// Single entity — every path has exactly one insertion. This is a plain
-/// component, not a relationship target, because it's always one entity.
-/// The corresponding `HasInsertion` on the site points back to the muscle/cable.
-#[derive(Component, Clone, Debug, FromTemplate)]
-pub struct InsertionSite(pub Entity);
-
-/// Ordered via points between origin and insertion.
+/// - Site → Site: straight line
+/// - Site → Wrap: approach vector to surface
+/// - Wrap → Site: departure vector from surface
+/// - Wrap → Wrap: geodesic arc between surfaces
 ///
-/// Via points redirect the path around obstacles (e.g., wrapping surfaces).
-/// Zero or more; the order defines the path geometry.
-/// The full path is: OriginSite → ViaSites → InsertionSite.
+/// First element = origin (force enters bone).
+/// Last element = insertion (force exits bone).
 #[derive(Component, Clone, Debug)]
-#[relationship_target(relationship = ViaSite)]
-pub struct ViaSites(Vec<Entity>);
+#[relationship_target(relationship = PathElement)]
+pub struct PathEntities(Vec<Entity>);
 
-impl ViaSites {
+impl PathEntities {
     pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
         self.0.iter().copied()
     }
@@ -37,26 +29,24 @@ impl ViaSites {
     }
 }
 
-// ── Site → Muscle/Cable back-references ──
-
-/// This site is the origin of a muscle or cable.
-///
-/// A site can be the origin of multiple muscles/cables simultaneously.
-#[derive(Component, Clone, Debug)]
-pub struct HasOrigin(pub Entity);
-
-/// This site is the insertion of a muscle or cable.
-///
-/// A site can be the insertion of multiple muscles/cables simultaneously.
-#[derive(Component, Clone, Debug)]
-pub struct HasInsertion(pub Entity);
-
-/// Relationship: this site is a via point of a muscle or cable.
-///
-/// A site can be a via point for multiple muscles/cables simultaneously.
+/// Relationship: this entity is part of a muscle/cable path.
 #[derive(Component, Clone, Debug, FromTemplate)]
-#[relationship(relationship_target = ViaSites)]
-pub struct ViaSite(pub Entity);
+#[relationship(relationship_target = PathEntities)]
+pub struct PathElement(pub Entity);
+
+// ── Wrapping surface marker ──
+
+/// Marker for wrapping surface entities (spheres, cylinders, ellipsoids).
+///
+/// These are children of bodies (like `Site`), but the path evaluation
+/// system treats them as surfaces to wrap around rather than points
+/// to pass through.
+#[derive(Component, Clone, Debug, Default)]
+pub struct WrappingSurface;
+
+/// Radius of a wrapping surface (for spheres and cylinders).
+#[derive(Component, Clone, Debug)]
+pub struct WrapRadius(pub f32);
 
 // ── Path evaluation ──
 
@@ -67,37 +57,36 @@ pub struct PathPoint {
     pub position: Vec3,
 }
 
-/// Evaluate the full path: origin → via points → insertion.
+/// Evaluate the full path: iterate PathEntities and compute world-space positions.
 ///
-/// Returns an ordered list of world-space positions. The caller can use
-/// these for wrapping, length computation, moment arm calculation, etc.
+/// For sites, this is just their GlobalTransform translation.
+/// For wrapping surfaces, this would compute approach/departure points
+/// and geodesic arcs (future work).
 pub fn evaluate_path(
-    origin_site: &OriginSite,
-    via_sites: &ViaSites,
-    insertion_site: &InsertionSite,
+    path_entities: &PathEntities,
     transforms: &Query<&GlobalTransform>,
+    surfaces: Query<&WrappingSurface>,
 ) -> Option<Vec<PathPoint>> {
     let mut path = Vec::new();
 
-    let origin_pos = transforms.get(origin_site.0).ok()?;
-    path.push(PathPoint {
-        entity: origin_site.0,
-        position: origin_pos.translation(),
-    });
-
-    for e in via_sites.iter() {
-        let pos = transforms.get(e).ok()?;
-        path.push(PathPoint {
-            entity: e,
-            position: pos.translation(),
-        });
+    for e in path_entities.iter() {
+        if surfaces.get(e).is_ok() {
+            // Wrapping surface: for now, use center position.
+            // Future: compute approach/departure/geodesic points.
+            let pos = transforms.get(e).ok()?;
+            path.push(PathPoint {
+                entity: e,
+                position: pos.translation(),
+            });
+        } else {
+            // Site: straightforward position.
+            let pos = transforms.get(e).ok()?;
+            path.push(PathPoint {
+                entity: e,
+                position: pos.translation(),
+            });
+        }
     }
-
-    let insertion_pos = transforms.get(insertion_site.0).ok()?;
-    path.push(PathPoint {
-        entity: insertion_site.0,
-        position: insertion_pos.translation(),
-    });
 
     Some(path)
 }

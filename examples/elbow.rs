@@ -3,9 +3,11 @@
 use bevy::prelude::*;
 use melosim::{editor::EditorPlugin, model::*, render::RenderPlugin};
 
-fn myoarm() -> impl SceneList {
+/// Rigid skeleton with bodies, joints, and wrapping surfaces.
+/// Muscle attachment sites are defined inline in the muscle path.
+fn skeleton() -> impl SceneList {
     bsn_list![
-        // ── Skeleton ──
+        // ── Bodies ──
         (
             #humerus Body
             InertialProperties {
@@ -38,18 +40,30 @@ fn myoarm() -> impl SceneList {
             #ulna Body
             ChildOf(#elbow)
         ),
-        // ── Muscle sites (children of bodies, for spatial hierarchy) ──
-        (#bicep_origin Site ChildOf(#humerus) Transform::from_xyz(0.0, 0.05, 0.0)),
-        (#bicep_via Site ChildOf(#humerus) Transform::from_xyz(0.0, 0.05, 0.0)),
-        (#bicep_insertion Site ChildOf(#ulna) Transform::from_xyz(0.0, 0.05, 0.0)),
-        // ── Muscles (references sites by name) ──
+        // ── Wrapping surfaces (on bodies, for path wrapping) ──
+        // (#hum_head_wrap WrappingSurface ChildOf(#humerus) Transform::from_xyz(0.0, 0.03, 0.0) WrapRadius(0.025)),
+        // ── Muscles (sites defined inline, children of bodies via ChildOf) ──
         (
             #bicep Muscle
             HillTypeMuscleParams::default()
-            OriginSite(#bicep_origin)
-            InsertionSite(#bicep_insertion)
-            ViaSites [#bicep_via]
+            PathEntities [
+                (#bicep_origin Site ChildOf(#humerus) Transform::from_xyz(0.0, 0.05, 0.0)),
+                (#bicep_via Site ChildOf(#humerus) Transform::from_xyz(0.0, 0.05, 0.0)),
+                (#bicep_insertion Site ChildOf(#ulna) Transform::from_xyz(0.0, 0.05, 0.0)),
+            ]
         ),
+        // Path with wrapping:
+        // (
+        //     #bicep Muscle
+        //     HillTypeMuscleParams::default()
+        //     PathEntities [
+        //         (#bicep_origin Site ChildOf(#humerus) Transform::from_xyz(0.0, 0.05, 0.0)),
+        //         (#hum_head_wrap WrappingSurface ChildOf(#humerus) Transform::from_xyz(0.0, 0.03, 0.0) WrapRadius(0.025)),
+        //         (#bicep_via Site ChildOf(#humerus) Transform::from_xyz(0.0, 0.05, 0.0)),
+        //         (#elbow_wrap WrappingSurface ChildOf(#ulna) Transform::from_xyz(0.0, 0.0, 0.0) WrapRadius(0.02)),
+        //         (#bicep_insertion Site ChildOf(#ulna) Transform::from_xyz(0.0, 0.05, 0.0)),
+        //     ]
+        // ),
     ]
 }
 
@@ -58,6 +72,6 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(EditorPlugin)
         .add_plugins(RenderPlugin)
-        .add_systems(Startup, myoarm.spawn())
+        .add_systems(Startup, skeleton.spawn())
         .run();
 }
