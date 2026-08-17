@@ -1,13 +1,11 @@
-mod body;
+mod frame;
 mod function;
 mod joint;
-mod material;
 mod muscle;
-mod wrap;
+mod path;
 
-pub use body::*;
+pub use frame::*;
 pub use function::*;
 pub use joint::*;
-pub use material::*;
 pub use muscle::*;
-pub use wrap::*;
+pub use path::*;

@@ -18,7 +18,9 @@ pub enum Function {
     /// x values must be sorted ascending. Clamps outside range.
     PiecewiseLinear { x: Vec<f64>, y: Vec<f64> },
     /// Piecewise cubic spline (OpenSim SimmSpline / natural cubic spline).
-    /// x values must be sorted ascending. Clamps outside range.
+    /// x values must be sorted ascending. Clamps outside range — note
+    /// OpenSim's SimmSpline EXTRAPOLATES past the knots; divergence only
+    /// matters for out-of-range coordinate values (which OpenSim clamps).
     CubicSpline { x: Vec<f64>, y: Vec<f64> },
     /// Analytical derivative of a cubic spline (piecewise quadratic).
     /// Stored as coefficients (b, 2c, 3d) per interval from the original
@@ -30,6 +32,12 @@ pub enum Function {
     },
 }
 
+// TODO: Move towards this approach when we figure out serialization
+pub trait DiffFunction: Send + Sync + 'static {
+    fn evaluate(&self, q: f64) -> f64;
+    fn derivative(&self, q: f64) -> f64;
+}
+
 impl Function {
     /// f(q) = slope * q + intercept
     pub fn linear(slope: f64, intercept: f64) -> Self {
@@ -38,7 +46,10 @@ impl Function {
 
     /// f(q) = q (identity)
     pub fn identity() -> Self {
-        Function::Linear { slope: 1.0, intercept: 0.0 }
+        Function::Linear {
+            slope: 1.0,
+            intercept: 0.0,
+        }
     }
 
     /// f(q) = c (constant)
@@ -66,11 +77,10 @@ impl Function {
         match self {
             Function::Constant(c) => *c,
             Function::Linear { slope, intercept } => intercept + slope * q,
-            Function::Polynomial(coeffs) => {
-                coeffs.iter().enumerate().fold(0.0, |acc, (i, &c)| {
-                    acc + c * q.powi(i as i32)
-                })
-            }
+            Function::Polynomial(coeffs) => coeffs
+                .iter()
+                .enumerate()
+                .fold(0.0, |acc, (i, &c)| acc + c * q.powi(i as i32)),
             Function::PiecewiseLinear { x, y } => interpolate_linear(x, y, q),
             Function::CubicSpline { x, y } => interpolate_cubic_spline(x, y, q),
             Function::CubicSplineDeriv { x, coeffs } => {
@@ -92,13 +102,14 @@ impl Function {
         match self {
             Function::Constant(_) => Function::Constant(0.0),
             Function::Linear { slope, .. } => Function::Constant(*slope),
-            Function::Polynomial(coeffs) => {
-                Function::Polynomial(
-                    coeffs.iter().enumerate().skip(1)
-                        .map(|(i, &c)| c * i as f64)
-                        .collect(),
-                )
-            }
+            Function::Polynomial(coeffs) => Function::Polynomial(
+                coeffs
+                    .iter()
+                    .enumerate()
+                    .skip(1)
+                    .map(|(i, &c)| c * i as f64)
+                    .collect(),
+            ),
             // Numerical derivative for splines — use central difference.
             // For analytical derivative, use CubicSpline::derivative() directly.
             Function::PiecewiseLinear { x, y } => {
@@ -108,7 +119,8 @@ impl Function {
                     return Function::Constant(0.0);
                 }
                 let dx: Vec<f64> = x.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
-                let dy: Vec<f64> = x.windows(2)
+                let dy: Vec<f64> = x
+                    .windows(2)
                     .zip(y.windows(2))
                     .map(|(xn, yn)| (yn[1] - yn[0]) / (xn[1] - xn[0]))
                     .collect();
@@ -116,7 +128,8 @@ impl Function {
             }
             Function::CubicSpline { x, y } => {
                 let coeffs = cubic_spline_coefficients(x, y);
-                let deriv_coeffs: Vec<(f64, f64, f64)> = coeffs.iter()
+                let deriv_coeffs: Vec<(f64, f64, f64)> = coeffs
+                    .iter()
                     .map(|&(_a, b, c, d)| (b, 2.0 * c, 3.0 * d))
                     .collect();
                 Function::CubicSplineDeriv {
@@ -131,7 +144,8 @@ impl Function {
                     return Function::Constant(0.0);
                 }
                 let mid_x: Vec<f64> = x.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
-                let mid_y: Vec<f64> = coeffs.iter()
+                let mid_y: Vec<f64> = coeffs
+                    .iter()
                     .map(|&(_b, c2, _d3)| c2) // value at dx=0 (i.e. at knot)
                     .collect();
                 Function::PiecewiseLinear { x: mid_x, y: mid_y }
@@ -139,8 +153,6 @@ impl Function {
         }
     }
 }
-
-
 
 // ── Interpolation helpers ─────────────────────────────
 
@@ -186,7 +198,13 @@ fn interpolate_cubic_spline(x: &[f64], y: &[f64], q: f64) -> f64 {
     let m = cubic_spline_second_derivatives(x, y);
 
     // Clamp
-    let q = if q <= x[0] { return y[0] } else if q >= x[n - 1] { return y[n - 1] } else { q };
+    let q = if q <= x[0] {
+        return y[0];
+    } else if q >= x[n - 1] {
+        return y[n - 1];
+    } else {
+        q
+    };
 
     // Find interval
     let i = x.iter().position(|&xi| xi > q).unwrap_or(n) - 1;
@@ -194,8 +212,7 @@ fn interpolate_cubic_spline(x: &[f64], y: &[f64], q: f64) -> f64 {
     let a = (x[i + 1] - q) / h;
     let b = (q - x[i]) / h;
 
-    a * y[i] + b * y[i + 1]
-        + ((a * a * a - a) * m[i] + (b * b * b - b) * m[i + 1]) * h * h / 6.0
+    a * y[i] + b * y[i + 1] + ((a * a * a - a) * m[i] + (b * b * b - b) * m[i + 1]) * h * h / 6.0
 }
 
 /// Solve for second derivatives of a natural cubic spline.
@@ -272,7 +289,10 @@ mod tests {
 
     #[test]
     fn test_linear() {
-        let f = Function::Linear { slope: 2.0, intercept: 3.0 };
+        let f = Function::Linear {
+            slope: 2.0,
+            intercept: 3.0,
+        };
         assert!((f.evaluate(4.0) - 11.0).abs() < 1e-12);
         assert!((f.derivative().evaluate(4.0) - 2.0).abs() < 1e-12);
     }
@@ -282,7 +302,7 @@ mod tests {
         // f(q) = 1 + 2q + 3q^2
         let f = Function::Polynomial(vec![1.0, 2.0, 3.0]);
         assert!((f.evaluate(2.0) - 17.0).abs() < 1e-12); // 1 + 4 + 12
-        // f'(q) = 2 + 6q
+                                                         // f'(q) = 2 + 6q
         let fp = f.derivative();
         assert!((fp.evaluate(2.0) - 14.0).abs() < 1e-12);
     }
@@ -314,20 +334,33 @@ mod tests {
     #[test]
     fn test_simm_spline_knee() {
         // OpenSim walker_knee_r rotation2: x in [0, 2.0944], y varies
-        let x: Vec<f64> = vec![0.0, 0.1745, 0.3491, 0.5236, 0.6981, 0.8727,
-                               1.0472, 1.2217, 1.3963, 1.5708, 1.7453, 1.9199, 2.0944];
-        let y: Vec<f64> = vec![0.0, 0.0127, 0.0227, 0.0296, 0.0332, 0.0335,
-                               0.0309, 0.0258, 0.0189, 0.0114, 0.0044, -0.0005, -0.0017];
-        let f = Function::CubicSpline { x: x.clone(), y: y.clone() };
+        let x: Vec<f64> = vec![
+            0.0, 0.1745, 0.3491, 0.5236, 0.6981, 0.8727, 1.0472, 1.2217, 1.3963, 1.5708, 1.7453,
+            1.9199, 2.0944,
+        ];
+        let y: Vec<f64> = vec![
+            0.0, 0.0127, 0.0227, 0.0296, 0.0332, 0.0335, 0.0309, 0.0258, 0.0189, 0.0114, 0.0044,
+            -0.0005, -0.0017,
+        ];
+        let f = Function::CubicSpline {
+            x: x.clone(),
+            y: y.clone(),
+        };
 
         // Should match knots exactly
         for (i, &xi) in x.iter().enumerate() {
-            assert!((f.evaluate(xi) - y[i]).abs() < 1e-10, "mismatch at knot {i}");
+            assert!(
+                (f.evaluate(xi) - y[i]).abs() < 1e-10,
+                "mismatch at knot {i}"
+            );
         }
 
         // Should interpolate smoothly between knots
         let mid = (x[3] + x[4]) / 2.0;
         let val = f.evaluate(mid);
-        assert!(val > y[3].min(y[4]) && val < y[3].max(y[4]), "out of range at midpoint");
+        assert!(
+            val > y[3].min(y[4]) && val < y[3].max(y[4]),
+            "out of range at midpoint"
+        );
     }
 }

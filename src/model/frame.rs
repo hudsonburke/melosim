@@ -1,0 +1,82 @@
+use bevy::prelude::*;
+use nalgebra::{Isometry3, Vector3};
+use std::path::PathBuf;
+
+/// Marker for a rigid body entity.
+///
+/// A Body is a marker tag for a rigid body in the model hierarchy.
+/// It has an implicit default frame represented by its `Transform`
+/// component (identity by default). Child `Frame` and `Site` entities
+/// are positioned relative to this default frame.
+#[derive(Component, Clone, Debug, Default)]
+#[require(Transform, Visibility)]
+pub struct Body;
+
+/// Marker for a frame — a coordinate system offset from its parent.
+///
+/// The frame's offset is stored in its `Transform` component. The parent
+/// is specified via `ChildOf` — either another `Frame` or a `Body`.
+#[derive(Component, Clone, Debug, Default)]
+pub struct Frame;
+
+/// A fixed (non-driven) frame offset stored as an isometry.
+///
+/// Used by the importer/exporter to represent body geometry offsets,
+/// joint parent offsets, and joint child offsets. The render sync system
+/// copies this into the entity's `Transform` on insertion.
+#[derive(Component, Clone, Debug)]
+pub struct FixedFrame(pub Isometry3<f64>);
+
+/// Marker for geometry entities (mesh attachments on a body).
+#[derive(Component, Clone, Debug, Default)]
+pub struct Geometry;
+
+/// Directory prepended to geometry mesh paths at asset load time.
+#[derive(Component, Clone, Debug)]
+pub struct ModelDir(pub PathBuf);
+
+/// Marker for a site — a point on a frame.
+///
+/// The site's position is stored in its `Transform` component. The parent
+/// frame is specified via `ChildOf` — either a `Frame` or a `Body`
+/// (using the body's default frame).
+///
+/// To find sites belonging to a body, query `Query<&Site, With<ChildOf<Body>>>`
+/// or iterate the body's `Children` and filter by `With<Site>`.
+#[derive(Component, Clone, Debug, Default)]
+pub struct Site;
+
+// ── Inertial properties ──
+
+/// Upper-triangle inertia tensor: (Ixx, Iyy, Izz, Ixy, Ixz, Iyz).
+#[derive(Component, Clone, Debug, Default)]
+pub struct Inertia(pub [f64; 6]);
+
+impl Inertia {
+    pub fn new(ixx: f64, iyy: f64, izz: f64, ixy: f64, ixz: f64, iyz: f64) -> Self {
+        Self([ixx, iyy, izz, ixy, ixz, iyz])
+    }
+
+    pub fn from_diagonal(diagonal: Vector3<f64>) -> Self {
+        Self([diagonal.x, diagonal.y, diagonal.z, 0.0, 0.0, 0.0])
+    }
+
+    pub fn diagonal(&self) -> Vector3<f64> {
+        Vector3::new(self.0[0], self.0[1], self.0[2])
+    }
+
+    pub fn to_matrix(&self) -> nalgebra::Matrix3<f64> {
+        nalgebra::Matrix3::new(
+            self.0[0], self.0[3], self.0[4], //
+            self.0[3], self.0[1], self.0[5], //
+            self.0[4], self.0[5], self.0[2], //
+        )
+    }
+}
+
+#[derive(Component, Clone, Debug, Default)]
+pub struct InertialProperties {
+    pub mass: f64,
+    pub mass_center: nalgebra::Vector3<f64>,
+    pub inertia: Inertia,
+}

@@ -7,8 +7,22 @@ use bevy::prelude::*;
 /// (`Millard2012Params`, `HillTypeMuscleParams`, etc.).
 ///
 /// In Rajagopal 2015, all 80 muscles are `Millard2012EquilibriumMuscle`.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Default)]
 pub struct Muscle;
+
+/// Generic Hill-type muscle parameters (simpler models).
+///
+/// For Millard 2012 muscles (Rajagopal), use `Millard2012Params` instead.
+/// This is kept for backward compatibility with simpler Hill-type models.
+#[derive(Component, Clone, Debug, Default)]
+pub struct HillTypeMuscleParams {
+    pub max_isometric_force: f64,
+    pub optimal_fiber_length: f64,
+    pub tendon_slack_length: f64,
+    pub pennation_angle_at_optimal: f64,
+    pub minimum_activation: f64,
+    pub fiber_damping: f64,
+}
 
 /// Millard 2012 equilibrium muscle model parameters.
 ///
@@ -32,20 +46,6 @@ pub struct MuscleState {
     pub fiber_length: f64,
     pub fiber_velocity: f64,
     pub activation: f64,
-}
-
-/// Generic Hill-type muscle parameters (simpler models).
-///
-/// For Millard 2012 muscles (Rajagopal), use `Millard2012Params` instead.
-/// This is kept for backward compatibility with simpler Hill-type models.
-#[derive(Component, Clone, Debug)]
-pub struct HillTypeMuscleParams {
-    pub max_isometric_force: f64,
-    pub optimal_fiber_length: f64,
-    pub tendon_slack_length: f64,
-    pub pennation_angle_at_optimal: f64,
-    pub minimum_activation: f64,
-    pub fiber_damping: f64,
 }
 
 /// Placeholder for force-length curve data.
