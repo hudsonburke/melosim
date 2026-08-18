@@ -1,23 +1,14 @@
 //! Visualization resources and gizmo systems.
-//!
-//! Static meshes (Body, Site, WrappingSurface) use `SceneComponent`
-//! and live as real entities — visible to Jackdaw's viewport and
-//! selectable via its outliner.
-//!
-//! Dynamic overlays (muscle paths, joint axes) use Bevy gizmos and
-//! draw on top. Toggle them via `VisualizationSettings`.
 
 use bevy::prelude::*;
 
 // ── Toggle resource ──────────────────────────────────
 
 /// Controls which visualization layers are active.
-#[derive(Resource, Clone, Debug, Reflect)]
+#[derive(Resource, Clone, Debug)]
 pub struct VisualizationSettings {
     pub muscle_paths: bool,
     pub joint_axes: bool,
-    pub body_meshes: bool,
-    pub site_meshes: bool,
 }
 
 impl Default for VisualizationSettings {
@@ -25,8 +16,6 @@ impl Default for VisualizationSettings {
         Self {
             muscle_paths: true,
             joint_axes: false,
-            body_meshes: true,
-            site_meshes: true,
         }
     }
 }
@@ -62,7 +51,6 @@ pub fn draw_muscle_paths(
 pub fn draw_joint_axes(
     mut gizmos: Gizmos,
     settings: Res<VisualizationSettings>,
-    joints: Query<&GlobalTransform, With<crate::model::Joint>>,
     axes: Query<(&crate::model::Twist, &ChildOf)>,
     transforms: Query<&GlobalTransform>,
 ) {
@@ -79,13 +67,21 @@ pub fn draw_joint_axes(
         // Rotation axis (blue)
         if twist.angular.norm() > 1e-6 {
             let dir = twist.angular.normalize() * 0.05;
-            gizmos.line(pos, pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32), Color::srgb(0.2, 0.4, 0.9));
+            gizmos.line(
+                pos,
+                pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32),
+                Color::srgb(0.2, 0.4, 0.9),
+            );
         }
 
         // Translation axis (green)
         if twist.linear.norm() > 1e-6 {
             let dir = twist.linear.normalize() * 0.05;
-            gizmos.line(pos, pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32), Color::srgb(0.2, 0.9, 0.4));
+            gizmos.line(
+                pos,
+                pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32),
+                Color::srgb(0.2, 0.9, 0.4),
+            );
         }
     }
 }

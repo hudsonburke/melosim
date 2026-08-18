@@ -1,7 +1,6 @@
 /target
 .mujoco/
 .x86-pip-ready
-.venv/
-tests/fixtures/
+.venv*/
 opensim.log
-.jackdaw/
+assets/

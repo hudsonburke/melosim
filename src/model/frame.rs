@@ -2,59 +2,19 @@ use bevy::prelude::*;
 use nalgebra::{Matrix3, Vector3};
 
 /// Marker for a rigid body entity.
-///
-/// A Body is a marker tag for a rigid body in the model hierarchy.
-/// It has an implicit default frame represented by its `Transform`
-/// component (identity by default). Child `Frame` and `Site` entities
-/// are positioned relative to this default frame.
-///
-/// When spawned via BSN with `@Body`, gets a default sphere mesh.
-/// Override by providing explicit `Mesh3d`/`MeshMaterial3d` or
-/// `WorldAssetRoot` for GLTF assets.
-#[derive(SceneComponent, Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default)]
 #[require(Transform, Visibility)]
 pub struct Body;
 
-impl Body {
-    /// Default scene: a sphere representing the body's center of mass.
-    pub fn scene() -> impl Scene {
-        bsn! {
-            Mesh3d(asset_value(Sphere::new(0.03)))
-            MeshMaterial3d<StandardMaterial>(asset_value(Color::srgb(0.3, 0.5, 0.9)))
-        }
-    }
-}
-
-/// Marker for a frame — a coordinate system offset from its parent.
-///
-/// The frame's offset is stored in its `Transform` component. The parent
-/// is specified via `ChildOf` — either another `Frame` or a `Body`.
+/// Marker for a frame.
 #[derive(Component, Clone, Debug, Default)]
+#[require(Transform, Visibility)]
 pub struct Frame;
 
 /// Marker for a site — a point on a frame.
-///
-/// The site's position is stored in its `Transform` component. The parent
-/// frame is specified via `ChildOf` — either a `Frame` or a `Body`
-/// (using the body's default frame).
-///
-/// To find sites belonging to a body, query `Query<&Site, With<ChildOf<Body>>>`
-/// or iterate the body's `Children` and filter by `With<Site>`.
-///
-/// When spawned via BSN with `@Site`, gets a small sphere mesh.
-#[derive(SceneComponent, Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default)]
 #[require(Transform, Visibility)]
 pub struct Site;
-
-impl Site {
-    /// Default scene: a small sphere representing the attachment point.
-    pub fn scene() -> impl Scene {
-        bsn! {
-            Mesh3d(asset_value(Sphere::new(0.008)))
-            MeshMaterial3d<StandardMaterial>(asset_value(Color::srgb(0.2, 0.9, 0.3)))
-        }
-    }
-}
 
 /// Upper-triangle inertia tensor: (Ixx, Iyy, Izz, Ixy, Ixz, Iyz).
 #[derive(Component, Clone, Debug, Default)]
@@ -75,9 +35,9 @@ impl Inertia {
 
     pub fn to_matrix(&self) -> Matrix3<f64> {
         Matrix3::new(
-            self.0[0], self.0[3], self.0[4], //
-            self.0[3], self.0[1], self.0[5], //
-            self.0[4], self.0[5], self.0[2], //
+            self.0[0], self.0[3], self.0[4],
+            self.0[3], self.0[1], self.0[5],
+            self.0[4], self.0[5], self.0[2],
         )
     }
 }

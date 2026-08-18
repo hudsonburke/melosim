@@ -10,6 +10,7 @@ type Iso3 = Isometry3<f64>;
 
 /// Marker for a joint entity.
 #[derive(Component, Clone, Debug, Default)]
+#[require(Transform, Visibility)]
 pub struct Joint;
 
 /// Links a twist axis to the coordinate that drives it.
@@ -64,7 +65,8 @@ pub struct InitialConditions {
     pub value: f64,
     pub velocity: f64,
 }
-/// Runtime state of a generalized coordinate (transient simulation data).
+
+/// Runtime state of a generalized coordinate.
 #[derive(Component, Clone, Debug, Default)]
 pub struct CoordinateState {
     pub value: f64,
@@ -72,15 +74,9 @@ pub struct CoordinateState {
 }
 
 /// A twist in se(3) — the Lie algebra of SE(3).
-///
-/// A pure rotation has angular = axis, linear = zero.
-/// A pure translation has angular = zero, linear = direction.
-/// A screw has both.
 #[derive(Component, Clone, Debug, Default)]
 pub struct Twist {
-    /// ω — rotation axis (not necessarily unit)
     pub angular: Vec3,
-    /// v — translation direction
     pub linear: Vec3,
 }
 
@@ -92,20 +88,14 @@ pub struct Coupling {
 
 #[derive(Clone, Debug)]
 pub enum CouplingKind {
-    /// q_a = f(q_b) — coordinate coupler with function.
     Equality(Function),
-    /// Tendon: path length = f(q_a, q_b, ...).
     Tendon,
-    /// Gear: q_a * ratio = q_b.
     Gear { ratio: f64 },
 }
 
 // ── Twist → SE(3) via exponential map ─────────────────
 
 impl Twist {
-    /// Compute exp(ξ · θ) where ξ is this twist and θ is the scalar factor.
-    ///
-    /// Returns the rigid body transform in SE(3) (f64).
     pub fn exp(&self, theta: f64) -> Iso3 {
         if theta.abs() < 1e-12 {
             return Iso3::identity();
@@ -116,16 +106,12 @@ impl Twist {
         let w_norm = w.norm();
 
         if w_norm < 1e-12 {
-            // Pure translation
             return Iso3::from_parts(Translation::from(v * theta), UQuat::identity());
         }
 
-        // Rotation via exponential map so(3) → SO(3)
         let angle = w_norm * theta;
         let q = UQuat::from_scaled_axis(w * theta);
 
-        // Translation from the se(3) exponential formula:
-        // t = v·θ + (1-cos(‖ωθ‖))/(‖ω‖²)·(ω×v) + (‖ωθ‖-sin(‖ωθ‖))/(‖ω‖³)·(ω×(ω×v))
         let sin_angle = angle.sin();
         let cos_angle = angle.cos();
 
@@ -143,13 +129,6 @@ impl Twist {
 
 // ── PoE evaluation ────────────────────────────────────
 
-/// Evaluate the product-of-exponentials transform for a joint.
-///
-/// Walks the joint's axis children in insertion order, composing
-/// exp(ξ_i · f_i(q_i)) for each axis. Reads the current coordinate
-/// value from `CoordinateState`.
-/// Axes without a `DrivesCoordinate` are fixed offsets: their function
-/// (typically a constant) is evaluated at q = 0.
 pub fn evaluate_joint(
     children: &Children,
     twists: &Query<(&Twist, Option<&DrivesCoordinate>, Option<&Function>)>,
@@ -174,10 +153,6 @@ pub fn evaluate_joint(
     transform
 }
 
-/// Compute the Jacobian contribution of one axis for a given coordinate.
-///
-/// Returns the spatial velocity (angular, linear) contributed by
-/// this axis to the coordinate's generalized velocity.
 pub fn axis_jacobian(twist: &Twist, func: &Function, q: f64) -> (Vec3, Vec3) {
     let df = func.derivative().evaluate(q);
     (twist.angular * df, twist.linear * df)
@@ -185,9 +160,6 @@ pub fn axis_jacobian(twist: &Twist, func: &Function, q: f64) -> (Vec3, Vec3) {
 
 // ── Rendering boundary: nalgebra → glam ───────────────
 
-/// Convert a simulation isometry to a Bevy Transform (f32).
-///
-/// Use this when writing simulation state back to rendering components.
 pub fn to_bevy_transform(iso: &Iso3) -> Transform {
     let t = iso.translation.vector;
     let r = iso.rotation;
@@ -200,11 +172,6 @@ pub fn to_bevy_transform(iso: &Iso3) -> Transform {
 
 // ── Bevy sync system ─────────────────────────────────
 
-/// Evaluate each joint's PoE transform (sim f64) and write it to the
-/// joint entity's own `Transform`. Frames and bodies nested below the
-/// joint follow via Bevy's transform propagation.
-///
-/// Runs in PostUpdate, before `TransformSystems::Propagate`.
 pub fn sync_kinematics(
     mut joints: Query<(&Children, &mut Transform), With<Joint>>,
     twists: Query<(&Twist, Option<&DrivesCoordinate>, Option<&Function>)>,

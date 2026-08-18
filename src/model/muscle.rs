@@ -1,19 +1,10 @@
 use bevy::prelude::*;
 
-/// A muscle entity — the identity component.
-///
-/// Every muscle in the model is an entity with at least a `Muscle` component.
-/// Additional components define its path (`MusclePath`) and physiology
-/// (`Millard2012Params`, `HillTypeMuscleParams`, etc.).
-///
-/// In Rajagopal 2015, all 80 muscles are `Millard2012EquilibriumMuscle`.
+/// A muscle entity.
 #[derive(Component, Clone, Debug, Default)]
 pub struct Muscle;
 
-/// Generic Hill-type muscle parameters (simpler models).
-///
-/// For Millard 2012 muscles (Rajagopal), use `Millard2012Params` instead.
-/// This is kept for backward compatibility with simpler Hill-type models.
+/// Generic Hill-type muscle parameters.
 #[derive(Component, Clone, Debug, Default)]
 pub struct HillTypeMuscleParams {
     pub max_isometric_force: f64,
@@ -25,11 +16,6 @@ pub struct HillTypeMuscleParams {
 }
 
 /// Millard 2012 equilibrium muscle model parameters.
-///
-/// This is the full parameter set for the Millard 2012 Hill-type muscle model
-/// used by Rajagopal 2015. Defaults are applied by OpenSim's
-/// `extendFinalizeFromProperties()` at model init for any fields not
-/// explicitly set in the `.osim` file.
 #[derive(Component, Clone, Debug)]
 pub struct Millard2012Params {
     pub pennation_angle_at_optimal: f64,
@@ -40,7 +26,20 @@ pub struct Millard2012Params {
     pub ignore_tendon_compliance: bool,
 }
 
-/// Runtime muscle state (not persisted — computed during simulation).
+impl Default for Millard2012Params {
+    fn default() -> Self {
+        Self {
+            pennation_angle_at_optimal: 0.0,
+            max_contraction_velocity: 10.0,
+            activation_time_constant: 0.01,
+            deactivation_time_constant: 0.04,
+            ignore_activation_dynamics: false,
+            ignore_tendon_compliance: false,
+        }
+    }
+}
+
+/// Runtime muscle state.
 #[derive(Component, Clone, Debug)]
 pub struct MuscleState {
     pub fiber_length: f64,
@@ -48,11 +47,12 @@ pub struct MuscleState {
     pub activation: f64,
 }
 
-/// Placeholder for force-length curve data.
-/// Will be expanded when custom curves need to be stored for round-trip.
-#[derive(Component, Clone, Debug)]
-pub struct ForceLengthCurve {}
-
-/// Placeholder for force-velocity curve data.
-#[derive(Component, Clone, Debug)]
-pub struct ForceVelocityCurve {}
+impl Default for MuscleState {
+    fn default() -> Self {
+        Self {
+            fiber_length: 1.0,
+            fiber_velocity: 0.0,
+            activation: 0.0,
+        }
+    }
+}
