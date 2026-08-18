@@ -6,7 +6,7 @@ use bevy::prelude::*;
 /// coordinate couplers, and prescribed motion.
 ///
 /// All variants support `evaluate(q)` and `derivative()` for Jacobian computation.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub enum Function {
     /// f(q) = c — constant value.
     Constant(f64),

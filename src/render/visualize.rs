@@ -2,37 +2,14 @@
 
 use bevy::prelude::*;
 
-// ── Toggle resource ──────────────────────────────────
-
-/// Controls which visualization layers are active.
-#[derive(Resource, Clone, Debug)]
-pub struct VisualizationSettings {
-    pub muscle_paths: bool,
-    pub joint_axes: bool,
-}
-
-impl Default for VisualizationSettings {
-    fn default() -> Self {
-        Self {
-            muscle_paths: true,
-            joint_axes: false,
-        }
-    }
-}
-
 // ── Gizmo systems ────────────────────────────────────
 
 /// Draw muscle paths as line segments between path entities.
 pub fn draw_muscle_paths(
     mut gizmos: Gizmos,
-    settings: Res<VisualizationSettings>,
     muscles: Query<&crate::model::PathEntities>,
     transforms: Query<&GlobalTransform>,
 ) {
-    if !settings.muscle_paths {
-        return;
-    }
-
     for path_entities in &muscles {
         let points: Vec<Vec3> = path_entities
             .iter()
@@ -50,13 +27,9 @@ pub fn draw_muscle_paths(
 /// Draw joint axes as short lines showing rotation/translation directions.
 pub fn draw_joint_axes(
     mut gizmos: Gizmos,
-    settings: Res<VisualizationSettings>,
     axes: Query<(&crate::model::Twist, &ChildOf)>,
     transforms: Query<&GlobalTransform>,
 ) {
-    if !settings.joint_axes {
-        return;
-    }
 
     for (twist, child_of) in &axes {
         let Ok(joint_gt) = transforms.get(child_of.0) else {

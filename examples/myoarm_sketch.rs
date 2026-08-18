@@ -119,13 +119,9 @@ fn setup_skeleton() -> impl SceneList {
             }
             Children [
                 (#PECM1_P3 Site Transform::from_xyz(0.026, 0.057, -0.004)),
+                // Offset frame for sternoclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
+                (#sternoclavicular_offset Frame Transform::from_xyz(-0.01433, 0.1355, -0.02007)),
             ]
-        ),
-        // Offset frame for sternoclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
-        (
-            #sternoclavicular_offset Frame
-            ChildOf(#clavicle)
-            Transform::from_xyz(-0.01433, 0.1355, -0.02007)
         ),
         (
             #sternoclavicular Joint
@@ -151,13 +147,9 @@ fn setup_skeleton() -> impl SceneList {
             }
             Children [
                 (#DELT2_P3 Site Transform::from_xyz(0.00005, 0.022, -0.003)),
+                // Offset frame for acromioclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
+                (#acromioclavicular_offset Frame Transform::from_xyz(-0.00955, 0.009, 0.034)),
             ]
-        ),
-        // Offset frame for acromioclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
-        (
-            #acromioclavicular_offset Frame
-            ChildOf(#scapula)
-            Transform::from_xyz(-0.00955, 0.009, 0.034)
         ),
         (
             #acromioclavicular Joint
@@ -184,13 +176,10 @@ fn setup_skeleton() -> impl SceneList {
                 mass_center: nalgebra::Vector3::new(0.018, -0.140, -0.013),
                 inertia: Inertia::new(0.013, 0.012, 0.002, 0.0, 0.0, 0.0),
             }
-            Children []
-        ),
-        // Offset frame for shoulder joint (converted from MuJoCo Z-up to Bevy Y-up)
-        (
-            #shoulder_offset Frame
-            ChildOf(#humerus)
-            Transform::from_xyz(0.0061, -0.0123, 0.2904)
+            Children [
+                // Offset frame for shoulder joint (converted from MuJoCo Z-up to Bevy Y-up)
+                ( #shoulder_offset Frame Transform::from_xyz(0.0061, -0.0123, 0.2904)),
+            ]
         ),
         (
             #shoulder Joint
@@ -214,24 +203,23 @@ fn setup_skeleton() -> impl SceneList {
                 mass_center: nalgebra::Vector3::new(0.002, -0.133, 0.008),
                 inertia: Inertia::new(0.0005, 0.0005, 0.00003, 0.0, 0.0, 0.0),
             }
-            Children []
+            Children [
+                (#pro_sup_offset Frame Transform::from_xyz(0.0004, 0.020, 0.0115)),
+            ]
         ),
         (
             #elbow Joint
             ChildOf(#ulna)
             JointCoordinates [
-                (#elbow_flex Coordinate
+                (
+                    #elbow_flex Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(0.005, 0.999, 0.042)}),
+                    Twist{angular: nalgebra::Vector3::new(0.005, 0.999, 0.042)}
+                ),
             ]
         ),
 
         // Radius
-        (
-            #pro_sup_offset Frame
-            ChildOf(#ulna)
-            Transform::from_xyz(0.0004, 0.020, 0.0115)
-        ),
         (
             #pro_sup Joint
             ChildOf(#pro_sup_offset)

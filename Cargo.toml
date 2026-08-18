@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.19.0", default-features = false, features = [
+bevy = { version = "0.19.1", default-features = false, features = [
   "3d",
   "bevy_dev_tools",
   "free_camera",
@@ -19,8 +19,12 @@ bevy = { version = "0.19.0", default-features = false, features = [
   "bevy_state",
   "dynamic_linking",
   "bevy_world_serialization",
+  "bevy_picking",
+  "bevy_ui",
+  "bevy_ui_render",
+  "bevy_feathers",
 ] }
-nalgebra = "=0.35"
+nalgebra = "0.35"
 pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
 
 # Enable a small amount of optimization in the dev profile.

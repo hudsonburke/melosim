@@ -1,11 +1,14 @@
 use bevy::prelude::*;
 
+use super::ModelEntity;
+
 /// A muscle entity.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
+#[require(ModelEntity)]
 pub struct Muscle;
 
 /// Generic Hill-type muscle parameters.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct HillTypeMuscleParams {
     pub max_isometric_force: f64,
     pub optimal_fiber_length: f64,
@@ -16,7 +19,7 @@ pub struct HillTypeMuscleParams {
 }
 
 /// Millard 2012 equilibrium muscle model parameters.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct Millard2012Params {
     pub pennation_angle_at_optimal: f64,
     pub max_contraction_velocity: f64,
@@ -40,7 +43,7 @@ impl Default for Millard2012Params {
 }
 
 /// Runtime muscle state.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct MuscleState {
     pub fiber_length: f64,
     pub fiber_velocity: f64,

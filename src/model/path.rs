@@ -3,7 +3,7 @@ use bevy::prelude::*;
 // ── Muscle/Cable path definition ──
 
 /// Ordered list of path entities for a muscle or cable.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 #[relationship_target(relationship = PathElement)]
 pub struct PathEntities(Vec<Entity>);
 
@@ -18,18 +18,18 @@ impl PathEntities {
 }
 
 /// Relationship: this entity is part of a muscle/cable path.
-#[derive(Component, Clone, Debug, FromTemplate)]
+#[derive(Component, Clone, Debug, FromTemplate, Reflect)]
 #[relationship(relationship_target = PathEntities)]
 pub struct PathElement(pub Entity);
 
 // ── Wrapping surface marker ──
 
 /// Marker for wrapping surface entities.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct WrappingSurface;
 
 /// Radius of a wrapping surface.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct WrapRadius(pub f32);
 
 // ── Path evaluation ──

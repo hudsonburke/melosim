@@ -2,22 +2,22 @@ use bevy::prelude::*;
 use nalgebra::{Matrix3, Vector3};
 
 /// Marker for a rigid body entity.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(Transform, Visibility)]
 pub struct Body;
 
 /// Marker for a frame.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(Transform, Visibility)]
 pub struct Frame;
 
 /// Marker for a site — a point on a frame.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(Transform, Visibility)]
 pub struct Site;
 
 /// Upper-triangle inertia tensor: (Ixx, Iyy, Izz, Ixy, Ixz, Iyz).
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct Inertia(pub [f64; 6]);
 
 impl Inertia {
@@ -42,9 +42,10 @@ impl Inertia {
     }
 }
 
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct InertialProperties {
     pub mass: f64,
-    pub mass_center: nalgebra::Vector3<f64>,
+    #[reflect(ignore)]
+    pub mass_center: nalgebra::Vector3<f64>, //TODO: Maybe a convenience constructor
     pub inertia: Inertia,
 }

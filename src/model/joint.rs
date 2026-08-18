@@ -9,22 +9,19 @@ type UQuat = UnitQuaternion<f64>;
 type Iso3 = Isometry3<f64>;
 
 /// Marker for a joint entity.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(Transform, Visibility)]
 pub struct Joint;
 
-/// Links a twist axis to the coordinate that drives it.
-#[derive(Component, Clone, Debug)]
-pub struct DrivesCoordinate(pub Entity);
-
-#[derive(Component, Clone, Debug, Default)]
+/// Marker for a generalized coordinate entity.
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(CoordinateProperties, InitialConditions)]
 pub struct Coordinate;
 
 // ── Joint → Coordinates relationship ──
 
 /// Ordered list of coordinate entities owned by this joint.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 #[relationship_target(relationship = CoordinateOf)]
 pub struct JointCoordinates(Vec<Entity>);
 
@@ -35,11 +32,11 @@ impl JointCoordinates {
 }
 
 /// Relationship: this coordinate is owned by a joint.
-#[derive(Component, Clone, Debug, FromTemplate)]
+#[derive(Component, Clone, Debug, FromTemplate, Reflect)]
 #[relationship(relationship_target = JointCoordinates)]
 pub struct CoordinateOf(pub Entity);
 
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct CoordinateProperties {
     pub range: (f64, f64),
     pub clamped: bool,
@@ -60,33 +57,35 @@ impl Default for CoordinateProperties {
     }
 }
 
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct InitialConditions {
     pub value: f64,
     pub velocity: f64,
 }
 
 /// Runtime state of a generalized coordinate.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct CoordinateState {
     pub value: f64,
     pub velocity: f64,
 }
 
 /// A twist in se(3) — the Lie algebra of SE(3).
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct Twist {
+    #[reflect(ignore)]
     pub angular: Vec3,
+    #[reflect(ignore)]
     pub linear: Vec3,
 }
 
 /// The type of coupling between linked coordinates.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct Coupling {
     pub kind: CouplingKind,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Reflect)]
 pub enum CouplingKind {
     Equality(Function),
     Tendon,
@@ -131,7 +130,7 @@ impl Twist {
 
 pub fn evaluate_joint(
     children: &Children,
-    twists: &Query<(&Twist, Option<&DrivesCoordinate>, Option<&Function>)>,
+    twists: &Query<(&Twist, Option<&Function>)>,
     states: &Query<&CoordinateState>,
 ) -> Iso3 {
     let mut transform = Iso3::identity();
@@ -174,7 +173,7 @@ pub fn to_bevy_transform(iso: &Iso3) -> Transform {
 
 pub fn sync_kinematics(
     mut joints: Query<(&Children, &mut Transform), With<Joint>>,
-    twists: Query<(&Twist, Option<&DrivesCoordinate>, Option<&Function>)>,
+    twists: Query<(&Twist, Option<&Function>)>,
     states: Query<&CoordinateState>,
 ) {
     for (children, mut transform) in &mut joints {
