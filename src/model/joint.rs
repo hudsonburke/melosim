@@ -16,14 +16,6 @@ pub struct Joint;
 #[derive(Component, Clone, Debug)]
 pub struct DrivesCoordinate(pub Entity);
 
-/// Marker to attach a glTF scene to a named body (resolved by the render plugin).
-#[derive(Component, Clone, Debug)]
-pub struct AttachMesh {
-    pub body: String,
-    pub path: String,
-    pub offset: Transform,
-}
-
 #[derive(Component, Clone, Debug, Default)]
 #[require(CoordinateProperties, InitialConditions)]
 pub struct Coordinate;

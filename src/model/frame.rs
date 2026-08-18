@@ -1,6 +1,5 @@
 use bevy::prelude::*;
-use nalgebra::{Isometry3, Vector3};
-use std::path::PathBuf;
+use nalgebra::{Matrix3, Vector3};
 
 /// Marker for a rigid body entity.
 ///
@@ -19,22 +18,6 @@ pub struct Body;
 #[derive(Component, Clone, Debug, Default)]
 pub struct Frame;
 
-/// A fixed (non-driven) frame offset stored as an isometry.
-///
-/// Used by the importer/exporter to represent body geometry offsets,
-/// joint parent offsets, and joint child offsets. The render sync system
-/// copies this into the entity's `Transform` on insertion.
-#[derive(Component, Clone, Debug)]
-pub struct FixedFrame(pub Isometry3<f64>);
-
-/// Marker for geometry entities (mesh attachments on a body).
-#[derive(Component, Clone, Debug, Default)]
-pub struct Geometry;
-
-/// Directory prepended to geometry mesh paths at asset load time.
-#[derive(Component, Clone, Debug)]
-pub struct ModelDir(pub PathBuf);
-
 /// Marker for a site — a point on a frame.
 ///
 /// The site's position is stored in its `Transform` component. The parent
@@ -45,8 +28,6 @@ pub struct ModelDir(pub PathBuf);
 /// or iterate the body's `Children` and filter by `With<Site>`.
 #[derive(Component, Clone, Debug, Default)]
 pub struct Site;
-
-// ── Inertial properties ──
 
 /// Upper-triangle inertia tensor: (Ixx, Iyy, Izz, Ixy, Ixz, Iyz).
 #[derive(Component, Clone, Debug, Default)]
@@ -65,8 +46,8 @@ impl Inertia {
         Vector3::new(self.0[0], self.0[1], self.0[2])
     }
 
-    pub fn to_matrix(&self) -> nalgebra::Matrix3<f64> {
-        nalgebra::Matrix3::new(
+    pub fn to_matrix(&self) -> Matrix3<f64> {
+        Matrix3::new(
             self.0[0], self.0[3], self.0[4], //
             self.0[3], self.0[1], self.0[5], //
             self.0[4], self.0[5], self.0[2], //

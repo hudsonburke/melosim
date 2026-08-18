@@ -1,18 +1,16 @@
-pub mod stl;
 pub mod sync;
+pub mod visualize;
 
 use bevy::prelude::*;
-use stl::StlPlugin;
 
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(StlPlugin).add_systems(
+        app.add_systems(
             PostUpdate,
-            (sync::sync_fixed_frames, sync::sync_kinematics)
-                .chain()
-                .before(bevy::transform::TransformSystems::Propagate),
-        );
+            sync::sync_kinematics.before(bevy::transform::TransformSystems::Propagate),
+        )
+        .add_systems(Update, visualize::visualize_model);
     }
 }

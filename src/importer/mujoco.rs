@@ -1,332 +1,322 @@
-// ── MuJoCo MJCF Importer ──────────────────────────────
+//! MuJoCo MJCF import via `mujoco-rs`'s `MjSpec`: MuJoCo itself parses the
+//! XML (includes, compiler defaults, classes) and we walk the spec.
+//!
+//! Mapping notes:
+//! - A MuJoCo body becomes a [`BodyData`]; its joint element(s) become ONE
+//!   [`JointData`] whose axes compose — exactly how MuJoCo composes multiple
+//!   joints within a body.
+//! - The joint anchor (`pos`) folds into the parent/child offsets:
+//!   `parent_offset = body_placement ∘ anchor`, `child_offset = -anchor`.
+//! - MuJoCo ball/free joints use quaternion qpos; here they become 3
+//!   exponential-map rotation coordinates. Structure is preserved; qpos
+//!   interop with a running MuJoCo instance is NOT (yet).
+//! - Sites, actuators, tendons, equality constraints: not imported (yet).
 
 use std::collections::HashMap;
+use std::path::Path;
 
-use crate::components::*;
-use crate::math::{Quaternion, Transform, Vec3};
-use crate::world::World;
-use bevy_ecs::prelude::Entity;
+use bevy::log::warn;
+use bevy::asset::io::Reader;
+use bevy::asset::{AssetLoader, LoadContext};
+use bevy::reflect::TypePath;
+use mujoco_rs::wrappers::mj_editing::*; // MjSpec, MjsBody, MjsJoint, MjtLimited, SpecItem (name())
+use mujoco_rs::wrappers::mj_model::{MjtJoint, MjtObj};
+use nalgebra::{Isometry3, Quaternion, Translation, UnitQuaternion, Vector3};
 
-use mujoco_rs::wrappers::mj_model::*;
-use mujoco_rs::mujoco_c::*;
+use super::{AxisData, BodyData, CoordinateData, GeometryData, JointData, ModelData};
+use crate::model::{Inertia, InertialProperties, Twist};
 
-/// Import a MuJoCo MJCF file into a melosim World.
-pub fn import_mjcf(path: &str) -> Result<(World, HashMap<i32, Entity>), String> {
-    let model = MjModel::from_xml(path)
-        .map_err(|e| format!("Failed to load MJCF: {}", e))?;
+/// Parse the MJCF file at `path` into the format-neutral IR.
+pub fn extract_mjcf(path: &Path) -> Result<ModelData, String> {
+    let mut spec =
+        MjSpec::from_xml(path).map_err(|e| format!("failed to load MJCF: {e}"))?;
 
-    let mut world = World::new();
-
-    // ── Ground body (entity 0) ──
-    let ground = world.spawn(()).id();
-    world.entity_mut(ground).insert(InertialProperties {
-        mass: 0.0, com: [0.0; 3], inertia: [0.0; 6],
-    });
-    let model_name = model.id_to_name(MjtObj::mjOBJ_BODY, 0)
-        .unwrap_or("worldbody").to_string();
-    world.entity_mut(ground).insert(Name { value: model_name });
-
-    let mut body_map: HashMap<i32, Entity> = HashMap::new();
-    body_map.insert(0, ground);
-
-    let nbody = model.nbody() as usize;
-    let njnt = model.njnt() as usize;
-    let ngeom = model.ngeom() as usize;
-    let nsite = model.nsite() as usize;
-    let nu = model.nu() as usize;
-    let ntendon = model.ntendon() as usize;
-
-    // ── Import bodies (skip body 0 = worldbody) ──
-    for i in 1..nbody {
-        let entity = world.spawn(()).id();
-        let mass = model.body_mass()[i];
-        let ipos = model.body_ipos()[i];
-        let inertia_diag = model.body_inertia()[i];
-        world.entity_mut(entity).insert(InertialProperties {
-            mass, com: ipos,
-            inertia: [inertia_diag[0], inertia_diag[1], inertia_diag[2], 0.0, 0.0, 0.0],
-        });
-        let name = model.id_to_name(MjtObj::mjOBJ_BODY, i)
-            .unwrap_or("unnamed").to_string();
-        world.entity_mut(entity).insert(Name { value: name });
-        let parent_id = model.body_parentid()[i];
-        let parent = *body_map.get(&parent_id)
-            .ok_or_else(|| format!("Body {} has unmapped parent {}", i, parent_id))?;
-        let pos = model.body_pos()[i];
-        let quat = model.body_quat()[i];
-        world.entity_mut(entity).insert(ChildOf { parent });
-        world.entity_mut(entity).insert(Position::new(pos[0], pos[1], pos[2]));
-        world.entity_mut(entity).insert(Rotation { quaternion: Quaternion { w: quat[0], x: quat[1], y: quat[2], z: quat[3] } });
-        body_map.insert(i as i32, entity);
-    }
-
-    let mut coord_map: HashMap<i32, Entity> = HashMap::new();
-
-    // ── Import joints ──
-    for j in 0..njnt {
-        let jnt_type = model.jnt_type()[j];
-        let body_id = model.jnt_bodyid()[j];
-        let body_b = *body_map.get(&body_id)
-            .ok_or_else(|| format!("Joint {} attached to unmapped body {}", j, body_id))?;
-        let parent_id = model.body_parentid()[body_id as usize];
-        let body_a = *body_map.get(&parent_id)
-            .ok_or_else(|| format!("Joint {} parent body {} not mapped", j, parent_id))?;
-        let jnt_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
-            .unwrap_or("unnamed_joint").to_string();
-        let axis = model.jnt_axis()[j];
-        let axis_arr = [axis[0], axis[1], axis[2]];
-        let range = model.jnt_range()[j];
-        let has_limits = model.jnt_limited()[j];
-        let stiffness = model.jnt_stiffness()[j];
-        let dof_adr = model.jnt_dofadr()[j];
-        let damping = if dof_adr >= 0 { model.dof_damping()[dof_adr as usize] } else { 0.0 };
-
-        let joint_entity = world.spawn(()).id();
-        world.entity_mut(joint_entity).insert(Name { value: jnt_name });
-        world.entity_mut(joint_entity).insert(ChildOf { parent: body_a });
-        world.entity_mut(body_b).insert(ChildOf { parent: joint_entity });
-
-        match jnt_type {
-            mjtJoint_::mjJNT_HINGE => {
-                let coord_entity = world.spawn(()).id();
-                let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
-                    .unwrap_or("unnamed_coord");
-                world.entity_mut(coord_entity).insert(ChildOf { parent: joint_entity });
-                world.entity_mut(coord_entity).insert(Name { value: coord_name.to_string() });
-                world.entity_mut(coord_entity).insert(JointCoordinate {
-                    range_min: if has_limits { range[0] } else { -1e10 },
-                    range_max: if has_limits { range[1] } else { 1e10 },
-                    default_value: 0.0, stiffness, damping,
-                    clamped: has_limits, locked: false, prescribed_function: None,
-                });
-                coord_map.insert(j as i32, coord_entity);
-                let effect_entity = world.spawn(()).id();
-                world.entity_mut(effect_entity).insert(ChildOf { parent: coord_entity });
-                world.entity_mut(effect_entity).insert(CoordinateEffect {
-                    component: TransformComponent::RotationAboutAxis(axis_arr),
-                    function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
-                });
-            }
-            mjtJoint_::mjJNT_SLIDE => {
-                let coord_entity = world.spawn(()).id();
-                let coord_name = model.id_to_name(MjtObj::mjOBJ_JOINT, j)
-                    .unwrap_or("unnamed_coord");
-                world.entity_mut(coord_entity).insert(ChildOf { parent: joint_entity });
-                world.entity_mut(coord_entity).insert(Name { value: coord_name.to_string() });
-                world.entity_mut(coord_entity).insert(JointCoordinate {
-                    range_min: if has_limits { range[0] } else { -1e10 },
-                    range_max: if has_limits { range[1] } else { 1e10 },
-                    default_value: 0.0, stiffness, damping,
-                    clamped: has_limits, locked: false, prescribed_function: None,
-                });
-                coord_map.insert(j as i32, coord_entity);
-                let effect_entity = world.spawn(()).id();
-                world.entity_mut(effect_entity).insert(ChildOf { parent: coord_entity });
-                world.entity_mut(effect_entity).insert(CoordinateEffect {
-                    component: TransformComponent::TranslationAlongAxis(axis_arr),
-                    function: JointFunction::Linear { slope: 1.0, intercept: 0.0 },
-                });
-            }
-            mjtJoint_::mjJNT_BALL => {}
-            mjtJoint_::mjJNT_FREE => {}
-        }
-    }
-
-    // ── Import sites ──
-    for s in 0..nsite {
-        let body_id = model.site_bodyid()[s];
-        let parent = *body_map.get(&body_id)
-            .ok_or_else(|| format!("Site {} attached to unmapped body {}", s, body_id))?;
-        let pos = model.site_pos()[s];
-        let site_entity = world.spawn(()).id();
-        world.entity_mut(site_entity).insert(ChildOf { parent });
-        world.entity_mut(site_entity).insert(Position::new(pos[0], pos[1], pos[2]));
-        let site_name = model.id_to_name(MjtObj::mjOBJ_SITE, s)
-            .unwrap_or("unnamed_site").to_string();
-        world.entity_mut(site_entity).insert(Name { value: site_name });
-    }
-
-    // ── Import geoms as DisplayGeometry ──
-    for g in 0..ngeom {
-        let body_id = model.geom_bodyid()[g];
-        let body = *body_map.get(&body_id)
-            .ok_or_else(|| format!("Geom {} attached to unmapped body {}", g, body_id))?;
-        let pos = model.geom_pos()[g];
-        let quat = model.geom_quat()[g];
-        let rgba = model.geom_rgba()[g];
-        let size = model.geom_size()[g];
-        let geom_type = model.geom_type()[g];
-        let mesh_file = match geom_type {
-            mjtGeom_::mjGEOM_MESH => {
-                let mesh_id = model.geom_dataid()[g] as usize;
-                model.id_to_name(MjtObj::mjOBJ_MESH, mesh_id).map(|s| s.to_string())
-            }
-            _ => None,
-        };
-
-        let mut translation = [pos[0], pos[1], pos[2]];
-        let mut rotation = quat;
-        let mut scale = [size[0], size[1], size[2]];
-
-        if geom_type == mjtGeom_::mjGEOM_MESH {
-            let mid = model.geom_dataid()[g] as usize;
-            let mp = model.mesh_pos()[mid];
-            let q_pre = qconj(model.mesh_quat()[mid]);
-            let t_pre = qrot(q_pre, [-mp[0], -mp[1], -mp[2]]);
-            rotation = qmul(quat, q_pre);
-            let rt = qrot(quat, t_pre);
-            translation = [pos[0] + rt[0], pos[1] + rt[1], pos[2] + rt[2]];
-            scale = model.mesh_scale()[mid];
-        }
-
-        let geom_entity = world.spawn(()).id();
-        world.entity_mut(geom_entity).insert(DisplayGeometry {
-            body, mesh_file, scale,
-            color: [rgba[0] as f64, rgba[1] as f64, rgba[2] as f64],
-            opacity: rgba[3] as f64,
-            transform: Transform {
-                translation: Vec3::new(translation[0], translation[1], translation[2]),
-                rotation: Quaternion { w: rotation[0], x: rotation[1], y: rotation[2], z: rotation[3] },
+    let mut model = ModelData {
+        name: path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "model".into()),
+        // MuJoCo resolves mesh files as <model dir>/<compiler meshdir>/<file>.
+        mesh_dir: path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join(spec.compiler().meshdir()),
+        bodies: vec![BodyData {
+            name: "ground".into(),
+            inertial: InertialProperties {
+                mass: 0.0,
+                mass_center: Vector3::zeros(),
+                inertia: Inertia::default(),
             },
+            geometry: vec![],
+        }],
+        joints: vec![],
+    };
+
+    let meshes: HashMap<String, String> = spec
+        .mesh_iter()
+        .map(|m| (m.name().to_string(), m.file().to_string()))
+        .collect();
+
+    for body in spec.world_body().body_iter(false) {
+        walk_body(body, "ground", &meshes, &mut model)?;
+    }
+
+    // Compile the spec to resolve geom orientations. Mesh geoms may
+    // specify orientation via `euler`/`axisangle` (resolved into the mesh's
+    // reference frame, not the geom's quat), and the mesh itself may have a
+    // reference frame offset baked in. The compiled model has the final
+    // resolved values.
+    match spec.compile() {
+        Ok(compiled) => {
+            for body in &mut model.bodies {
+                for geom in &mut body.geometry {
+                    if let Some(gid) = compiled.name_to_id(MjtObj::mjOBJ_GEOM, &geom.name) {
+                        let gq = compiled.geom_quat()[gid];
+                        let gp = compiled.geom_pos()[gid];
+                        let mut offset = iso_from_pos_quat(gp, gq);
+
+                        // Compose the mesh's reference frame (refpos/refquat
+                        // baked into the mesh data during compilation).
+                        let mesh_id = compiled.geom_dataid()[gid];
+                        if mesh_id >= 0 {
+                            let mq = compiled.mesh_quat()[mesh_id as usize];
+                            let mp = compiled.mesh_pos()[mesh_id as usize];
+                            offset *= iso_from_pos_quat(mp, mq);
+                        }
+
+                        geom.offset = offset;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            warn!("MjSpec compile failed (geom orientations may be wrong): {e}");
+        }
+    }
+    Ok(model)
+}
+
+fn walk_body(
+    body: &MjsBody,
+    parent_name: &str,
+    meshes: &HashMap<String, String>,
+    model: &mut ModelData,
+) -> Result<(), String> {
+    let name = body.name().to_string();
+    let placement = iso_from_pos_quat(*body.pos(), *body.quat());
+
+    let geometry = body
+        .geom_iter(false)
+        .filter(|g| !g.meshname().is_empty())
+        .filter_map(|g| {
+            meshes.get(g.meshname()).map(|file| GeometryData {
+                name: g.name().to_string(),
+                mesh: file.clone(),
+                offset: iso_from_pos_quat(*g.pos(), *g.quat()),
+            })
+        })
+        .collect();
+
+    model.bodies.push(BodyData {
+        name: name.clone(),
+        inertial: InertialProperties {
+            mass: body.mass(),
+            mass_center: Vector3::from(*body.ipos()),
+            inertia: Inertia(*body.fullinertia()),
+        },
+        geometry,
+    });
+
+    // All joint elements of this body compose into one JointData.
+    let joints: Vec<_> = body.joint_iter(false).collect();
+    let anchor = joints.first().map(|j| Vector3::from(*j.pos())).unwrap_or_default();
+
+    let mut coordinates = Vec::new();
+    let mut axes = Vec::new();
+    for &j in &joints {
+        push_joint_axes(j, &name, &mut coordinates, &mut axes);
+    }
+
+    model.joints.push(JointData {
+        name: joints
+            .first()
+            .filter(|j| !j.name().is_empty())
+            .map(|j| j.name().to_string())
+            .unwrap_or_else(|| format!("{name}_joint")),
+        parent_body: parent_name.to_string(),
+        child_body: name.clone(),
+        parent_offset: placement * Translation::from(anchor),
+        child_offset: Isometry3::from(Translation::from(-anchor)),
+        coordinates,
+        axes,
+    });
+
+    for child in body.body_iter(false) {
+        walk_body(child, &name, meshes, model)?;
+    }
+    Ok(())
+}
+
+fn push_joint_axes(
+    joint: &MjsJoint,
+    body_name: &str,
+    coordinates: &mut Vec<CoordinateData>,
+    axes: &mut Vec<AxisData>,
+) {
+    let base = if joint.name().is_empty() {
+        format!("{body_name}_{:?}", joint.type_())
+    } else {
+        joint.name().to_string()
+    };
+    let limited = matches!(joint.limited(), MjtLimited::mjLIMITED_TRUE);
+    let range = *joint.range();
+    let mut coord = |suffix: &str, default_value: f64| {
+        let c = CoordinateData {
+            name: format!("{base}{suffix}"),
+            default_value,
+            range: if limited { (range[0], range[1]) } else { (-f64::MAX, f64::MAX) },
+            clamped: limited,
+            locked: false,
+            stiffness: joint.stiffness().first().copied().unwrap_or(0.0),
+            damping: joint.damping().first().copied().unwrap_or(0.0),
+        };
+        coordinates.push(c);
+        format!("{base}{suffix}")
+    };
+    let mut axis = |coordinate: String, angular: Vector3<f64>, linear: Vector3<f64>| {
+        axes.push(AxisData {
+            twist: Twist { angular, linear },
+            coordinate: Some(coordinate),
+            function: None,
         });
-        let geom_name = model.id_to_name(MjtObj::mjOBJ_GEOM, g)
-            .unwrap_or("unnamed_geom").to_string();
-        world.entity_mut(geom_entity).insert(Name { value: geom_name });
-    }
+    };
 
-    // ── Tendon name → path data mapping ──
-    struct TendonPathData {
-        _name: String,
-        path_points: Vec<PathPoint>,
-    }
-    let mut tendon_paths: Vec<TendonPathData> = Vec::new();
-
-    for t in 0..ntendon {
-        let tendon_name = model.id_to_name(MjtObj::mjOBJ_TENDON, t)
-            .unwrap_or("unnamed_tendon").to_string();
-        let wrap_adr = model.tendon_adr()[t] as usize;
-        let wrap_num = model.tendon_num()[t] as usize;
-        let wrap_types = model.wrap_type();
-        let wrap_objids = model.wrap_objid();
-
-        let mut path_points = Vec::new();
-        for w in wrap_adr..(wrap_adr + wrap_num) {
-            match wrap_types[w] {
-                mjtWrap_::mjWRAP_SITE => {
-                    let site_id = wrap_objids[w];
-                    let site_pos = model.site_pos()[site_id as usize];
-                    let site_body_id = model.site_bodyid()[site_id as usize];
-                    let body = *body_map.get(&site_body_id).unwrap_or(&ground);
-                    path_points.push(PathPoint::BodyFixed { body, location: site_pos });
-                }
-                mjtWrap_::mjWRAP_SPHERE | mjtWrap_::mjWRAP_CYLINDER => {
-                    let geom_id = wrap_objids[w];
-                    let geom_pos = model.geom_pos()[geom_id as usize];
-                    let geom_body_id = model.geom_bodyid()[geom_id as usize];
-                    let body = *body_map.get(&geom_body_id).unwrap_or(&ground);
-                    path_points.push(PathPoint::BodyFixed { body, location: geom_pos });
-                }
-                _ => {}
+    match joint.type_() {
+        MjtJoint::mjJNT_HINGE => {
+            let name = coord("", *joint.ref_());
+            axis(name, Vector3::from(*joint.axis()), Vector3::zeros());
+        }
+        MjtJoint::mjJNT_SLIDE => {
+            let name = coord("", *joint.ref_());
+            axis(name, Vector3::zeros(), Vector3::from(*joint.axis()));
+        }
+        MjtJoint::mjJNT_BALL => {
+            for (suffix, dir) in [("_rx", Vector3::x()), ("_ry", Vector3::y()), ("_rz", Vector3::z())] {
+                let name = coord(suffix, 0.0);
+                axis(name, dir, Vector3::zeros());
             }
         }
-        tendon_paths.push(TendonPathData { _name: tendon_name, path_points });
-    }
-
-    // ── Import actuators ──
-    let actuator_trntype = model.actuator_trntype();
-    let actuator_dyntype = model.actuator_dyntype();
-    let actuator_gaintype = model.actuator_gaintype();
-    let actuator_biastype = model.actuator_biastype();
-    let actuator_trnid = model.actuator_trnid();
-    let actuator_gainprm = model.actuator_gainprm();
-    let actuator_biasprm = model.actuator_biasprm();
-    let actuator_dynprm = model.actuator_dynprm();
-    let actuator_ctrlrange = model.actuator_ctrlrange();
-    let actuator_gear = model.actuator_gear();
-
-    for a in 0..nu {
-        let act_name = model.id_to_name(MjtObj::mjOBJ_ACTUATOR, a)
-            .unwrap_or("unnamed_actuator").to_string();
-
-        let is_muscle = actuator_dyntype[a] == mjtDyn_::mjDYN_MUSCLE
-            || actuator_gaintype[a] == mjtGain_::mjGAIN_MUSCLE
-            || actuator_biastype[a] == mjtBias_::mjBIAS_MUSCLE;
-
-        if is_muscle {
-            let muscle_entity = world.spawn(()).id();
-            world.entity_mut(muscle_entity).insert(Muscle);
-            world.entity_mut(muscle_entity).insert(Name { value: act_name.clone() });
-            let max_force = actuator_gear[a][0];
-            let opt_fiber = actuator_biasprm[a][0];
-            let tendon_slack = actuator_biasprm[a][1];
-            let pennation = actuator_biasprm[a][2];
-            let act_time = actuator_dynprm[a][0];
-            let deact_time = actuator_dynprm[a][1];
-            let min_act = actuator_ctrlrange[a][0];
-            world.entity_mut(muscle_entity).insert(Millard2012Params {
-                muscle: muscle_entity,
-                max_isometric_force: max_force,
-                optimal_fiber_length: if opt_fiber > 0.0 { opt_fiber } else { 0.1 },
-                tendon_slack_length: if tendon_slack > 0.0 { tendon_slack } else { 0.1 },
-                pennation_angle_at_optimal: pennation,
-                max_contraction_velocity: 10.0,
-                activation_time_constant: if act_time > 0.0 { act_time } else { 0.01 },
-                deactivation_time_constant: if deact_time > 0.0 { deact_time } else { 0.04 },
-                minimum_activation: if min_act > 0.0 { min_act } else { 0.01 },
-                fiber_damping: 0.0,
-                ignore_activation_dynamics: false,
-                ignore_tendon_compliance: false,
-            });
-            let tendon_id = actuator_trnid[a][0];
-            if tendon_id >= 0 && (tendon_id as usize) < tendon_paths.len() {
-                let tp = &tendon_paths[tendon_id as usize];
-                world.entity_mut(muscle_entity).insert(MusclePath {
-                    muscle: muscle_entity,
-                    points: tp.path_points.clone(),
-                });
+        MjtJoint::mjJNT_FREE => {
+            for (suffix, dir) in [("_tx", Vector3::x()), ("_ty", Vector3::y()), ("_tz", Vector3::z())] {
+                let name = coord(suffix, 0.0);
+                axis(name, Vector3::zeros(), dir);
             }
-        } else if actuator_trntype[a] == mjtTrn_::mjTRN_JOINT {
-            let joint_id = actuator_trnid[a][0];
-            if let Some(&coord_entity) = coord_map.get(&joint_id) {
-                let act_entity = world.spawn(()).id();
-                world.entity_mut(act_entity).insert(Name { value: act_name });
-                world.entity_mut(act_entity).insert(CoordinateActuator {
-                    coordinate: coord_entity,
-                    optimal_force: actuator_gear[a][0].abs(),
-                    min_control: actuator_ctrlrange[a][0],
-                    max_control: actuator_ctrlrange[a][1],
-                });
+            for (suffix, dir) in [("_rx", Vector3::x()), ("_ry", Vector3::y()), ("_rz", Vector3::z())] {
+                let name = coord(suffix, 0.0);
+                axis(name, dir, Vector3::zeros());
             }
         }
     }
-
-    Ok((world, body_map))
 }
 
-// ── Quaternion helpers (MuJoCo order: w, x, y, z) ─────
-
-fn qconj(q: [f64; 4]) -> [f64; 4] {
-    [q[0], -q[1], -q[2], -q[3]]
+fn iso_from_pos_quat(pos: [f64; 3], quat: [f64; 4]) -> Isometry3<f64> {
+    Isometry3::from_parts(
+        Translation::from(Vector3::from(pos)),
+        // MuJoCo quaternions are (w, x, y, z).
+        UnitQuaternion::from_quaternion(Quaternion::new(quat[0], quat[1], quat[2], quat[3])),
+    )
 }
 
-fn qmul(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
-    let (aw, ax, ay, az) = (a[0], a[1], a[2], a[3]);
-    let (bw, bx, by, bz) = (b[0], b[1], b[2], b[3]);
-    [
-        aw * bw - ax * bx - ay * by - az * bz,
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-    ]
+/// `.xml` → [`ModelData`] asset loader (registered by `ImporterPlugin`).
+#[derive(TypePath)]
+pub struct MjcfLoader {
+    /// Joined with the asset path to get the real filesystem path MjSpec
+    /// parses from (it resolves mesh includes itself).
+    pub asset_root: std::path::PathBuf,
 }
 
-fn qrot(q: [f64; 4], v: [f64; 3]) -> [f64; 3] {
-    let (w, x, y, z) = (q[0], q[1], q[2], q[3]);
-    let c = [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]];
-    let cc = [y * c[2] - z * c[1], z * c[0] - x * c[2], x * c[1] - y * c[0]];
-    [
-        v[0] + 2.0 * (w * c[0] + cc[0]),
-        v[1] + 2.0 * (w * c[1] + cc[1]),
-        v[2] + 2.0 * (w * c[2] + cc[2]),
-    ]
+impl AssetLoader for MjcfLoader {
+    type Asset = ModelData;
+    type Settings = ();
+    type Error = std::io::Error;
+
+    async fn load(
+        &self,
+        _reader: &mut dyn Reader,
+        _settings: &Self::Settings,
+        load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let real_path = self.asset_root.join(load_context.path().path());
+        let mut model = extract_mjcf(&real_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        // Mesh paths must be asset-root-relative for later AssetServer loads.
+        if let Ok(rel) = model.mesh_dir.strip_prefix(&self.asset_root) {
+            model.mesh_dir = rel.to_path_buf();
+        }
+        Ok(model)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["xml"]
+    }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The myo_sim model imports with referential integrity: every joint's
+    /// parent/child bodies and every axis's coordinate must exist.
+    #[test]
+    fn extract_myolegs_structure() {
+        let model = extract_mjcf(Path::new("tests/fixtures/myo_sim/osl/myolegs_osl.xml")).unwrap();
+        assert!(model.bodies.len() > 3, "expected a real skeleton");
+
+      // Debug: verify euler resolution — print all geoms in compiled model
+        {
+            let mut spec2 = MjSpec::from_xml(std::path::Path::new(
+                "tests/fixtures/myo_sim/osl/myolegs_osl.xml",
+            ))
+            .unwrap();
+            let compiled = spec2.compile().unwrap();
+            println!("DEBUG ngeom={}", compiled.ngeom());
+            for i in 0..compiled.ngeom() as usize {
+                let name = compiled.id_to_name(MjtObj::mjOBJ_GEOM, i as _);
+                let q = compiled.geom_quat()[i];
+                println!("  geom[{i}] name={name:?} quat=[{:.4} {:.4} {:.4} {:.4}]",
+                    q[0], q[1], q[2], q[3]);
+            }
+            // Also print what our walk found
+            for b in &model.bodies {
+                for g in &b.geometry {
+                    let q = g.offset.rotation;
+                    println!("  OURS body={} geom={} quat=[{:.4} {:.4} {:.4} {:.4}]",
+                        b.name, g.name, q.w, q.i, q.j, q.k);
+                }
+            }
+        }
+
+
+        for j in &model.joints {
+            assert!(model.bodies.iter().any(|b| b.name == j.parent_body), "parent {}", j.parent_body);
+            assert!(model.bodies.iter().any(|b| b.name == j.child_body), "child {}", j.child_body);
+            for a in &j.axes {
+                let Some(name) = &a.coordinate else { continue };
+                assert!(
+                    j.coordinates.iter().any(|c| &c.name == name),
+                    "axis coordinate {name} of joint {}",
+                    j.name,
+                );
+            }
+        }
+
+        // And the whole thing spawns.
+        let mut app = bevy::app::App::new();
+        app.add_plugins(bevy::app::TaskPoolPlugin::default());
+        let root = app.world_mut().spawn_empty().id();
+        let spawned = super::super::spawn_model(app.world_mut(), root, &model);
+        assert_eq!(spawned.bodies.len(), model.bodies.len());
+    }
+}
+
