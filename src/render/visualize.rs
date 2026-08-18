@@ -1,36 +1,49 @@
+//! Visualization resources and gizmo systems.
+//!
+//! Static meshes (Body, Site, WrappingSurface) use `SceneComponent`
+//! and live as real entities — visible to Jackdaw's viewport and
+//! selectable via its outliner.
+//!
+//! Dynamic overlays (muscle paths, joint axes) use Bevy gizmos and
+//! draw on top. Toggle them via `VisualizationSettings`.
+
 use bevy::prelude::*;
 
-use crate::model::{Body, PathEntities, Site, WrappingSurface};
+// ── Toggle resource ──────────────────────────────────
 
-/// Draws bodies as spheres, sites as small spheres, and muscle paths as lines.
-/// Uses Bevy's built-in gizmos for immediate-mode visualization.
-pub fn visualize_model(
+/// Controls which visualization layers are active.
+#[derive(Resource, Clone, Debug, Reflect)]
+pub struct VisualizationSettings {
+    pub muscle_paths: bool,
+    pub joint_axes: bool,
+    pub body_meshes: bool,
+    pub site_meshes: bool,
+}
+
+impl Default for VisualizationSettings {
+    fn default() -> Self {
+        Self {
+            muscle_paths: true,
+            joint_axes: false,
+            body_meshes: true,
+            site_meshes: true,
+        }
+    }
+}
+
+// ── Gizmo systems ────────────────────────────────────
+
+/// Draw muscle paths as line segments between path entities.
+pub fn draw_muscle_paths(
     mut gizmos: Gizmos,
-    bodies: Query<&GlobalTransform, With<Body>>,
-    sites: Query<&GlobalTransform, With<Site>>,
-    wrapping: Query<&GlobalTransform, With<WrappingSurface>>,
-    muscles: Query<&PathEntities>,
+    settings: Res<VisualizationSettings>,
+    muscles: Query<&crate::model::PathEntities>,
     transforms: Query<&GlobalTransform>,
 ) {
-    // ── Bodies (blue spheres) ──
-    for gt in &bodies {
-        let pos = gt.translation();
-        gizmos.sphere(Isometry3d::from_translation(pos), 0.03, Color::srgb(0.3, 0.5, 0.9));
+    if !settings.muscle_paths {
+        return;
     }
 
-    // ── Sites (green dots) ──
-    for gt in &sites {
-        let pos = gt.translation();
-        gizmos.sphere(Isometry3d::from_translation(pos), 0.008, Color::srgb(0.2, 0.9, 0.3));
-    }
-
-    // ── Wrapping surfaces (orange outlines) ──
-    for gt in &wrapping {
-        let pos = gt.translation();
-        gizmos.sphere(Isometry3d::from_translation(pos), 0.04, Color::srgba(1.0, 0.6, 0.2, 0.4));
-    }
-
-    // ── Muscle paths (red lines) ──
     for path_entities in &muscles {
         let points: Vec<Vec3> = path_entities
             .iter()
@@ -41,6 +54,38 @@ pub fn visualize_model(
             for pair in points.windows(2) {
                 gizmos.line(pair[0], pair[1], Color::srgb(0.9, 0.2, 0.2));
             }
+        }
+    }
+}
+
+/// Draw joint axes as short lines showing rotation/translation directions.
+pub fn draw_joint_axes(
+    mut gizmos: Gizmos,
+    settings: Res<VisualizationSettings>,
+    joints: Query<&GlobalTransform, With<crate::model::Joint>>,
+    axes: Query<(&crate::model::Twist, &ChildOf)>,
+    transforms: Query<&GlobalTransform>,
+) {
+    if !settings.joint_axes {
+        return;
+    }
+
+    for (twist, child_of) in &axes {
+        let Ok(joint_gt) = transforms.get(child_of.0) else {
+            continue;
+        };
+        let pos = joint_gt.translation();
+
+        // Rotation axis (blue)
+        if twist.angular.norm() > 1e-6 {
+            let dir = twist.angular.normalize() * 0.05;
+            gizmos.line(pos, pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32), Color::srgb(0.2, 0.4, 0.9));
+        }
+
+        // Translation axis (green)
+        if twist.linear.norm() > 1e-6 {
+            let dir = twist.linear.normalize() * 0.05;
+            gizmos.line(pos, pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32), Color::srgb(0.2, 0.9, 0.4));
         }
     }
 }

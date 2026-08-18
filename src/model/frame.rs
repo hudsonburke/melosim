@@ -7,9 +7,23 @@ use nalgebra::{Matrix3, Vector3};
 /// It has an implicit default frame represented by its `Transform`
 /// component (identity by default). Child `Frame` and `Site` entities
 /// are positioned relative to this default frame.
-#[derive(Component, Clone, Debug, Default)]
+///
+/// When spawned via BSN with `@Body`, gets a default sphere mesh.
+/// Override by providing explicit `Mesh3d`/`MeshMaterial3d` or
+/// `WorldAssetRoot` for GLTF assets.
+#[derive(SceneComponent, Component, Clone, Debug, Default)]
 #[require(Transform, Visibility)]
 pub struct Body;
+
+impl Body {
+    /// Default scene: a sphere representing the body's center of mass.
+    pub fn scene() -> impl Scene {
+        bsn! {
+            Mesh3d(asset_value(Sphere::new(0.03)))
+            MeshMaterial3d<StandardMaterial>(asset_value(Color::srgb(0.3, 0.5, 0.9)))
+        }
+    }
+}
 
 /// Marker for a frame — a coordinate system offset from its parent.
 ///
@@ -26,8 +40,21 @@ pub struct Frame;
 ///
 /// To find sites belonging to a body, query `Query<&Site, With<ChildOf<Body>>>`
 /// or iterate the body's `Children` and filter by `With<Site>`.
-#[derive(Component, Clone, Debug, Default)]
+///
+/// When spawned via BSN with `@Site`, gets a small sphere mesh.
+#[derive(SceneComponent, Component, Clone, Debug, Default)]
+#[require(Transform, Visibility)]
 pub struct Site;
+
+impl Site {
+    /// Default scene: a small sphere representing the attachment point.
+    pub fn scene() -> impl Scene {
+        bsn! {
+            Mesh3d(asset_value(Sphere::new(0.008)))
+            MeshMaterial3d<StandardMaterial>(asset_value(Color::srgb(0.2, 0.9, 0.3)))
+        }
+    }
+}
 
 /// Upper-triangle inertia tensor: (Ixx, Iyy, Izz, Ixy, Ixz, Iyz).
 #[derive(Component, Clone, Debug, Default)]

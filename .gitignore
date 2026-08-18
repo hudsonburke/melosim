@@ -3,7 +3,5 @@
 .x86-pip-ready
 .venv/
 tests/fixtures/
-Rajagopal2015.osim
 opensim.log
-roundtrip_rajagopal.osim
-
+.jackdaw/

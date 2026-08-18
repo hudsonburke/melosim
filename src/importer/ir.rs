@@ -320,11 +320,7 @@ mod tests {
         ));
         app.add_systems(
             PostUpdate,
-            (
-                crate::render::sync::sync_fixed_frames,
-                crate::render::sync::sync_kinematics,
-            )
-                .chain()
+            crate::model::sync_kinematics
                 .before(bevy::transform::TransformSystems::Propagate),
         );
 
