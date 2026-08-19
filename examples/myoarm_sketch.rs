@@ -16,7 +16,6 @@ fn main() {
         .add_plugins(EditorPlugin)
         .add_plugins(RenderPlugin)
         .add_systems(Startup, setup_skeleton.spawn())
-        .add_systems(PostStartup, attach_bone_materials)
         .add_systems(Update, debug_hierarchy.run_if(not(any_with_component::<DebugPrinted>)))
         .add_systems(Update, draw_body_gizmos)
         .run();
@@ -120,6 +119,9 @@ fn setup_skeleton() -> impl SceneList {
                 // Bone mesh (Z-up -> Y-up rotation baked into the local Transform)
                 (#clavicle_mesh
                     Mesh3d("gltf/clavicle.glb#Mesh0/Primitive0")
+                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
+                        Color::srgb(0.8, 0.7, 0.6),
+                    )))
                     Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 (#PECM1_P3 Site Transform::from_xyz(0.026, 0.057, -0.004)),
                 // Offset frame for sternoclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
@@ -151,6 +153,9 @@ fn setup_skeleton() -> impl SceneList {
             Children [
                 (#scapula_mesh
                     Mesh3d("gltf/scapula.glb#Mesh0/Primitive0")
+                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
+                        Color::srgb(0.8, 0.7, 0.6),
+                    )))
                     Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 (#DELT2_P3 Site Transform::from_xyz(0.00005, 0.022, -0.003)),
                 // Offset frame for acromioclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
@@ -185,6 +190,9 @@ fn setup_skeleton() -> impl SceneList {
             Children [
                 (#humerus_mesh
                     Mesh3d("gltf/humerus.glb#Mesh0/Primitive0")
+                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
+                        Color::srgb(0.8, 0.7, 0.6),
+                    )))
                     Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 // Offset frame for shoulder joint (converted from MuJoCo Z-up to Bevy Y-up)
                 ( #shoulder_offset Frame Transform::from_xyz(0.0061, -0.0123, 0.2904)),
@@ -215,6 +223,9 @@ fn setup_skeleton() -> impl SceneList {
             Children [
                 (#ulna_mesh
                     Mesh3d("gltf/ulna.glb#Mesh0/Primitive0")
+                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
+                        Color::srgb(0.8, 0.7, 0.6),
+                    )))
                     Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 (#pro_sup_offset Frame Transform::from_xyz(0.0004, 0.020, 0.0115)),
             ]
@@ -252,6 +263,9 @@ fn setup_skeleton() -> impl SceneList {
             Children [
                 (#radius_mesh
                     Mesh3d("gltf/radius.glb#Mesh0/Primitive0")
+                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
+                        Color::srgb(0.8, 0.7, 0.6),
+                    )))
                     Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
             ]
         ),
@@ -293,28 +307,4 @@ fn setup_skeleton() -> impl SceneList {
             ]
         ),
     ]
-}
-
-/// Attach the shared bone material to every mesh declared in the BSN model.
-///
-/// Mesh geometry + placement are now declared declaratively in the BSN (each
-/// body's `Children`), so this only supplies the one shared `StandardMaterial`.
-/// It's a simple, generic pass: add a material to any `Mesh3d` that lacks one.
-fn attach_bone_materials(
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    meshes: Query<(Entity, &Mesh3d), Without<MeshMaterial3d<StandardMaterial>>>,
-) {
-    if meshes.is_empty() {
-        return;
-    }
-
-    let bone_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.8, 0.7, 0.6),
-        ..default()
-    });
-
-    for (entity, _mesh) in &meshes {
-        commands.entity(entity).insert(MeshMaterial3d(bone_material.clone()));
-    }
 }
