@@ -9,7 +9,14 @@
 
 use bevy::prelude::*;
 
-use crate::model::{myoarm_skeleton, Body, Coordinate, Frame, Joint, Muscle, Site};
+use crate::model::{Body, Coordinate, Frame, Joint, Muscle, Site};
+
+/// Model builders live in the top-level `models/` directory (specific model
+/// implementations, not part of the package proper). Each file is included here
+/// at compile time and registered below; this becomes a runtime scan of the
+/// directory once Bevy can load `.bsn` asset files.
+#[path = "../../models/myoarm.rs"]
+mod myoarm;
 
 /// A spawnable model definition.
 #[derive(Clone, Copy)]
@@ -18,7 +25,7 @@ pub struct ModelDef {
     pub spawn: fn(&mut Commands),
 }
 
-/// All models the editor knows how to load.
+/// All models the editor knows how to load (collected from `models/`).
 #[derive(Resource)]
 pub struct ModelRegistry(pub Vec<ModelDef>);
 
@@ -27,7 +34,7 @@ impl Default for ModelRegistry {
         Self(vec![ModelDef {
             name: "MyoArm",
             spawn: |commands: &mut Commands| {
-                commands.spawn_scene_list(myoarm_skeleton());
+                commands.spawn_scene_list(myoarm::myoarm_skeleton());
             },
         }])
     }

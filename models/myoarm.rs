@@ -1,19 +1,21 @@
-//! Canonical MyoArm demo model, defined declaratively in Bevy Scene Notation
-//! (BSN). This is the model the editor loads by default and that examples
-//! reference — the pattern for "build a model, import it into the editor".
+//! MyoArm demo model (Bevy Scene Notation).
 //!
-//! Mesh coordinate convention (MuJoCo):
-//! The GLB files are direct exports of the MuJoCo STL meshes, so their vertices
-//! are already expressed in the MuJoCo body frame (origin at the joint, Z-up).
-//! The only transform each mesh needs is the Z-up → Y-up rotation, baked into
-//! the mesh node's local `Transform`.
+//! Lives outside the crate source (`models/`) because it's a specific model
+//! implementation, not part of the melosim package proper. The editor's registry
+//! (`editor::models`) collects builders from this directory. When Bevy releases
+//! loadable `.bsn` asset files, this becomes plain data and the editor will scan
+//! the directory at runtime instead of including modules at compile time.
+//!
+//! Mesh coordinate convention (MuJoCo): the GLB files are direct exports of the
+//! MuJoCo STL meshes (vertices in the MuJoCo body frame, Z-up); each mesh node
+//! carries the Z-up → Y-up rotation.
 
 use bevy::prelude::*;
 
 use crate::model::*;
 
 /// Build the MyoArm skeleton (bodies, meshes, joints, coordinates, muscle
-/// paths) as a BSN scene.
+/// paths) as a BSN scene list.
 pub fn myoarm_skeleton() -> impl SceneList {
     bsn_list![
         // Clavicle

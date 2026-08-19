@@ -1,0 +1,4271 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSimDocument Version="30000">
+<Model name="melosim-gmYHEX">
+  <BodySet>
+    <objects>
+      <Body name="pelvis">
+        <mass>11.777</mass>
+        <mass_center>-0.0707 0 0</mass_center>
+        <inertia>0.1028 0.0871 0.0579 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>ground</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="pelvis_tilt">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="pelvis_list">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="pelvis_rotation">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="pelvis_tx">
+                <range_min>-5</range_min>
+                <range_max>5</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="pelvis_ty">
+                <range_min>-1</range_min>
+                <range_max>2</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="pelvis_tz">
+                <range_min>-3</range_min>
+                <range_max>3</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>pelvis_tilt</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>pelvis_list</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>pelvis_rotation</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate>pelvis_tx</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate>pelvis_ty</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate>pelvis_tz</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="femur_r">
+        <mass>9.3014</mass>
+        <mass_center>0 -0.17 0</mass_center>
+        <inertia>0.1339 0.0351 0.1412 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>pelvis</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hip_flexion_r">
+                <range_min>-0.52359878</range_min>
+                <range_max>2.0943951</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="hip_adduction_r">
+                <range_min>-0.87266463</range_min>
+                <range_max>0.52359878</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="hip_rotation_r">
+                <range_min>-0.6981317</range_min>
+                <range_max>0.6981317</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>hip_flexion_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>hip_adduction_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>hip_rotation_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="tibia_r">
+        <mass>3.7075</mass>
+        <mass_center>0 -0.1867 0</mass_center>
+        <inertia>0.0504 0.0051 0.0511 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>femur_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="knee_angle_r">
+                <range_min>0</range_min>
+                <range_max>2.0944</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 0.0126809 0.349066 0.0226969 0.523599 0.0296054 0.698132 0.0332049 0.872665 0.0335354 1.0472 0.0308779 1.22173 0.0257548 1.39626 0.0189295 1.5708 0.011407 1.74533 0.00443314 1.91986 -0.00050475 2.0944 -0.0016782</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 0.059461 0.349066 0.109399 0.523599 0.150618 0.698132 0.18392 0.872665 0.210107 1.0472 0.229983 1.22173 0.24435 1.39626 0.254012 1.5708 0.25977 1.74533 0.262428 1.91986 0.262788 2.0944 0.261654</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 0.000479 0.349066 0.000835 0.523599 0.001086 0.698132 0.001251 0.872665 0.001346 1.0472 0.001391 1.22173 0.001403 1.39626 0.0014 1.5708 0.0014 1.74533 0.001421 1.91986 0.001481 2.0944 0.001599</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 0.000988 0.349066 0.001899 0.523599 0.002734 0.698132 0.003492 0.872665 0.004173 1.0472 0.004777 1.22173 0.005305 1.39626 0.005756 1.5708 0.00613 1.74533 0.006427 1.91986 0.006648 2.0944 0.006792</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="patella_r">
+        <mass>0.0862</mass>
+        <mass_center>0.0018 0.0264 0</mass_center>
+        <inertia>0.00000287 0.00001311 0.00001311 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>femur_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="knee_angle_r_beta">
+                <clamped>false</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r_beta</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0.00113686 0.174533 -0.00629212 0.349066 -0.105582 0.523599 -0.253683 0.698132 -0.414245 0.872665 -0.579047 1.0472 -0.747244 1.22173 -0.91799 1.39626 -1.09044 1.5708 -1.26379 1.74533 -1.43763 1.91986 -1.61186 2.0944 -1.78634</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r_beta</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0.0524 0.174533 0.0488 0.349066 0.0437 0.523599 0.0371 0.698132 0.0296 0.872665 0.0216 1.0472 0.0136 1.22173 0.0057 1.39626 -0.0019 1.5708 -0.0088 1.74533 -0.0148 1.91986 -0.0196 2.0944 -0.0227</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_r_beta</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 -0.0108 0.174533 -0.019 0.349066 -0.0263 0.523599 -0.0322 0.698132 -0.0367 0.872665 -0.0395 1.0472 -0.0408 1.22173 -0.0404 1.39626 -0.0384 1.5708 -0.0349 1.74533 -0.0301 1.91986 -0.0245 2.0944 -0.0187</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="talus_r">
+        <mass>0.1</mass>
+        <mass_center>0 0 0</mass_center>
+        <inertia>0.001 0.001 0.001 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>tibia_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>-0.6981317</range_min>
+                <range_max>0.52359878</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="calcn_r">
+        <mass>1.25</mass>
+        <mass_center>0.1 0.03 0</mass_center>
+        <inertia>0.0014 0.0039 0.0041 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>talus_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>-0.34906585</range_min>
+                <range_max>0.34906585</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="toes_r">
+        <mass>0.2166</mass>
+        <mass_center>0.0346 0.006 -0.0175</mass_center>
+        <inertia>0.0001 0.0002 0.001 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>calcn_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>-0.52359878</range_min>
+                <range_max>0.52359878</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="femur_l">
+        <mass>9.3014</mass>
+        <mass_center>0 -0.17 0</mass_center>
+        <inertia>0.1339 0.0351 0.1412 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>pelvis</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hip_flexion_l">
+                <range_min>-0.52359878</range_min>
+                <range_max>2.0943951</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="hip_adduction_l">
+                <range_min>-0.87266463</range_min>
+                <range_max>0.52359878</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="hip_rotation_l">
+                <range_min>-0.6981317</range_min>
+                <range_max>0.6981317</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>hip_flexion_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>hip_adduction_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>-1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>hip_rotation_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>-1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="tibia_l">
+        <mass>3.7075</mass>
+        <mass_center>0 -0.1867 0</mass_center>
+        <inertia>0.0504 0.0051 0.0511 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>femur_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="knee_angle_l">
+                <range_min>0</range_min>
+                <range_max>2.0944</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 0.0126809 0.349066 0.0226969 0.523599 0.0296054 0.698132 0.0332049 0.872665 0.0335354 1.0472 0.0308779 1.22173 0.0257548 1.39626 0.0189295 1.5708 0.011407 1.74533 0.00443314 1.91986 -0.00050475 2.0944 -0.0016782</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 -0.059461 0.349066 -0.109399 0.523599 -0.150618 0.698132 -0.18392 0.872665 -0.210107 1.0472 -0.229983 1.22173 -0.24435 1.39626 -0.254012 1.5708 -0.25977 1.74533 -0.262428 1.91986 -0.262788 2.0944 -0.261654</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 0.000479 0.349066 0.000835 0.523599 0.001086 0.698132 0.001251 0.872665 0.001346 1.0472 0.001391 1.22173 0.001403 1.39626 0.0014 1.5708 0.0014 1.74533 0.001421 1.91986 0.001481 2.0944 0.001599</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0 0.174533 -0.000988 0.349066 -0.001899 0.523599 -0.002734 0.698132 -0.003492 0.872665 -0.004173 1.0472 -0.004777 1.22173 -0.005305 1.39626 -0.005756 1.5708 -0.00613 1.74533 -0.006427 1.91986 -0.006648 2.0944 -0.006792</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="patella_l">
+        <mass>0.0862</mass>
+        <mass_center>0.0018 0.0264 0</mass_center>
+        <inertia>0.00000287 0.00001311 0.00001311 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>femur_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="knee_angle_l_beta">
+                <clamped>false</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l_beta</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0.00113686 0.174533 -0.00629212 0.349066 -0.105582 0.523599 -0.253683 0.698132 -0.414245 0.872665 -0.579047 1.0472 -0.747244 1.22173 -0.91799 1.39626 -1.09044 1.5708 -1.26379 1.74533 -1.43763 1.91986 -1.61186 2.0944 -1.78634</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l_beta</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 0.0524 0.174533 0.0488 0.349066 0.0437 0.523599 0.0371 0.698132 0.0296 0.872665 0.0216 1.0472 0.0136 1.22173 0.0057 1.39626 -0.0019 1.5708 -0.0088 1.74533 -0.0148 1.91986 -0.0196 2.0944 -0.0227</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate>knee_angle_l_beta</coordinate>
+            <function>
+              <PolynomialFunction>
+                <coefficients>0 -0.0108 0.174533 -0.019 0.349066 -0.0263 0.523599 -0.0322 0.698132 -0.0367 0.872665 -0.0395 1.0472 -0.0408 1.22173 -0.0404 1.39626 -0.0384 1.5708 -0.0349 1.74533 -0.0301 1.91986 -0.0245 2.0944 -0.0187</coefficients>
+              </PolynomialFunction>
+            </function>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="talus_l">
+        <mass>0.1</mass>
+        <mass_center>0 0 0</mass_center>
+        <inertia>0.001 0.001 0.001 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>tibia_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>-0.6981317</range_min>
+                <range_max>0.52359878</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="calcn_l">
+        <mass>1.25</mass>
+        <mass_center>0.1 0.03 0</mass_center>
+        <inertia>0.0014 0.0039 0.0041 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>talus_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>-0.34906585</range_min>
+                <range_max>0.34906585</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="toes_l">
+        <mass>0.2166</mass>
+        <mass_center>0.0346 0.006 0.0175</mass_center>
+        <inertia>0.0001 0.0002 0.001 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>calcn_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>-0.52359878</range_min>
+                <range_max>0.52359878</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="torso">
+        <mass>26.8266</mass>
+        <mass_center>-0.03 0.32 0</mass_center>
+        <inertia>1.4745 0.7555 1.4314 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>pelvis</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="lumbar_extension">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="lumbar_bending">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="lumbar_rotation">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>lumbar_extension</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>lumbar_bending</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>lumbar_rotation</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="humerus_r">
+        <mass>2.0325</mass>
+        <mass_center>0 -0.164502 0</mass_center>
+        <inertia>0.011946 0.004121 0.013409 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>torso</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="arm_flex_r">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="arm_add_r">
+                <range_min>-2.0943951</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="arm_rot_r">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>arm_flex_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>arm_add_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>arm_rot_r</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="ulna_r">
+        <mass>0.6075</mass>
+        <mass_center>0 -0.120525 0</mass_center>
+        <inertia>0.002962 0.000618 0.003213 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>humerus_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>0</range_min>
+                <range_max>2.618</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="radius_r">
+        <mass>0.6075</mass>
+        <mass_center>0 -0.120525 0</mass_center>
+        <inertia>0.002962 0.000618 0.003213 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>ulna_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>0</range_min>
+                <range_max>1.57079633</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="hand_r">
+        <mass>0.4575</mass>
+        <mass_center>0 -0.068095 0</mass_center>
+        <inertia>0.000892 0.000547 0.00134 0 0 0</inertia>
+        <Joint>
+          <UniversalJoint name="universal_joint">
+            <parent_body>radius_r</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+          </UniversalJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="humerus_l">
+        <mass>2.0325</mass>
+        <mass_center>0 -0.164502 0</mass_center>
+        <inertia>0.011946 0.004121 0.013409 0 0 0</inertia>
+        <Joint>
+          <CustomJoint name="custom_joint">
+            <parent_body>torso</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="arm_flex_l">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="arm_add_l">
+                <range_min>-2.0943951</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <CoordinateSet>
+              <Coordinate name="arm_rot_l">
+                <range_min>-1.57079633</range_min>
+                <range_max>1.57079633</range_max>
+                <clamped>true</clamped>
+                <locked>false</locked>
+              </Coordinate>
+            </CoordinateSet>
+            <SpatialTransform>
+              <rotation_x>
+                <CoordinateEffect>
+                  <coordinate>arm_flex_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_x>
+              <rotation_y>
+                <CoordinateEffect>
+                  <coordinate>arm_add_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_y>
+              <rotation_z>
+                <CoordinateEffect>
+                  <coordinate>arm_rot_l</coordinate>
+            <function>
+              <LinearFunction>
+                <slope>1</slope>
+                <intercept>0</intercept>
+              </LinearFunction>
+            </function>
+                </CoordinateEffect>
+              </rotation_z>
+              <translation_x>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_x>
+              <translation_y>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_y>
+              <translation_z>
+                <CoordinateEffect>
+                  <coordinate></coordinate>
+                  <NullFunction/>
+                </CoordinateEffect>
+              </translation_z>
+            </SpatialTransform>
+          </CustomJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="ulna_l">
+        <mass>0.6075</mass>
+        <mass_center>0 -0.120525 0</mass_center>
+        <inertia>0.002962 0.000618 0.003213 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>humerus_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>0</range_min>
+                <range_max>2.618</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="radius_l">
+        <mass>0.6075</mass>
+        <mass_center>0 -0.120525 0</mass_center>
+        <inertia>0.002962 0.000618 0.003213 0 0 0</inertia>
+        <Joint>
+          <PinJoint name="hinge_joint">
+            <parent_body>ulna_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+            <CoordinateSet>
+              <Coordinate name="hinge_coord">
+                <axis>0 0 1</axis>
+                <range_min>0</range_min>
+                <range_max>1.57079633</range_max>
+              </Coordinate>
+            </CoordinateSet>
+            <reverse>false</reverse>
+          </PinJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>1 1 1</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+      <Body name="hand_l">
+        <mass>0.4575</mass>
+        <mass_center>0 -0.068095 0</mass_center>
+        <inertia>0.000892 0.000547 0.00134 0 0 0</inertia>
+        <Joint>
+          <UniversalJoint name="universal_joint">
+            <parent_body>radius_l</parent_body>
+            <location_in_parent>0 0 0</location_in_parent>
+            <orientation_in_parent>0 0 0</orientation_in_parent>
+            <location_in_child>0 0 0</location_in_child>
+            <orientation_in_child>0 0 0</orientation_in_child>
+          </UniversalJoint>
+        </Joint>
+        <VisibleObject>
+          <GeometrySet>
+            <objects>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+              <DisplayGeometry>
+                <scale>0.85 0.85 0.85</scale>
+                <color>0.8 0.8 0.8</color>
+                <opacity>1</opacity>
+                <transform>
+                  <translation>0 0 0</translation>
+                  <rotation>0 0 0 1</rotation>
+                </transform>
+              </DisplayGeometry>
+            </objects>
+          </GeometrySet>
+          <scale_factors>1 1 1</scale_factors>
+        </VisibleObject>
+      </Body>
+    </objects>
+  </BodySet>
+  <ForceSet>
+    <objects>
+        <Millard2012EquilibriumMuscle name="addbrev_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addlong_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagDist_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagIsch_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagMid_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagProx_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="bflh_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="bfsh_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="edl_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="ehl_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="fdl_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="fhl_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="gaslat_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="gasmed_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmax1_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmax2_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmax3_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmed1_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmed2_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmed3_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmin1_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmin2_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmin3_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="grac_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="iliacus_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="perbrev_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="perlong_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="piri_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="psoas_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="recfem_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="sart_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="semimem_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="semiten_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="soleus_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="tfl_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="tibant_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="tibpost_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="vasint_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="vaslat_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="vasmed_r">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addbrev_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addlong_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagDist_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagIsch_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagMid_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="addmagProx_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="bflh_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="bfsh_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="edl_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="ehl_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="fdl_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="fhl_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="gaslat_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="gasmed_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmax1_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmax2_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmax3_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmed1_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmed2_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmed3_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmin1_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmin2_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="glmin3_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="grac_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="iliacus_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="perbrev_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="perlong_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="piri_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="psoas_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="recfem_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="sart_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="semimem_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="semiten_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="soleus_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="tfl_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="tibant_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="tibpost_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="vasint_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="vaslat_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+        <Millard2012EquilibriumMuscle name="vasmed_l">
+          <max_isometric_force>0</max_isometric_force>
+          <optimal_fiber_length>0</optimal_fiber_length>
+          <tendon_slack_length>0</tendon_slack_length>
+          <pennation_angle_at_optimal>0</pennation_angle_at_optimal>
+          <max_contraction_velocity>10</max_contraction_velocity>
+          <activation_time_constant>0.01</activation_time_constant>
+          <deactivation_time_constant>0.04</deactivation_time_constant>
+          <minimum_activation>0.01</minimum_activation>
+          <fiber_damping>0.1</fiber_damping>
+          <ignore_activation_dynamics>false</ignore_activation_dynamics>
+          <ignore_tendon_compliance>false</ignore_tendon_compliance>
+          <GeometryPath>
+            <PathPointSet>
+              <objects>
+              </objects>
+            </PathPointSet>
+          </GeometryPath>
+        </Millard2012EquilibriumMuscle>
+      <CoordinateActuator name="lumbar_ext">
+        <coordinate>lumbar_extension</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="lumbar_bend">
+        <coordinate>lumbar_bending</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="lumbar_rot">
+        <coordinate>lumbar_rotation</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="shoulder_flex_r">
+        <coordinate>arm_flex_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="shoulder_add_r">
+        <coordinate>arm_add_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="shoulder_rot_r">
+        <coordinate>arm_rot_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="elbow_flex_r">
+        <coordinate>elbow_flex_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="pro_sup_r">
+        <coordinate>pro_sup_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="wrist_flex_r">
+        <coordinate>wrist_flex_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="wrist_dev_r">
+        <coordinate>wrist_dev_r</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="shoulder_flex_l">
+        <coordinate>arm_flex_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="shoulder_add_l">
+        <coordinate>arm_add_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="shoulder_rot_l">
+        <coordinate>arm_rot_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="elbow_flex_l">
+        <coordinate>elbow_flex_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="pro_sup_l">
+        <coordinate>pro_sup_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="wrist_flex_l">
+        <coordinate>wrist_flex_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+      <CoordinateActuator name="wrist_dev_l">
+        <coordinate>wrist_dev_l</coordinate>
+        <optimal_force>10</optimal_force>
+        <min_control>-1</min_control>
+        <max_control>1</max_control>
+      </CoordinateActuator>
+    </objects>
+  </ForceSet>
+  <MarkerSet>
+    <objects>
+      <Marker name="RACR">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LACR">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="C7">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="CLAV">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RASH">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RPSH">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LASH">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LPSH">
+        <body>torso</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RSJC">
+        <body>humerus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RUA1">
+        <body>humerus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RUA2">
+        <body>humerus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RUA3">
+        <body>humerus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RLEL">
+        <body>humerus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RMEL">
+        <body>humerus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RFAsuperior">
+        <body>ulna_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RFAradius">
+        <body>radius_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RFAulna">
+        <body>radius_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LSJC">
+        <body>humerus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LUA1">
+        <body>humerus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LUA2">
+        <body>humerus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LUA3">
+        <body>humerus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LLEL">
+        <body>humerus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LMEL">
+        <body>humerus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LFAsuperior">
+        <body>ulna_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LFAradius">
+        <body>radius_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LFAulna">
+        <body>radius_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RASI">
+        <body>pelvis</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LASI">
+        <body>pelvis</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RPSI">
+        <body>pelvis</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LPSI">
+        <body>pelvis</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LHJC">
+        <body>femur_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RHJC">
+        <body>femur_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTH1">
+        <body>femur_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTH2">
+        <body>femur_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTH3">
+        <body>femur_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RLFC">
+        <body>femur_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RMFC">
+        <body>femur_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RKJC">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTB1">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTB2">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTB3">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RLMAL">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RMMAL">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RAJC">
+        <body>talus_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RCAL">
+        <body>calcn_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RTOE">
+        <body>calcn_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="RMT5">
+        <body>calcn_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTH1">
+        <body>femur_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTH2">
+        <body>femur_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTH3">
+        <body>femur_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LLFC">
+        <body>femur_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LMFC">
+        <body>femur_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LKJC">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTB1">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTB2">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTB3">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LLMAL">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LMMAL">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LAJC">
+        <body>talus_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LCAL">
+        <body>calcn_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LTOE">
+        <body>calcn_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LMT5">
+        <body>calcn_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="REJC">
+        <body>ulna_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="LEJC">
+        <body>ulna_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="R_tibial_plateau">
+        <body>tibia_r</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+      <Marker name="L_tibial_plateau">
+        <body>tibia_l</body>
+        <location>0 0 0</location>
+        <fixed>true</fixed>
+      </Marker>
+    </objects>
+  </MarkerSet>
+  <WrapObjectSet>
+    <objects>
+          <WrapCylinder name="Gmax1_at_pelvis_r">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gmax2_at_pelvis_r">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gmax3_at_pelvis_r">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gmax1_at_pelvis_l">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gmax2_at_pelvis_l">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gmax3_at_pelvis_l">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="PS_at_brim_r">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="PS_at_brim_l">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="IL_at_brim_r">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="IL_at_brim_l">
+            <frame>pelvis</frame>
+            <xyz_body>pelvis</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gastroc_at_condyles_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="KnExt_at_fem_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AB_at_femshaft_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AL_at_femshaft_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMprox_at_femshaft_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMmid_at_femshaft_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMdist_at_femshaft_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMisch_at_condyles_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="PECT_at_femshaft_r">
+            <frame>femur_r</frame>
+            <xyz_body>femur_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="GasLat_at_shank_r">
+            <frame>tibia_r</frame>
+            <xyz_body>tibia_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="GasMed_at_shank_r">
+            <frame>tibia_r</frame>
+            <xyz_body>tibia_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="GR_at_condyles_r">
+            <frame>tibia_r</frame>
+            <xyz_body>tibia_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="SM_at_condyles_r">
+            <frame>tibia_r</frame>
+            <xyz_body>tibia_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="ST_at_condyles_r">
+            <frame>tibia_r</frame>
+            <xyz_body>tibia_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="BF_at_gastroc_r">
+            <frame>tibia_r</frame>
+            <xyz_body>tibia_r</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="Gastroc_at_condyles_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="KnExt_at_fem_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AB_at_femshaft_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AL_at_femshaft_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMprox_at_femshaft_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMmid_at_femshaft_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMdist_at_femshaft_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="AMisch_at_condyles_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="PECT_at_femshaft_l">
+            <frame>femur_l</frame>
+            <xyz_body>femur_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="GasLat_at_shank_l">
+            <frame>tibia_l</frame>
+            <xyz_body>tibia_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="GasMed_at_shank_l">
+            <frame>tibia_l</frame>
+            <xyz_body>tibia_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="GR_at_condyles_l">
+            <frame>tibia_l</frame>
+            <xyz_body>tibia_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="SM_at_condyles_l">
+            <frame>tibia_l</frame>
+            <xyz_body>tibia_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="ST_at_condyles_l">
+            <frame>tibia_l</frame>
+            <xyz_body>tibia_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+          <WrapCylinder name="BF_at_gastroc_l">
+            <frame>tibia_l</frame>
+            <xyz_body>tibia_l</xyz_body>
+            <translation>0 0 0</translation>
+            <radius>0</radius>
+            <length>0</length>
+          </WrapCylinder>
+    </objects>
+  </WrapObjectSet>
+</Model>
+</OpenSimDocument>
