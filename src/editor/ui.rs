@@ -9,6 +9,7 @@
 //! through bevy_egui yet and they work once the pass is running. Revisit when
 //! egui 0.34 panels become cleanly usable.
 
+use bevy::log::debug;
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 use bevy_inspector_egui::bevy_egui::EguiContexts;
@@ -121,10 +122,16 @@ pub fn editor_ui(
                     ui.separator();
                     ui.label(egui::RichText::new("Coordinate").underline());
                     ui.label(format!("range: [{:.4}, {:.4}]", props.range.0, props.range.1));
-                    ui.add(
+                    let val_resp = ui.add(
                         egui::Slider::new(&mut state.value, props.range.0..=props.range.1)
                             .text("value"),
                     );
+                    // Diagnostic: confirm the selected coordinate's value edit
+                    // actually reaches the CoordinateState the FK reads.
+                    #[cfg(debug_assertions)]
+                    if val_resp.changed() {
+                        debug!("inspector: set CoordinateState.value = {}", state.value);
+                    }
                     ui.add(egui::Slider::new(&mut state.velocity, -10.0..=10.0).text("velocity"));
                 }
 
