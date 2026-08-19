@@ -16,7 +16,8 @@ use bevy_inspector_egui::bevy_egui::EguiContexts;
 use super::selection::Selection;
 use crate::model::{
     Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
-    InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
+    InitialConditions, InertialProperties, Joint, JointCoordinates, ModelRegistry, Muscle,
+    SelectedModel, Site, Twist,
 };
 
 /// Editor shell UI: toolbar + left hierarchy of model entities, right inspector.
@@ -129,6 +130,25 @@ pub fn editor_ui(
     if let Some(entity) = clicked {
         selection.select_single(entity);
     }
+}
+
+/// Small palette to load a model from the registry (despawns the previous one).
+/// Separate system so `editor_ui` stays under Bevy's 16-parameter system limit.
+pub fn model_menu(
+    mut contexts: EguiContexts,
+    registry: Res<ModelRegistry>,
+    mut selected_model: ResMut<SelectedModel>,
+) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    egui::Window::new("Model")
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(4.0, 4.0))
+        .show(ctx, |ui| {
+            for (i, def) in registry.0.iter().enumerate() {
+                if ui.button(def.name).clicked() {
+                    selected_model.0 = Some(i);
+                }
+            }
+        });
 }
 
 /// Editable inspector for a Body's `InertialProperties`.

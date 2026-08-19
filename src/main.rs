@@ -1,16 +1,13 @@
 use bevy::prelude::*;
-use melosim::{editor::EditorPlugin, model::myoarm_skeleton, render::RenderPlugin};
+use melosim::{editor::EditorPlugin, render::RenderPlugin};
 
-/// The editor app. The default debugging surface: it loads the MyoArm model
-/// (via `myoarm_skeleton`) into a Bevy-native editor shell with consistent
-/// render-module visualization, selection, inspection/editing, and a transform
-/// gizmo.
+/// The editor app. It owns a model registry (via the editor plugin) and loads
+/// a model at startup (default: MyoArm) or from the UI — so the editor itself
+/// is the debugging surface, with consistent render-module visualization.
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EditorPlugin)
         .add_plugins(RenderPlugin)
-        // Load the canonical demo model so the editor is immediately useful.
-        .add_systems(Startup, myoarm_skeleton.spawn())
         .run();
 }
