@@ -12,7 +12,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
-use viewport::{frame_camera_to_model, select_on_click, CameraFramed};
+use viewport::{frame_camera_to_model, select_on_click};
 
 pub struct MelosimEditorPlugin;
 
@@ -35,7 +35,6 @@ impl Plugin for MelosimEditorPlugin {
 
         // Resources
         app.init_resource::<Selection>();
-        app.init_resource::<CameraFramed>();
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
@@ -95,9 +94,9 @@ fn setup_editor_scene(mut commands: Commands) {
 
     commands.spawn((
         Camera3d::default(),
-        // Initial transform is irrelevant — `frame_camera_to_model` frames the
-        // camera to the model bounds from the first `Update` (and on F).
-        Transform::default(),
+        // A sensible default view of the model near the origin; `F` reframes to
+        // the exact model bounds.
+        Transform::from_xyz(3.0, 2.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
         FreeCamera::default(),
         TransformGizmoCamera,
     ));

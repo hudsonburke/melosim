@@ -12,27 +12,21 @@ use super::selection::Selection;
 
 use crate::model::{Body, Frame, Joint, Muscle, Site};
 
-/// Whether the editor camera has been auto-framed to the model yet.
-#[derive(Resource, Default)]
-pub struct CameraFramed(pub bool);
-
 /// Direction the camera sits at, relative to the model center (before scaling).
 const FRAME_DIR: Vec3 = Vec3::new(-1.0, 0.6, 1.2);
 
-/// Auto-position the editor camera to fit the whole model (first frame + on `F`).
+/// Reframe the editor camera to fit the whole model when `F` is pressed.
 ///
 /// Bounding sphere is computed from the spatial entities' (Body/Frame/Site)
 /// world positions; distance is chosen so the sphere fits the camera's vertical
-/// FOV. Runs in `PostUpdate` (after transform propagation) so world positions
-/// are settled. If there are no spatial entities yet, it frames the origin so
-/// the camera is never left at a degenerate position.
+/// FOV. Framing is manual (F), not automatic, so the startup view stays exactly
+/// as authored (no risk of a bad auto-frame hiding the model).
 pub fn frame_camera_to_model(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut framed: ResMut<CameraFramed>,
     mut cameras: Query<&mut Transform, With<Camera3d>>,
     spatial: Query<&GlobalTransform, Or<(With<Body>, With<Frame>, With<Site>)>>,
 ) {
-    if framed.0 && !keyboard.just_pressed(KeyCode::KeyF) {
+    if !keyboard.just_pressed(KeyCode::KeyF) {
         return;
     }
 
@@ -62,7 +56,6 @@ pub fn frame_camera_to_model(
     let eye = center + FRAME_DIR.normalize() * distance;
 
     *cam = Transform::from_translation(eye).looking_at(center, Vec3::Y);
-    framed.0 = true;
 }
 
 /// Select the model entity owning the clicked mesh. Walks up `ChildOf` to the
