@@ -7,11 +7,13 @@
 //! gizmo dragging itself.
 
 use bevy::{
+    camera_controller::free_camera::FreeCameraState,
     gizmos::transform_gizmo::{
         TransformGizmoFocus, TransformGizmoMode, TransformGizmoSettings, TransformGizmoSpace,
     },
     prelude::*,
 };
+use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::selection::Selection;
 
@@ -37,10 +39,16 @@ pub fn sync_focus(
 }
 
 /// Keyboard shortcuts for gizmo mode / space (1/2/3, X) — same as the Bevy example.
+/// Gated so keys meant for egui (e.g. typing a name) don't switch gizmo mode.
 pub fn gizmo_mode_keys(
+    mut contexts: EguiContexts,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut settings: ResMut<TransformGizmoSettings>,
 ) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    if ctx.is_pointer_over_egui() || ctx.egui_wants_keyboard_input() {
+        return;
+    }
     if keyboard.just_pressed(KeyCode::Digit1) {
         settings.mode = TransformGizmoMode::Translate;
     }
@@ -55,5 +63,19 @@ pub fn gizmo_mode_keys(
             TransformGizmoSpace::World => TransformGizmoSpace::Local,
             TransformGizmoSpace::Local => TransformGizmoSpace::World,
         };
+    }
+}
+
+/// Disable `FreeCamera` while the pointer is over egui (or egui wants keyboard,
+/// e.g. typing in a text field) so the 3D view doesn't react to clicks / scroll /
+/// keys meant for the panels.
+pub fn sync_freecam_to_egui(
+    mut contexts: EguiContexts,
+    mut cameras: Query<&mut FreeCameraState, With<Camera>>,
+) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    let egui_active = ctx.is_pointer_over_egui() || ctx.egui_wants_keyboard_input();
+    for mut state in &mut cameras {
+        state.enabled = !egui_active;
     }
 }

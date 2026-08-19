@@ -7,6 +7,7 @@
 
 use bevy::picking::events::{Click, Pointer};
 use bevy::prelude::*;
+use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::selection::Selection;
 
@@ -22,11 +23,17 @@ const FRAME_DIR: Vec3 = Vec3::new(-1.0, 0.6, 1.2);
 /// FOV. Framing is manual (F), not automatic, so the startup view stays exactly
 /// as authored (no risk of a bad auto-frame hiding the model).
 pub fn frame_camera_to_model(
+    mut contexts: EguiContexts,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut cameras: Query<&mut Transform, With<Camera3d>>,
     spatial: Query<&GlobalTransform, Or<(With<Body>, With<Frame>, With<Site>)>>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyF) {
+        return;
+    }
+    // Don't reframe on `F` typed into an egui field.
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    if ctx.is_pointer_over_egui() || ctx.egui_wants_keyboard_input() {
         return;
     }
 
