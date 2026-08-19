@@ -76,38 +76,6 @@ pub fn editor_ui(
                     }
                 }
             });
-            ui.separator();
-            // Part authoring (Layer 1): add Sites / Frames to the selected Body.
-            if let Some(sel) = selection.primary() {
-                if matches!(model_markers.get(sel), Ok((Some(_), _, _, _, _, _))) {
-                    if ui.button("＋Site").clicked() {
-                        let name = format!("site_{}", *part_counter);
-                        *part_counter += 1;
-                        let child = commands
-                            .spawn((
-                                Name::new(name),
-                                Site,
-                                Transform::from_xyz(0.03, 0.0, 0.0),
-                            ))
-                            .insert(ChildOf(sel))
-                            .id();
-                        commands.entity(sel).add_children(&[child]);
-                    }
-                    if ui.button("＋Frame").clicked() {
-                        let name = format!("frame_{}", *part_counter);
-                        *part_counter += 1;
-                        let child = commands
-                            .spawn((
-                                Name::new(name),
-                                Frame,
-                                Transform::from_xyz(0.03, 0.0, 0.0),
-                            ))
-                            .insert(ChildOf(sel))
-                            .id();
-                        commands.entity(sel).add_children(&[child]);
-                    }
-                }
-            }
         });
     });
 
@@ -178,6 +146,63 @@ pub fn editor_ui(
                 edit_twist(ui, entity, &mut twists);
                 edit_coordinate(ui, entity, &mut coord_editor);
                 edit_muscle(ui, entity, &mut hill);
+
+                // ── Children (Layer 1 part authoring): immediate Sites & Frames ──
+                ui.separator();
+                ui.label(egui::RichText::new("Children").strong());
+
+                let mut sites: Vec<Entity> = Vec::new();
+                let mut frames: Vec<Entity> = Vec::new();
+                if let Ok(children) = children_query.get(entity) {
+                    for child in children.iter() {
+                        match model_markers.get(child) {
+                            Ok((_, _, _, Some(_), _, _)) => sites.push(child),
+                            Ok((_, _, _, _, _, Some(_))) => frames.push(child),
+                            _ => {}
+                        }
+                    }
+                }
+
+                ui.label("Sites");
+                if ui.button("＋ Add Site").clicked() {
+                    let name = format!("site_{}", *part_counter);
+                    *part_counter += 1;
+                    let child = commands
+                        .spawn((Name::new(name), Site, Transform::from_xyz(0.03, 0.0, 0.0)))
+                        .insert(ChildOf(entity))
+                        .id();
+                    commands.entity(entity).add_children(&[child]);
+                }
+                for child in &sites {
+                    let cname = names
+                        .get(*child)
+                        .map(|n| n.as_str().to_owned())
+                        .unwrap_or_default();
+                    if ui.selectable_label(selection.is_selected(*child), cname).clicked() {
+                        selection.select_single(*child);
+                    }
+                }
+
+                ui.add_space(4.0);
+                ui.label("Frames");
+                if ui.button("＋ Add Frame").clicked() {
+                    let name = format!("frame_{}", *part_counter);
+                    *part_counter += 1;
+                    let child = commands
+                        .spawn((Name::new(name), Frame, Transform::from_xyz(0.03, 0.0, 0.0)))
+                        .insert(ChildOf(entity))
+                        .id();
+                    commands.entity(entity).add_children(&[child]);
+                }
+                for child in &frames {
+                    let cname = names
+                        .get(*child)
+                        .map(|n| n.as_str().to_owned())
+                        .unwrap_or_default();
+                    if ui.selectable_label(selection.is_selected(*child), cname).clicked() {
+                        selection.select_single(*child);
+                    }
+                }
             });
         });
 
