@@ -26,6 +26,13 @@ impl Plugin for MelosimEditorPlugin {
             TransformGizmoPlugin,
         ));
 
+        // bevy_picking needs the mesh-picking backend to actually emit
+        // `Pointer<Click>` events for our `select_on_click` observer (the
+        // transform-gizmo example adds this explicitly).
+        if !app.is_plugin_added::<bevy::picking::mesh_picking::MeshPickingPlugin>() {
+            app.add_plugins(bevy::picking::mesh_picking::MeshPickingPlugin);
+        }
+
         // Resources
         app.init_resource::<Selection>();
 
