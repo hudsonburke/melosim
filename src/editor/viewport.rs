@@ -19,23 +19,22 @@ pub struct CameraFramed(pub bool);
 /// Direction the camera sits at, relative to the model center (before scaling).
 const FRAME_DIR: Vec3 = Vec3::new(-1.0, 0.6, 1.2);
 
-/// Auto-position the editor camera to fit the whole model on first frame, and
-/// reframe on demand when `F` is pressed.
+/// Auto-position the editor camera to fit the whole model (first frame + on `F`).
 ///
 /// Bounding sphere is computed from the spatial entities' (Body/Frame/Site)
 /// world positions; distance is chosen so the sphere fits the camera's vertical
-/// FOV.
+/// FOV. Runs in `PostUpdate` (after transform propagation) so world positions
+/// are settled. If there are no spatial entities yet, it frames the origin so
+/// the camera is never left at a degenerate position.
 pub fn frame_camera_to_model(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut framed: ResMut<CameraFramed>,
     mut cameras: Query<&mut Transform, With<Camera3d>>,
     spatial: Query<&GlobalTransform, Or<(With<Body>, With<Frame>, With<Site>)>>,
 ) {
-    let reframing = !framed.0 || keyboard.just_pressed(KeyCode::KeyF);
-    if !reframing {
+    if framed.0 && !keyboard.just_pressed(KeyCode::KeyF) {
         return;
     }
-    framed.0 = true;
 
     let Ok(mut cam) = cameras.single_mut() else {
         return;
@@ -51,19 +50,19 @@ pub fn frame_camera_to_model(
         any = true;
     }
 
-    if !any {
-        return; // nothing to frame; leave current camera
-    }
+    // Frame the model if present, otherwise a sensible default around the origin.
+    let (center, radius) = if any {
+        ((min + max) * 0.5, (max - min).length() * 0.5 + 0.5)
+    } else {
+        (Vec3::ZERO, 2.5)
+    };
 
-    let center = (min + max) * 0.5;
-    let radius = (max - min).length() * 0.5 + 0.5; // half-diagonal + small margin
-
-    // Distance so the bounding sphere fits the vertical FOV, projected along FRAME_DIR.
     let fov_half = 45f32.to_radians() * 0.5;
     let distance = (radius / fov_half.sin()).max(2.0);
     let eye = center + FRAME_DIR.normalize() * distance;
 
     *cam = Transform::from_translation(eye).looking_at(center, Vec3::Y);
+    framed.0 = true;
 }
 
 /// Select the model entity owning the clicked mesh. Walks up `ChildOf` to the
