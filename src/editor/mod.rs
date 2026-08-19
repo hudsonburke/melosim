@@ -65,7 +65,7 @@ impl Plugin for MelosimEditorPlugin {
         // egui UI must run inside the egui primary context pass (after egui
         // begins the frame) — running it in `Update` panics because egui's
         // fonts/available-rect aren't set up before `Context::run()`.
-        app.add_systems(EguiPrimaryContextPass, ui::editor_toolbar);
+        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
 
         // Gizmos
         app.add_systems(PostUpdate, draw_selection_highlight);
