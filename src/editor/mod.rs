@@ -71,7 +71,11 @@ impl Plugin for MelosimEditorPlugin {
         );
         app.add_systems(
             Update,
-            hierarchy::update_hierarchy,
+            hierarchy::rebuild_hierarchy,
+        );
+        app.add_systems(
+            Update,
+            hierarchy::update_hierarchy_selection,
         );
         app.add_systems(
             Update,
@@ -89,6 +93,9 @@ impl Plugin for MelosimEditorPlugin {
         app.add_systems(Startup, toolbar::setup_toolbar);
         app.add_systems(Startup, hierarchy::setup_hierarchy);
         app.add_systems(Startup, inspector::setup_inspector);
+
+        // Observers: clicking a hierarchy row selects the model entity.
+        app.add_observer(hierarchy::on_hierarchy_row_click);
     }
 }
 
