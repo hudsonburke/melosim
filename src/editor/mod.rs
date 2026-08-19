@@ -6,6 +6,7 @@ pub mod viewport;
 use bevy::{
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
     dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
+    gizmos::transform_gizmo::{TransformGizmoCamera, TransformGizmoPlugin},
     prelude::*,
 };
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
@@ -17,16 +18,16 @@ pub struct MelosimEditorPlugin;
 
 impl Plugin for MelosimEditorPlugin {
     fn build(&self, app: &mut App) {
-        // Plugins: native Bevy (grid, camera, picking) + egui editor shell.
+        // Plugins: native Bevy (grid, camera, picking, transform gizmo) + egui shell.
         app.add_plugins((
             InfiniteGridPlugin,
             FreeCameraPlugin,
             EguiPlugin::default(),
+            TransformGizmoPlugin,
         ));
 
         // Resources
         app.init_resource::<Selection>();
-        app.init_resource::<gizmo::TransformGizmo>();
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
@@ -58,24 +59,23 @@ impl Plugin for MelosimEditorPlugin {
             (
                 clear_selection_on_escape,
                 sync_selection_markers,
+                gizmo::sync_focus,
+                gizmo::gizmo_mode_keys,
             ),
         );
 
-        // egui UI + transform-gizmo drag run inside the egui primary context pass
-        // (after egui begins the frame) — running them in `Update` panics because
-        // egui's fonts/available-rect aren't set up before `Context::run()`.
-        app.add_systems(EguiPrimaryContextPass, (ui::editor_ui, gizmo::drag_transform).chain());
+        // egui UI runs inside the egui primary context pass (after egui begins
+        // the frame) — running it in `Update` panics because egui's fonts /
+        // available-rect aren't set up before `Context::run()`.
+        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so
         // interacting with panels/sliders never changes the 3D selection.
         app.add_observer(select_on_click);
 
-        // Gizmos
-        app.add_systems(
-            PostUpdate,
-            (draw_selection_highlight, gizmo::draw_transform_handles),
-        );
+        // Gizmos (selection highlight + built-in transform gizmo)
+        app.add_systems(PostUpdate, draw_selection_highlight);
 
         // Startup: scene setup + editor camera
         app.add_systems(Startup, setup_editor_scene);
@@ -91,6 +91,7 @@ fn setup_editor_scene(mut commands: Commands) {
         Camera3d::default(),
         Transform::from_xyz(-12.5, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         FreeCamera::default(),
+        TransformGizmoCamera,
     ));
 
     commands.spawn((
