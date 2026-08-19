@@ -1,4 +1,3 @@
-use bevy::log::debug;
 use bevy::prelude::*;
 use nalgebra::{Isometry3, Translation, UnitQuaternion, Vector3};
 
@@ -79,8 +78,6 @@ pub fn ensure_coordinate_states(
     coords: Query<(Entity, &InitialConditions), (With<Coordinate>, Without<CoordinateState>)>,
 ) {
     for (entity, ic) in &coords {
-        #[cfg(debug_assertions)]
-        debug!("ensure_coordinate_states: seed CoordinateState for {entity:?}, value={}", ic.value);
         commands.entity(entity).insert(CoordinateState {
             value: ic.value,
             velocity: ic.velocity,
@@ -192,26 +189,6 @@ pub fn sync_kinematics(
     states: Query<&CoordinateState>,
 ) {
     for (coords, mut transform) in &mut joints {
-        let iso = evaluate_joint(coords.iter(), &twists, &states);
-
-        // Diagnostic: log joint FK inputs when any coordinate is non-zero.
-        // Run with RUST_LOG=melosim=debug.
-        #[cfg(debug_assertions)]
-        {
-            let vals: Vec<f64> = coords
-                .iter()
-                .filter_map(|c| states.get(c).ok().map(|s| s.value))
-                .collect();
-            if vals.iter().any(|v| v.abs() > 1e-9) {
-                debug!(
-                    "sync_kinematics: {} coords {:?} -> iso.rotation {:?}",
-                    coords.len(),
-                    vals,
-                    iso.rotation
-                );
-            }
-        }
-
-        *transform = to_bevy_transform(&iso);
+        *transform = to_bevy_transform(&evaluate_joint(coords.iter(), &twists, &states));
     }
 }
