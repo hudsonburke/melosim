@@ -15,8 +15,8 @@ use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::selection::Selection;
 use crate::model::{
-    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, InitialConditions,
-    InertialProperties, Joint, JointCoordinates, Muscle, Site,
+    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
+    InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
 };
 
 /// Editor shell UI: toolbar + left hierarchy of model entities, right inspector.
@@ -34,8 +34,10 @@ pub fn editor_ui(
     frames: Query<&Frame>,
     muscles: Query<&Muscle>,
     coord_marker: Query<&Coordinate>,
-    inertial: Query<&InertialProperties>,
-    mut coord_states: Query<(&CoordinateProperties, &InitialConditions, &mut CoordinateState)>,
+    mut inertial: Query<&mut InertialProperties>,
+    mut twists: Query<&mut Twist>,
+    mut coord_editor: Query<(&mut CoordinateProperties, &mut InitialConditions, &mut CoordinateState)>,
+    mut hill: Query<&mut HillTypeMuscleParams>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     let mut clicked: Option<Entity> = None;
@@ -97,10 +99,10 @@ pub fn editor_ui(
             });
         });
 
-    // ── Inspector (right): entity info + coordinate articulation ─────
+    // ── Inspector (right): per-component editors ─────────────────────
     egui::SidePanel::right("melosim_inspector")
         .resizable(true)
-        .default_width(300.0)
+        .default_width(320.0)
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(4.0);
@@ -116,22 +118,10 @@ pub fn editor_ui(
                     .unwrap_or_else(|_| format!("{:?}", entity));
                 ui.label(egui::RichText::new(name).strong());
 
-                // Coordinate articulation: editing CoordinateState → FK re-poses.
-                if let Ok((props, _init, mut state)) = coord_states.get_mut(entity) {
-                    ui.separator();
-                    ui.label(egui::RichText::new("Coordinate").underline());
-                    ui.label(format!("range: [{:.4}, {:.4}]", props.range.0, props.range.1));
-                    ui.add(
-                        egui::Slider::new(&mut state.value, props.range.0..=props.range.1)
-                            .text("value"),
-                    );
-                    ui.add(egui::Slider::new(&mut state.velocity, -10.0..=10.0).text("velocity"));
-                }
-
-                if let Ok(ip) = inertial.get(entity) {
-                    ui.separator();
-                    ui.label(format!("mass: {:.4} kg", ip.mass));
-                }
+                edit_inertial(ui, entity, &mut inertial);
+                edit_twist(ui, entity, &mut twists);
+                edit_coordinate(ui, entity, &mut coord_editor);
+                edit_muscle(ui, entity, &mut hill);
             });
         });
 
@@ -139,6 +129,94 @@ pub fn editor_ui(
     if let Some(entity) = clicked {
         selection.select_single(entity);
     }
+}
+
+/// Editable inspector for a Body's `InertialProperties`.
+fn edit_inertial(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut InertialProperties>) {
+    let Ok(mut ip) = q.get_mut(entity) else { return; };
+
+    ui.separator();
+    ui.label(egui::RichText::new("Inertial properties").strong());
+    ui.add(egui::DragValue::new(&mut ip.mass).speed(0.01).suffix("mass (kg)"));
+
+    ui.label("mass_center (m)");
+    ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut ip.mass_center.x).speed(0.001).suffix("x"));
+        ui.add(egui::DragValue::new(&mut ip.mass_center.y).speed(0.001).suffix("y"));
+        ui.add(egui::DragValue::new(&mut ip.mass_center.z).speed(0.001).suffix("z"));
+    });
+
+    ui.label("inertia (kg·m²)");
+    {
+        let i = &mut ip.inertia.0;
+        ui.horizontal(|ui| {
+            ui.add(egui::DragValue::new(&mut i[0]).speed(0.0001).suffix("Ixx"));
+            ui.add(egui::DragValue::new(&mut i[1]).speed(0.0001).suffix("Iyy"));
+            ui.add(egui::DragValue::new(&mut i[2]).speed(0.0001).suffix("Izz"));
+        });
+        ui.horizontal(|ui| {
+            ui.add(egui::DragValue::new(&mut i[3]).speed(0.0001).suffix("Ixy"));
+            ui.add(egui::DragValue::new(&mut i[4]).speed(0.0001).suffix("Ixz"));
+            ui.add(egui::DragValue::new(&mut i[5]).speed(0.0001).suffix("Iyz"));
+        });
+    }
+}
+
+/// Editable inspector for a joint's `Twist` (se(3) screw axis).
+fn edit_twist(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut Twist>) {
+    let Ok(mut tw) = q.get_mut(entity) else { return; };
+
+    ui.separator();
+    ui.label(egui::RichText::new("Twist / screw axis").strong());
+    ui.label("angular (rotation)");
+    ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut tw.angular.x).speed(0.01).suffix("ax"));
+        ui.add(egui::DragValue::new(&mut tw.angular.y).speed(0.01).suffix("ay"));
+        ui.add(egui::DragValue::new(&mut tw.angular.z).speed(0.01).suffix("az"));
+    });
+    ui.label("linear");
+    ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut tw.linear.x).speed(0.001).suffix("lx"));
+        ui.add(egui::DragValue::new(&mut tw.linear.y).speed(0.001).suffix("ly"));
+        ui.add(egui::DragValue::new(&mut tw.linear.z).speed(0.001).suffix("lz"));
+    });
+}
+
+/// Editable inspector for a generalized coordinate: properties + initial + state.
+fn edit_coordinate(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    q: &mut Query<(&mut CoordinateProperties, &mut InitialConditions, &mut CoordinateState)>,
+) {
+    let Ok((mut props, mut init, mut state)) = q.get_mut(entity) else { return; };
+
+    ui.separator();
+    ui.label(egui::RichText::new("Coordinate").strong());
+    // Articulation: editing CoordinateState → FK re-poses (sync_kinematics).
+    ui.add(egui::Slider::new(&mut state.value, props.range.0..=props.range.1).text("value"));
+    ui.add(egui::Slider::new(&mut state.velocity, -5.0..=5.0).text("velocity"));
+
+    ui.add(egui::DragValue::new(&mut props.range.0).speed(0.01).suffix("min"));
+    ui.add(egui::DragValue::new(&mut props.range.1).speed(0.01).suffix("max"));
+    ui.checkbox(&mut props.clamped, "clamped");
+    ui.checkbox(&mut props.locked, "locked");
+    ui.add(egui::DragValue::new(&mut props.stiffness).speed(0.1).suffix("stiffness"));
+    ui.add(egui::DragValue::new(&mut props.damping).speed(0.1).suffix("damping"));
+    ui.add(egui::DragValue::new(&mut init.value).speed(0.01).suffix("default"));
+}
+
+/// Editable inspector for `HillTypeMuscleParams`.
+fn edit_muscle(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut HillTypeMuscleParams>) {
+    let Ok(mut m) = q.get_mut(entity) else { return; };
+
+    ui.separator();
+    ui.label(egui::RichText::new("Hill-type muscle").strong());
+    ui.add(egui::DragValue::new(&mut m.max_isometric_force).speed(1.0).suffix("max force (N)"));
+    ui.add(egui::DragValue::new(&mut m.optimal_fiber_length).speed(0.001).suffix("fiber length (m)"));
+    ui.add(egui::DragValue::new(&mut m.tendon_slack_length).speed(0.001).suffix("tendon slack (m)"));
+    ui.add(egui::DragValue::new(&mut m.pennation_angle_at_optimal).speed(0.01).suffix("pennation (rad)"));
+    ui.add(egui::DragValue::new(&mut m.minimum_activation).speed(0.01).suffix("min activation"));
+    ui.add(egui::DragValue::new(&mut m.fiber_damping).speed(0.01).suffix("fiber damping"));
 }
 
 /// Recursively render a model entity as an expandable/selectable tree row.
