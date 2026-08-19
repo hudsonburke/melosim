@@ -70,6 +70,21 @@ pub struct CoordinateState {
     pub velocity: f64,
 }
 
+/// Ensure every `Coordinate` has a `CoordinateState` (seeded from its
+/// `InitialConditions`), so the FK (`sync_kinematics`) can drive it and the
+/// editor can articulate it. No-op once state exists.
+pub fn ensure_coordinate_states(
+    mut commands: Commands,
+    coords: Query<(Entity, &InitialConditions), (With<Coordinate>, Without<CoordinateState>)>,
+) {
+    for (entity, ic) in &coords {
+        commands.entity(entity).insert(CoordinateState {
+            value: ic.value,
+            velocity: ic.velocity,
+        });
+    }
+}
+
 /// A twist in se(3) — the Lie algebra of SE(3).
 #[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct Twist {

@@ -9,6 +9,10 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
+            PreUpdate,
+            crate::model::ensure_coordinate_states,
+        )
+        .add_systems(
             PostUpdate,
             sync_kinematics.before(bevy::transform::TransformSystems::Propagate),
         )
