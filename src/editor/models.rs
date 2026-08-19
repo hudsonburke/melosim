@@ -1,14 +1,15 @@
-//! Model registry: the models the editor can load, at startup or from the UI.
+//! Editor model registry: the models the editor can load, at startup or from
+//! the model menu in the toolbar.
 //!
-//! A model is just a `&'static str` name plus a `spawn` function that injects
-//! its entities into the world (via a BSN scene list). Models live in the crate
-//! for now because `.bsn` *asset files* aren't loadable yet in Bevy 0.19 (the
-//! format isn't released); when they are, this registry can hand out `AssetPath`
-//! handles instead of builder functions.
+//! A model is a `&'static str` name plus a `spawn` function that injects its
+//! entities into the world (via a BSN scene list). Models live in the crate —
+//! see `crate::model::myoarm_skeleton` — because `.bsn` *asset files* aren't
+//! loadable yet in Bevy 0.19 (the format isn't released); when they are, this
+//! registry can hand out `AssetPath` handles instead of builder functions.
 
 use bevy::prelude::*;
 
-use super::{myoarm_skeleton, Body, Coordinate, Frame, Joint, Muscle, Site};
+use crate::model::{myoarm_skeleton, Body, Coordinate, Frame, Joint, Muscle, Site};
 
 /// A spawnable model definition.
 #[derive(Clone, Copy)]

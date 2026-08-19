@@ -1,4 +1,5 @@
 pub mod gizmo;
+pub mod models;
 pub mod selection;
 pub mod ui;
 pub mod viewport;
@@ -35,9 +36,9 @@ impl Plugin for MelosimEditorPlugin {
 
         // Resources
         app.init_resource::<Selection>();
-        app.init_resource::<crate::model::ModelRegistry>();
+        app.init_resource::<models::ModelRegistry>();
         // Load the default model (MyoArm) at startup; the UI can change this.
-        app.insert_resource(crate::model::SelectedModel(Some(0)));
+        app.insert_resource(models::SelectedModel(Some(0)));
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
@@ -72,15 +73,15 @@ impl Plugin for MelosimEditorPlugin {
                 gizmo::sync_focus,
                 gizmo::gizmo_mode_keys,
                 frame_camera_to_model,
-                crate::model::spawn_selected_model,
-                crate::model::tag_model_roots,
+                models::spawn_selected_model,
+                models::tag_model_roots,
             ),
         );
 
         // egui UI runs inside the egui primary context pass (after egui begins
         // the frame) — running it in `Update` panics because egui's fonts /
         // available-rect aren't set up before `Context::run()`.
-        app.add_systems(EguiPrimaryContextPass, (ui::editor_ui, ui::model_menu).chain());
+        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so

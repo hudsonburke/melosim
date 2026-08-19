@@ -13,11 +13,11 @@ use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 use bevy_inspector_egui::bevy_egui::EguiContexts;
 
+use super::models::{ModelRegistry, SelectedModel};
 use super::selection::Selection;
 use crate::model::{
     Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
-    InitialConditions, InertialProperties, Joint, JointCoordinates, ModelRegistry, Muscle,
-    SelectedModel, Site, Twist,
+    InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
 };
 
 /// Editor shell UI: toolbar + left hierarchy of model entities, right inspector.
@@ -25,16 +25,20 @@ use crate::model::{
 pub fn editor_ui(
     mut contexts: EguiContexts,
     mut selection: ResMut<Selection>,
+    registry: Res<ModelRegistry>,
+    mut selected_model: ResMut<SelectedModel>,
     names: Query<&Name>,
     root_entities: Query<Entity, (Without<ChildOf>, Or<(With<Body>, With<Frame>, With<Joint>, With<Muscle>, With<Site>, With<Coordinate>)>)>,
     children_query: Query<&Children>,
     joint_coords: Query<&JointCoordinates>,
-    bodies: Query<&Body>,
-    joints: Query<&Joint>,
-    sites: Query<&Site>,
-    frames: Query<&Frame>,
-    muscles: Query<&Muscle>,
-    coord_marker: Query<&Coordinate>,
+    model_markers: Query<(
+        Option<&Body>,
+        Option<&Joint>,
+        Option<&Coordinate>,
+        Option<&Site>,
+        Option<&Muscle>,
+        Option<&Frame>,
+    )>,
     mut inertial: Query<&mut InertialProperties>,
     mut twists: Query<&mut Twist>,
     mut coord_editor: Query<(&mut CoordinateProperties, &mut InitialConditions, &mut CoordinateState)>,
@@ -60,6 +64,16 @@ pub fn editor_ui(
                     ui.label("Nothing selected");
                 }
             }
+            ui.separator();
+            // Load a model from the registry (despawns the previous one).
+            ui.menu_button("Model", |ui| {
+                for (i, def) in registry.0.iter().enumerate() {
+                    if ui.button(def.name).clicked() {
+                        selected_model.0 = Some(i);
+                        ui.close_menu();
+                    }
+                }
+            });
         });
     });
 
@@ -87,12 +101,7 @@ pub fn editor_ui(
                         &names,
                         &children_query,
                         &joint_coords,
-                        &bodies,
-                        &joints,
-                        &sites,
-                        &frames,
-                        &muscles,
-                        &coord_marker,
+                        &model_markers,
                         &selection,
                         &mut clicked,
                     );
@@ -130,25 +139,6 @@ pub fn editor_ui(
     if let Some(entity) = clicked {
         selection.select_single(entity);
     }
-}
-
-/// Small palette to load a model from the registry (despawns the previous one).
-/// Separate system so `editor_ui` stays under Bevy's 16-parameter system limit.
-pub fn model_menu(
-    mut contexts: EguiContexts,
-    registry: Res<ModelRegistry>,
-    mut selected_model: ResMut<SelectedModel>,
-) {
-    let ctx = contexts.ctx_mut().expect("one primary egui context");
-    egui::Window::new("Model")
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(4.0, 4.0))
-        .show(ctx, |ui| {
-            for (i, def) in registry.0.iter().enumerate() {
-                if ui.button(def.name).clicked() {
-                    selected_model.0 = Some(i);
-                }
-            }
-        });
 }
 
 /// Editable inspector for a Body's `InertialProperties`.
@@ -250,12 +240,14 @@ fn hierarchy_node(
     names: &Query<&Name>,
     children_query: &Query<&Children>,
     joint_coords: &Query<&JointCoordinates>,
-    bodies: &Query<&Body>,
-    joints: &Query<&Joint>,
-    sites: &Query<&Site>,
-    frames: &Query<&Frame>,
-    muscles: &Query<&Muscle>,
-    coord_marker: &Query<&Coordinate>,
+    model_markers: &Query<(
+        Option<&Body>,
+        Option<&Joint>,
+        Option<&Coordinate>,
+        Option<&Site>,
+        Option<&Muscle>,
+        Option<&Frame>,
+    )>,
     selection: &Selection,
     clicked: &mut Option<Entity>,
 ) {
@@ -264,20 +256,14 @@ fn hierarchy_node(
         .map(|n| n.as_str().to_owned())
         .unwrap_or_else(|_| format!("{:?}", entity));
 
-    let badge = if bodies.get(entity).is_ok() {
-        "B"
-    } else if joints.get(entity).is_ok() {
-        "J"
-    } else if coord_marker.get(entity).is_ok() {
-        "C"
-    } else if sites.get(entity).is_ok() {
-        "S"
-    } else if muscles.get(entity).is_ok() {
-        "M"
-    } else if frames.get(entity).is_ok() {
-        "F"
-    } else {
-        ""
+    let badge = match model_markers.get(entity) {
+        Ok((Some(_), _, _, _, _, _)) => "B",
+        Ok((_, Some(_), _, _, _, _)) => "J",
+        Ok((_, _, Some(_), _, _, _)) => "C",
+        Ok((_, _, _, Some(_), _, _)) => "S",
+        Ok((_, _, _, _, Some(_), _)) => "M",
+        Ok((_, _, _, _, _, Some(_))) => "F",
+        _ => "",
     };
 
     let label = if badge.is_empty() {
@@ -307,16 +293,16 @@ fn hierarchy_node(
                 if let Ok(children) = children_query.get(entity) {
                     for child in children.iter() {
                         hierarchy_node(
-                            ui, child, depth + 1, names, children_query, joint_coords, bodies,
-                            joints, sites, frames, muscles, coord_marker, selection, clicked,
+                            ui, child, depth + 1, names, children_query, joint_coords,
+                            model_markers, selection, clicked,
                         );
                     }
                 }
                 if let Ok(coords) = joint_coords.get(entity) {
                     for coord in coords.iter() {
                         hierarchy_node(
-                            ui, coord, depth + 1, names, children_query, joint_coords, bodies,
-                            joints, sites, frames, muscles, coord_marker, selection, clicked,
+                            ui, coord, depth + 1, names, children_query, joint_coords,
+                            model_markers, selection, clicked,
                         );
                     }
                 }
