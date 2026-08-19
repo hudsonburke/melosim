@@ -4,52 +4,52 @@ use bevy::prelude::*;
 
 // ── Gizmo systems ────────────────────────────────────
 
-/// Draw body coordinate axes (RGB) and small spheres at body origins, plus
-/// small spheres at site positions — the canonical per-component viz so every
-/// model renders consistently regardless of how it was authored.
-pub fn draw_body_gizmos(
+/// Draw the "own-transform" model visuals in one pass: Body → RGB axes + origin
+/// sphere, Frame → smaller RGB axes, Site → cyan sphere.
+///
+/// These three only need the entity's own `GlobalTransform`, so they fit one
+/// `Option<>` query. (Muscle paths and joint axes stay separate because they
+/// depend on *other* entities' transforms — path points / the parent frame.)
+pub fn draw_model_gizmos(
     mut gizmos: Gizmos,
-    bodies: Query<(&Name, &GlobalTransform), With<crate::model::Body>>,
-    sites: Query<(&Name, &GlobalTransform), With<crate::model::Site>>,
+    model: Query<(
+        &GlobalTransform,
+        Option<&crate::model::Body>,
+        Option<&crate::model::Frame>,
+        Option<&crate::model::Site>,
+    )>,
 ) {
-    for (_name, gt) in &bodies {
+    const AXES: [Vec3; 3] = [Vec3::X, Vec3::Y, Vec3::Z];
+    const COLORS: [Color; 3] = [
+        Color::srgb(1.0, 0.0, 0.0),
+        Color::srgb(0.0, 1.0, 0.0),
+        Color::srgb(0.0, 0.0, 1.0),
+    ];
+
+    for (gt, body, frame, site) in &model {
         let pos = gt.translation();
         let rot = gt.rotation();
 
-        gizmos.line(pos, pos + rot * Vec3::X * 0.02, Color::srgb(1.0, 0.0, 0.0));
-        gizmos.line(pos, pos + rot * Vec3::Y * 0.02, Color::srgb(0.0, 1.0, 0.0));
-        gizmos.line(pos, pos + rot * Vec3::Z * 0.02, Color::srgb(0.0, 0.0, 1.0));
-
-        gizmos.sphere(
-            Isometry3d::from_translation(pos),
-            0.005,
-            Color::srgb(1.0, 1.0, 0.0),
-        );
-    }
-
-    for (_name, gt) in &sites {
-        let pos = gt.translation();
-        gizmos.sphere(
-            Isometry3d::from_translation(pos),
-            0.003,
-            Color::srgb(0.0, 1.0, 1.0),
-        );
-    }
-}
-
-/// Draw each `Frame` as a small local RGB axis triplet — the frame's own
-/// coordinate system — so attachment frames are visible and aimable.
-pub fn draw_frames(
-    mut gizmos: Gizmos,
-    frames: Query<&GlobalTransform, With<crate::model::Frame>>,
-) {
-    const AXIS_LEN: f32 = 0.015;
-    for gt in &frames {
-        let pos = gt.translation();
-        let rot = gt.rotation();
-        gizmos.line(pos, pos + rot * Vec3::X * AXIS_LEN, Color::srgb(1.0, 0.0, 0.0));
-        gizmos.line(pos, pos + rot * Vec3::Y * AXIS_LEN, Color::srgb(0.0, 1.0, 0.0));
-        gizmos.line(pos, pos + rot * Vec3::Z * AXIS_LEN, Color::srgb(0.0, 0.0, 1.0));
+        if body.is_some() {
+            for (axis, color) in AXES.iter().zip(COLORS.iter()) {
+                gizmos.line(pos, pos + rot * *axis * 0.02, *color);
+            }
+            gizmos.sphere(
+                Isometry3d::from_translation(pos),
+                0.005,
+                Color::srgb(1.0, 1.0, 0.0),
+            );
+        } else if frame.is_some() {
+            for (axis, color) in AXES.iter().zip(COLORS.iter()) {
+                gizmos.line(pos, pos + rot * *axis * 0.015, *color);
+            }
+        } else if site.is_some() {
+            gizmos.sphere(
+                Isometry3d::from_translation(pos),
+                0.003,
+                Color::srgb(0.0, 1.0, 1.0),
+            );
+        }
     }
 }
 
