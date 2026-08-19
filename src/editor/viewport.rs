@@ -1,5 +1,6 @@
 use bevy::picking::mesh_picking::ray_cast::MeshRayCast;
 use bevy::prelude::*;
+use bevy_inspector_egui::bevy_egui::input::EguiWantsInput;
 
 use super::selection::Selection;
 
@@ -8,6 +9,7 @@ use crate::model::{Body, Frame, Joint, Muscle, Site};
 /// Click-to-select system using MeshRayCast.
 pub fn click_to_select(
     mouse: Res<ButtonInput<MouseButton>>,
+    egui_wants_input: Res<EguiWantsInput>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window>,
     mut ray_cast: MeshRayCast,
@@ -20,6 +22,12 @@ pub fn click_to_select(
     muscles: Query<Entity, With<Muscle>>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Ignore clicks over egui UI (panels/toolbar/inspector) so interacting with
+    // a widget or dragging a slider never raycasts into the 3D viewport.
+    if egui_wants_input.wants_any_pointer_input() {
         return;
     }
 
