@@ -8,7 +8,6 @@ use bevy::{
     prelude::*,
 };
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
 use viewport::{click_to_select, draw_selection_highlight};
@@ -22,7 +21,6 @@ impl Plugin for MelosimEditorPlugin {
             InfiniteGridPlugin,
             FreeCameraPlugin,
             EguiPlugin::default(),
-            WorldInspectorPlugin::new(),
         ));
 
         // Resources
