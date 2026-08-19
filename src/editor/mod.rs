@@ -95,7 +95,9 @@ fn setup_editor_scene(mut commands: Commands) {
 
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(-12.5, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        // Initial transform is irrelevant — `frame_camera_to_model` frames the
+        // camera to the model bounds from the first `Update` (and on F).
+        Transform::default(),
         FreeCamera::default(),
         TransformGizmoCamera,
     ));
