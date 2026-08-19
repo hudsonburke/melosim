@@ -144,18 +144,18 @@ impl Twist {
 // ── PoE evaluation ────────────────────────────────────
 
 pub fn evaluate_joint(
-    children: &Children,
+    coords: impl Iterator<Item = Entity>,
     twists: &Query<(&Twist, Option<&Function>)>,
     states: &Query<&CoordinateState>,
 ) -> Iso3 {
     let mut transform = Iso3::identity();
 
-    for child in children.iter() {
-        let Ok((twist, func)) = twists.get(child) else {
+    for coord in coords {
+        let Ok((twist, func)) = twists.get(coord) else {
             continue;
         };
 
-        let q = states.get(child).map(|s| s.value).unwrap_or(0.0);
+        let q = states.get(coord).map(|s| s.value).unwrap_or(0.0);
         let f = func.map(|f| f.evaluate(q)).unwrap_or(q);
 
         transform *= twist.exp(f);
@@ -184,11 +184,11 @@ pub fn to_bevy_transform(iso: &Iso3) -> Transform {
 // ── Bevy sync system ─────────────────────────────────
 
 pub fn sync_kinematics(
-    mut joints: Query<(&Children, &mut Transform), With<Joint>>,
+    mut joints: Query<(&JointCoordinates, &mut Transform), With<Joint>>,
     twists: Query<(&Twist, Option<&Function>)>,
     states: Query<&CoordinateState>,
 ) {
-    for (children, mut transform) in &mut joints {
-        *transform = to_bevy_transform(&evaluate_joint(children, &twists, &states));
+    for (coords, mut transform) in &mut joints {
+        *transform = to_bevy_transform(&evaluate_joint(coords.iter(), &twists, &states));
     }
 }
