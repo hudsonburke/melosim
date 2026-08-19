@@ -7,7 +7,7 @@ use bevy::{
     dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
     prelude::*,
 };
-use bevy_inspector_egui::bevy_egui::EguiPlugin;
+use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
@@ -59,9 +59,13 @@ impl Plugin for MelosimEditorPlugin {
                 click_to_select,
                 clear_selection_on_escape,
                 sync_selection_markers,
-                ui::editor_toolbar,
             ),
         );
+
+        // egui UI must run inside the egui primary context pass (after egui
+        // begins the frame) — running it in `Update` panics because egui's
+        // fonts/available-rect aren't set up before `Context::run()`.
+        app.add_systems(EguiPrimaryContextPass, ui::editor_toolbar);
 
         // Gizmos
         app.add_systems(PostUpdate, draw_selection_highlight);
