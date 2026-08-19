@@ -1,4 +1,4 @@
-//! 3D viewport: model selection via bevy_picking + selection highlight gizmo.
+//! 3D viewport: model selection via bevy_picking.
 //!
 //! Selection is driven by a `bevy_picking` `Pointer<Click>` observer. bevy_egui's
 //! `picking` feature (capture_pointer_input) suppresses these events while the
@@ -39,27 +39,6 @@ pub fn select_on_click(
         match child_of_query.get(current) {
             Ok(parent) => current = parent.parent(),
             Err(_) => return, // not under a model entity; leave selection unchanged
-        }
-    }
-}
-
-/// Draw a visual highlight around the selected entity.
-pub fn draw_selection_highlight(
-    mut gizmos: Gizmos,
-    selection: Res<Selection>,
-    transforms: Query<&GlobalTransform>,
-) {
-    for &entity in &selection.entities {
-        if let Ok(gt) = transforms.get(entity) {
-            let pos = gt.translation();
-            let scale = gt.compute_transform().scale;
-            let radius = scale.x.max(scale.y).max(scale.z) * 0.1;
-
-            gizmos.sphere(
-                Isometry3d::from_translation(pos),
-                radius.max(0.01),
-                Color::srgb(1.0, 1.0, 0.0),
-            );
         }
     }
 }

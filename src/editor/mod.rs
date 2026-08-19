@@ -12,7 +12,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
-use viewport::{draw_selection_highlight, select_on_click};
+use viewport::select_on_click;
 
 pub struct MelosimEditorPlugin;
 
@@ -80,9 +80,6 @@ impl Plugin for MelosimEditorPlugin {
         // suppresses these events over egui windows (capture_pointer_input), so
         // interacting with panels/sliders never changes the 3D selection.
         app.add_observer(select_on_click);
-
-        // Gizmos (selection highlight + built-in transform gizmo)
-        app.add_systems(PostUpdate, draw_selection_highlight);
 
         // Startup: scene setup + editor camera
         app.add_systems(Startup, setup_editor_scene);
