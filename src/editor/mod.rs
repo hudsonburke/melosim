@@ -10,7 +10,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
-use viewport::{click_to_select, draw_selection_highlight};
+use viewport::{draw_selection_highlight, select_on_click};
 
 pub struct MelosimEditorPlugin;
 
@@ -59,12 +59,15 @@ impl Plugin for MelosimEditorPlugin {
             ),
         );
 
-        // egui UI + 3D picking both run inside the egui primary context pass
-        // (after egui begins the frame). The composer draws panels first, then
-        // the pick reads egui's live pointer-over-area so panel clicks never
-        // select/deselect the 3D scene. Running these in `Update` panics (egui
-        // fonts/available-rect aren't ready before `Context::run()`).
-        app.add_systems(EguiPrimaryContextPass, (ui::editor_ui, click_to_select).chain());
+        // egui UI runs inside the egui primary context pass (after egui begins
+        // the frame) — running it in `Update` panics because egui's fonts /
+        // available-rect aren't set up before `Context::run()`.
+        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
+
+        // 3D selection via bevy_picking. bevy_egui's `picking` feature
+        // suppresses these events over egui windows (capture_pointer_input), so
+        // interacting with panels/sliders never changes the 3D selection.
+        app.add_observer(select_on_click);
 
         // Gizmos
         app.add_systems(PostUpdate, draw_selection_highlight);

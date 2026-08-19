@@ -26,6 +26,9 @@ bevy = { version = "0.19.1", default-features = false, features = [
 ] }
 nalgebra = "0.35"
 bevy-inspector-egui = "0.37"
+# Enable bevy_egui's `picking` feature so it suppresses `bevy_picking` events over
+# egui windows (capture_pointer_input) — clicks on panels/sliders never pick the 3D scene.
+bevy_egui = { version = "0.40", features = ["picking"] }
 pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
 
 # Enable a small amount of optimization in the dev profile.

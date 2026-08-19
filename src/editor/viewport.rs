@@ -1,20 +1,22 @@
-use bevy::picking::mesh_picking::ray_cast::MeshRayCast;
+//! 3D viewport: model selection via bevy_picking + selection highlight gizmo.
+//!
+//! Selection is driven by a `bevy_picking` `Pointer<Click>` observer. bevy_egui's
+//! `picking` feature (capture_pointer_input) suppresses these events while the
+//! pointer is over an egui window, so clicking/dragging a panel or slider never
+//! selects or deselects a model entity.
+
+use bevy::picking::events::{Click, Pointer};
 use bevy::prelude::*;
-use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::selection::Selection;
 
 use crate::model::{Body, Frame, Joint, Muscle, Site};
 
-/// Click-to-select system using MeshRayCast. Runs inside the egui pass, *after*
-/// the editor panels are drawn, so `is_pointer_over_area()` reflects the live,
-/// current-frame egui layout — clicks on any egui panel never pick the 3D scene.
-pub fn click_to_select(
-    mouse: Res<ButtonInput<MouseButton>>,
-    mut contexts: EguiContexts,
-    cameras: Query<(&Camera, &GlobalTransform)>,
-    windows: Query<&Window>,
-    mut ray_cast: MeshRayCast,
+/// Select the model entity owning the clicked mesh. Walks up `ChildOf` to the
+/// nearest Body/Joint/Site/Frame/Muscle. Nothing under a model entity changes
+/// the selection, so clicking egui or non-model meshes is safe.
+pub fn select_on_click(
+    trigger: On<Pointer<Click>>,
     mut selection: ResMut<Selection>,
     child_of_query: Query<&ChildOf>,
     bodies: Query<Entity, With<Body>>,
@@ -23,59 +25,21 @@ pub fn click_to_select(
     frames: Query<Entity, With<Frame>>,
     muscles: Query<Entity, With<Muscle>>,
 ) {
-    if !mouse.just_pressed(MouseButton::Left) {
-        return;
-    }
-
-    // Ignore clicks over egui UI (panels/toolbar/inspector) so interacting with
-    // a widget or dragging a slider never raycasts into the 3D viewport.
-    if contexts.ctx_mut().expect("one primary egui context").is_pointer_over_egui() {
-        return;
-    }
-
-    let Ok(window) = windows.single() else {
-        return;
-    };
-    let Some(cursor_pos) = window.cursor_position() else {
-        return;
-    };
-    let Ok((camera, camera_transform)) = cameras.single() else {
-        return;
-    };
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
-        return;
-    };
-
-    let settings = bevy::picking::mesh_picking::ray_cast::MeshRayCastSettings::default()
-        .with_visibility(bevy::picking::mesh_picking::ray_cast::RayCastVisibility::VisibleInView);
-
-    let hits = ray_cast.cast_ray(ray, &settings);
-
-    if let Some(&(hit_entity, ref _hit_data)) = hits.first() {
-        // Walk up hierarchy to find the model entity
-        let mut current = hit_entity;
-        loop {
-            // Check if current entity is a model entity
-            if bodies.get(current).is_ok()
-                || joints.get(current).is_ok()
-                || sites.get(current).is_ok()
-                || frames.get(current).is_ok()
-                || muscles.get(current).is_ok()
-            {
-                selection.select_single(current);
-                return;
-            }
-            if let Ok(parent) = child_of_query.get(current) {
-                current = parent.parent();
-            } else {
-                // No model entity found; select the hit entity itself
-                selection.select_single(hit_entity);
-                return;
-            }
+    let mut current = trigger.original_event_target();
+    loop {
+        if bodies.get(current).is_ok()
+            || joints.get(current).is_ok()
+            || sites.get(current).is_ok()
+            || frames.get(current).is_ok()
+            || muscles.get(current).is_ok()
+        {
+            selection.select_single(current);
+            return;
         }
-    } else {
-        // Clicked on empty space -- clear selection
-        selection.clear();
+        match child_of_query.get(current) {
+            Ok(parent) => current = parent.parent(),
+            Err(_) => return, // not under a model entity; leave selection unchanged
+        }
     }
 }
 
@@ -91,7 +55,6 @@ pub fn draw_selection_highlight(
             let scale = gt.compute_transform().scale;
             let radius = scale.x.max(scale.y).max(scale.z) * 0.1;
 
-            // Yellow wireframe sphere for selection
             gizmos.sphere(
                 Isometry3d::from_translation(pos),
                 radius.max(0.01),
