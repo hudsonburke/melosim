@@ -24,7 +24,11 @@ impl Plugin for RenderPlugin {
             )
             .add_systems(
                 Update,
-                (visualize::draw_muscle_paths, visualize::draw_joint_axes),
+                (
+                    visualize::draw_body_gizmos,
+                    visualize::draw_muscle_paths,
+                    visualize::draw_joint_axes,
+                ),
             );
     }
 }

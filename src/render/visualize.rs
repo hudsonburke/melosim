@@ -4,6 +4,39 @@ use bevy::prelude::*;
 
 // ── Gizmo systems ────────────────────────────────────
 
+/// Draw body coordinate axes (RGB) and small spheres at body origins, plus
+/// small spheres at site positions — the canonical per-component viz so every
+/// model renders consistently regardless of how it was authored.
+pub fn draw_body_gizmos(
+    mut gizmos: Gizmos,
+    bodies: Query<(&Name, &GlobalTransform), With<crate::model::Body>>,
+    sites: Query<(&Name, &GlobalTransform), With<crate::model::Site>>,
+) {
+    for (_name, gt) in &bodies {
+        let pos = gt.translation();
+        let rot = gt.rotation();
+
+        gizmos.line(pos, pos + rot * Vec3::X * 0.02, Color::srgb(1.0, 0.0, 0.0));
+        gizmos.line(pos, pos + rot * Vec3::Y * 0.02, Color::srgb(0.0, 1.0, 0.0));
+        gizmos.line(pos, pos + rot * Vec3::Z * 0.02, Color::srgb(0.0, 0.0, 1.0));
+
+        gizmos.sphere(
+            Isometry3d::from_translation(pos),
+            0.005,
+            Color::srgb(1.0, 1.0, 0.0),
+        );
+    }
+
+    for (_name, gt) in &sites {
+        let pos = gt.translation();
+        gizmos.sphere(
+            Isometry3d::from_translation(pos),
+            0.003,
+            Color::srgb(0.0, 1.0, 1.0),
+        );
+    }
+}
+
 /// Draw muscle paths as line segments between path entities.
 pub fn draw_muscle_paths(
     mut gizmos: Gizmos,
