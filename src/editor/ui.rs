@@ -24,10 +24,12 @@ use crate::model::{
 #[allow(deprecated, clippy::too_many_arguments)]
 pub fn editor_ui(
     mut contexts: EguiContexts,
+    mut commands: Commands,
     mut selection: ResMut<Selection>,
     registry: Res<ModelRegistry>,
     mut selected_model: ResMut<SelectedModel>,
-    names: Query<&Name>,
+    mut part_counter: Local<u64>,
+    mut names: Query<&mut Name>,
     root_entities: Query<Entity, (Without<ChildOf>, Or<(With<Body>, With<Frame>, With<Joint>, With<Muscle>, With<Site>, With<Coordinate>)>)>,
     children_query: Query<&Children>,
     joint_coords: Query<&JointCoordinates>,
@@ -74,6 +76,38 @@ pub fn editor_ui(
                     }
                 }
             });
+            ui.separator();
+            // Part authoring (Layer 1): add Sites / Frames to the selected Body.
+            if let Some(sel) = selection.primary() {
+                if matches!(model_markers.get(sel), Ok((Some(_), _, _, _, _, _))) {
+                    if ui.button("＋Site").clicked() {
+                        let name = format!("site_{}", *part_counter);
+                        *part_counter += 1;
+                        let child = commands
+                            .spawn((
+                                Name::new(name),
+                                Site,
+                                Transform::from_xyz(0.03, 0.0, 0.0),
+                            ))
+                            .insert(ChildOf(sel))
+                            .id();
+                        commands.entity(sel).add_children(&[child]);
+                    }
+                    if ui.button("＋Frame").clicked() {
+                        let name = format!("frame_{}", *part_counter);
+                        *part_counter += 1;
+                        let child = commands
+                            .spawn((
+                                Name::new(name),
+                                Frame,
+                                Transform::from_xyz(0.03, 0.0, 0.0),
+                            ))
+                            .insert(ChildOf(sel))
+                            .id();
+                        commands.entity(sel).add_children(&[child]);
+                    }
+                }
+            }
         });
     });
 
@@ -122,11 +156,23 @@ pub fn editor_ui(
                     ui.label("Nothing selected");
                     return;
                 };
-                let name = names
+                // Editable name (rename any named model entity).
+                let mut name = names
                     .get(entity)
                     .map(|n| n.as_str().to_owned())
                     .unwrap_or_else(|_| format!("{:?}", entity));
-                ui.label(egui::RichText::new(name).strong());
+                if names.contains(entity) {
+                    ui.horizontal(|ui| {
+                        ui.label("Name");
+                        if ui.text_edit_singleline(&mut name).changed() {
+                            if let Ok(mut n) = names.get_mut(entity) {
+                                *n = Name::new(name);
+                            }
+                        }
+                    });
+                } else {
+                    ui.label(egui::RichText::new(name).strong());
+                }
 
                 edit_inertial(ui, entity, &mut inertial);
                 edit_twist(ui, entity, &mut twists);
@@ -237,7 +283,7 @@ fn hierarchy_node(
     ui: &mut egui::Ui,
     entity: Entity,
     depth: usize,
-    names: &Query<&Name>,
+    names: &Query<&mut Name>,
     children_query: &Query<&Children>,
     joint_coords: &Query<&JointCoordinates>,
     model_markers: &Query<(
