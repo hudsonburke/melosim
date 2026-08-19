@@ -54,16 +54,17 @@ impl Plugin for MelosimEditorPlugin {
         app.add_systems(
             Update,
             (
-                click_to_select,
                 clear_selection_on_escape,
                 sync_selection_markers,
             ),
         );
 
-        // egui UI must run inside the egui primary context pass (after egui
-        // begins the frame) — running it in `Update` panics because egui's
-        // fonts/available-rect aren't set up before `Context::run()`.
-        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
+        // egui UI + 3D picking both run inside the egui primary context pass
+        // (after egui begins the frame). The composer draws panels first, then
+        // the pick reads egui's live pointer-over-area so panel clicks never
+        // select/deselect the 3D scene. Running these in `Update` panics (egui
+        // fonts/available-rect aren't ready before `Context::run()`).
+        app.add_systems(EguiPrimaryContextPass, (ui::editor_ui, click_to_select).chain());
 
         // Gizmos
         app.add_systems(PostUpdate, draw_selection_highlight);

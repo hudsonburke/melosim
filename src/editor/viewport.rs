@@ -1,15 +1,17 @@
 use bevy::picking::mesh_picking::ray_cast::MeshRayCast;
 use bevy::prelude::*;
-use bevy_inspector_egui::bevy_egui::input::EguiWantsInput;
+use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::selection::Selection;
 
 use crate::model::{Body, Frame, Joint, Muscle, Site};
 
-/// Click-to-select system using MeshRayCast.
+/// Click-to-select system using MeshRayCast. Runs inside the egui pass, *after*
+/// the editor panels are drawn, so `is_pointer_over_area()` reflects the live,
+/// current-frame egui layout — clicks on any egui panel never pick the 3D scene.
 pub fn click_to_select(
     mouse: Res<ButtonInput<MouseButton>>,
-    egui_wants_input: Res<EguiWantsInput>,
+    mut contexts: EguiContexts,
     cameras: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window>,
     mut ray_cast: MeshRayCast,
@@ -27,7 +29,7 @@ pub fn click_to_select(
 
     // Ignore clicks over egui UI (panels/toolbar/inspector) so interacting with
     // a widget or dragging a slider never raycasts into the 3D viewport.
-    if egui_wants_input.wants_any_pointer_input() {
+    if contexts.ctx_mut().expect("one primary egui context").is_pointer_over_egui() {
         return;
     }
 
