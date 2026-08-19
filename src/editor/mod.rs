@@ -12,7 +12,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
-use viewport::select_on_click;
+use viewport::{frame_camera_to_model, select_on_click, CameraFramed};
 
 pub struct MelosimEditorPlugin;
 
@@ -35,6 +35,7 @@ impl Plugin for MelosimEditorPlugin {
 
         // Resources
         app.init_resource::<Selection>();
+        app.init_resource::<CameraFramed>();
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
@@ -68,6 +69,7 @@ impl Plugin for MelosimEditorPlugin {
                 sync_selection_markers,
                 gizmo::sync_focus,
                 gizmo::gizmo_mode_keys,
+                frame_camera_to_model,
             ),
         );
 

@@ -1,4 +1,4 @@
-//! 3D viewport: model selection via bevy_picking.
+//! 3D viewport: model selection via bevy_picking + auto-framed editor camera.
 //!
 //! Selection is driven by a `bevy_picking` `Pointer<Click>` observer. bevy_egui's
 //! `picking` feature (capture_pointer_input) suppresses these events while the
@@ -11,6 +11,60 @@ use bevy::prelude::*;
 use super::selection::Selection;
 
 use crate::model::{Body, Frame, Joint, Muscle, Site};
+
+/// Whether the editor camera has been auto-framed to the model yet.
+#[derive(Resource, Default)]
+pub struct CameraFramed(pub bool);
+
+/// Direction the camera sits at, relative to the model center (before scaling).
+const FRAME_DIR: Vec3 = Vec3::new(-1.0, 0.6, 1.2);
+
+/// Auto-position the editor camera to fit the whole model on first frame, and
+/// reframe on demand when `F` is pressed.
+///
+/// Bounding sphere is computed from the spatial entities' (Body/Frame/Site)
+/// world positions; distance is chosen so the sphere fits the camera's vertical
+/// FOV.
+pub fn frame_camera_to_model(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut framed: ResMut<CameraFramed>,
+    mut cameras: Query<&mut Transform, With<Camera3d>>,
+    spatial: Query<&GlobalTransform, Or<(With<Body>, With<Frame>, With<Site>)>>,
+) {
+    let reframing = !framed.0 || keyboard.just_pressed(KeyCode::KeyF);
+    if !reframing {
+        return;
+    }
+    framed.0 = true;
+
+    let Ok(mut cam) = cameras.single_mut() else {
+        return;
+    };
+
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    let mut any = false;
+    for gt in &spatial {
+        let p = gt.translation();
+        min = min.min(p);
+        max = max.max(p);
+        any = true;
+    }
+
+    if !any {
+        return; // nothing to frame; leave current camera
+    }
+
+    let center = (min + max) * 0.5;
+    let radius = (max - min).length() * 0.5 + 0.5; // half-diagonal + small margin
+
+    // Distance so the bounding sphere fits the vertical FOV, projected along FRAME_DIR.
+    let fov_half = 45f32.to_radians() * 0.5;
+    let distance = (radius / fov_half.sin()).max(2.0);
+    let eye = center + FRAME_DIR.normalize() * distance;
+
+    *cam = Transform::from_translation(eye).looking_at(center, Vec3::Y);
+}
 
 /// Select the model entity owning the clicked mesh. Walks up `ChildOf` to the
 /// nearest Body/Joint/Site/Frame/Muscle. Nothing under a model entity changes
