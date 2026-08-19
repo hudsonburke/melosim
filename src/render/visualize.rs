@@ -37,6 +37,22 @@ pub fn draw_body_gizmos(
     }
 }
 
+/// Draw each `Frame` as a small local RGB axis triplet — the frame's own
+/// coordinate system — so attachment frames are visible and aimable.
+pub fn draw_frames(
+    mut gizmos: Gizmos,
+    frames: Query<&GlobalTransform, With<crate::model::Frame>>,
+) {
+    const AXIS_LEN: f32 = 0.015;
+    for gt in &frames {
+        let pos = gt.translation();
+        let rot = gt.rotation();
+        gizmos.line(pos, pos + rot * Vec3::X * AXIS_LEN, Color::srgb(1.0, 0.0, 0.0));
+        gizmos.line(pos, pos + rot * Vec3::Y * AXIS_LEN, Color::srgb(0.0, 1.0, 0.0));
+        gizmos.line(pos, pos + rot * Vec3::Z * AXIS_LEN, Color::srgb(0.0, 0.0, 1.0));
+    }
+}
+
 /// Draw muscle paths as line segments between path entities.
 pub fn draw_muscle_paths(
     mut gizmos: Gizmos,
