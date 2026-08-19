@@ -1,19 +1,14 @@
-pub mod hierarchy;
-pub mod inspector;
 pub mod selection;
-pub mod toolbar;
+pub mod ui;
 pub mod viewport;
 
 use bevy::{
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
     dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
-    feathers::{
-        dark_theme::create_dark_theme,
-        theme::UiTheme,
-        FeathersPlugins,
-    },
     prelude::*,
 };
+use bevy_inspector_egui::bevy_egui::EguiPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
 use viewport::{click_to_select, draw_selection_highlight};
@@ -22,20 +17,18 @@ pub struct MelosimEditorPlugin;
 
 impl Plugin for MelosimEditorPlugin {
     fn build(&self, app: &mut App) {
-        // Plugins
+        // Plugins: native Bevy (grid, camera, picking) + egui editor shell.
         app.add_plugins((
             InfiniteGridPlugin,
             FreeCameraPlugin,
-            FeathersPlugins,
+            EguiPlugin::default(),
+            WorldInspectorPlugin::new(),
         ));
-
-        // Theme
-        app.insert_resource(UiTheme(create_dark_theme()));
 
         // Resources
         app.init_resource::<Selection>();
 
-        // Register model types for reflection
+        // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
             .register_type::<crate::model::Frame>()
             .register_type::<crate::model::Site>()
@@ -59,58 +52,36 @@ impl Plugin for MelosimEditorPlugin {
             .register_type::<crate::model::WrapRadius>()
             .register_type::<crate::model::Function>();
 
-        // Systems: Update schedule
+        // Systems
         app.add_systems(
             Update,
             (
                 click_to_select,
                 clear_selection_on_escape,
                 sync_selection_markers,
-                toolbar::update_toolbar,
-            ),
-        );
-        app.add_systems(
-            Update,
-            hierarchy::rebuild_hierarchy,
-        );
-        app.add_systems(
-            Update,
-            hierarchy::update_hierarchy_selection,
-        );
-        app.add_systems(
-            Update,
-            (
-                inspector::gather_inspector_data,
-                inspector::render_inspector,
+                ui::editor_toolbar,
             ),
         );
 
-        // Systems: PostUpdate (gizmos)
+        // Gizmos
         app.add_systems(PostUpdate, draw_selection_highlight);
 
-        // Startup: scene setup + UI
+        // Startup: scene setup + editor camera
         app.add_systems(Startup, setup_editor_scene);
-        app.add_systems(Startup, toolbar::setup_toolbar);
-        app.add_systems(Startup, hierarchy::setup_hierarchy);
-        app.add_systems(Startup, inspector::setup_inspector);
-
-        // Observers: clicking a hierarchy row selects the model entity.
-        app.add_observer(hierarchy::on_hierarchy_row_click);
     }
 }
 
+/// Editor scene: grid, camera, light. The 3D model renders in the central
+/// viewport (whole window); egui panels overlay on top.
 fn setup_editor_scene(mut commands: Commands) {
-    // Infinite grid
     commands.spawn((InfiniteGrid, InfiniteGridSettings::default()));
 
-    // Editor camera
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(-12.5, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         FreeCamera::default(),
     ));
 
-    // Directional light
     commands.spawn((
         DirectionalLight {
             illuminance: 10000.0,

@@ -25,6 +25,7 @@ bevy = { version = "0.19.1", default-features = false, features = [
   "bevy_feathers",
 ] }
 nalgebra = "0.35"
+bevy-inspector-egui = "0.37"
 pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
 
 # Enable a small amount of optimization in the dev profile.
