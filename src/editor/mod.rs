@@ -1,3 +1,4 @@
+pub mod gizmo;
 pub mod selection;
 pub mod ui;
 pub mod viewport;
@@ -25,6 +26,7 @@ impl Plugin for MelosimEditorPlugin {
 
         // Resources
         app.init_resource::<Selection>();
+        app.init_resource::<gizmo::TransformGizmo>();
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
@@ -59,10 +61,10 @@ impl Plugin for MelosimEditorPlugin {
             ),
         );
 
-        // egui UI runs inside the egui primary context pass (after egui begins
-        // the frame) — running it in `Update` panics because egui's fonts /
-        // available-rect aren't set up before `Context::run()`.
-        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
+        // egui UI + transform-gizmo drag run inside the egui primary context pass
+        // (after egui begins the frame) — running them in `Update` panics because
+        // egui's fonts/available-rect aren't set up before `Context::run()`.
+        app.add_systems(EguiPrimaryContextPass, (ui::editor_ui, gizmo::drag_transform).chain());
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so
@@ -70,7 +72,10 @@ impl Plugin for MelosimEditorPlugin {
         app.add_observer(select_on_click);
 
         // Gizmos
-        app.add_systems(PostUpdate, draw_selection_highlight);
+        app.add_systems(
+            PostUpdate,
+            (draw_selection_highlight, gizmo::draw_transform_handles),
+        );
 
         // Startup: scene setup + editor camera
         app.add_systems(Startup, setup_editor_scene);
