@@ -5,7 +5,7 @@ use bevy::ui::{Interaction, Selected};
 use super::selection::Selection;
 use super::toolbar::HierarchyVisible;
 
-use crate::model::{Body, Frame, Joint, ModelEntity, Muscle, Site};
+use crate::model::{Body, Frame, Joint, Muscle, Site};
 
 /// Marker for the hierarchy panel root.
 #[derive(Component)]
@@ -38,7 +38,7 @@ pub fn update_hierarchy(
     hierarchy_root: Query<Entity, With<HierarchyRoot>>,
     existing_rows: Query<Entity, With<HierarchyRow>>,
     names: Query<&Name>,
-    root_entities: Query<Entity, (Without<ChildOf>, With<ModelEntity>)>,
+    root_entities: Query<Entity, (Without<ChildOf>, Or<(With<Body>, With<Frame>, With<Joint>, With<Muscle>, With<Site>)>)>,
     children_query: Query<&Children>,
     bodies: Query<&Body>,
     joints: Query<&Joint>,

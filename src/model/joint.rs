@@ -136,14 +136,11 @@ pub fn evaluate_joint(
     let mut transform = Iso3::identity();
 
     for child in children.iter() {
-        let Ok((twist, drives, func)) = twists.get(child) else {
+        let Ok((twist, func)) = twists.get(child) else {
             continue;
         };
 
-        let q = drives
-            .and_then(|d| states.get(d.0).ok())
-            .map(|s| s.value)
-            .unwrap_or(0.0);
+        let q = states.get(child).map(|s| s.value).unwrap_or(0.0);
         let f = func.map(|f| f.evaluate(q)).unwrap_or(q);
 
         transform *= twist.exp(f);

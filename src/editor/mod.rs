@@ -47,7 +47,6 @@ impl Plugin for MelosimEditorPlugin {
             .register_type::<crate::model::InitialConditions>()
             .register_type::<crate::model::CoordinateState>()
             .register_type::<crate::model::Twist>()
-            .register_type::<crate::model::DrivesCoordinate>()
             .register_type::<crate::model::Coupling>()
             .register_type::<crate::model::CouplingKind>()
             .register_type::<crate::model::Muscle>()

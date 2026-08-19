@@ -1,10 +1,7 @@
 use bevy::prelude::*;
 
-use super::ModelEntity;
-
 /// A muscle entity.
 #[derive(Component, Clone, Debug, Default, Reflect)]
-#[require(ModelEntity)]
 pub struct Muscle;
 
 /// Generic Hill-type muscle parameters.
