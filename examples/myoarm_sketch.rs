@@ -8,7 +8,6 @@
 //! frame mesh. The only transform each mesh needs is the Z-up to Y-up rotation.
 
 use bevy::prelude::*;
-use bevy::gltf::GltfAssetLabel;
 use melosim::{editor::EditorPlugin, model::*, render::RenderPlugin};
 
 fn main() {
@@ -17,7 +16,7 @@ fn main() {
         .add_plugins(EditorPlugin)
         .add_plugins(RenderPlugin)
         .add_systems(Startup, setup_skeleton.spawn())
-        .add_systems(PostStartup, spawn_meshes)
+        .add_systems(PostStartup, attach_bone_materials)
         .add_systems(Update, debug_hierarchy.run_if(not(any_with_component::<DebugPrinted>)))
         .add_systems(Update, draw_body_gizmos)
         .run();
@@ -118,6 +117,10 @@ fn setup_skeleton() -> impl SceneList {
                 inertia: Inertia::new(0.001, 0.001, 0.001, 0.0, 0.0, 0.0),
             }
             Children [
+                // Bone mesh (Z-up -> Y-up rotation baked into the local Transform)
+                (#clavicle_mesh
+                    Mesh3d("gltf/clavicle.glb#Mesh0/Primitive0")
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 (#PECM1_P3 Site Transform::from_xyz(0.026, 0.057, -0.004)),
                 // Offset frame for sternoclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
                 (#sternoclavicular_offset Frame Transform::from_xyz(-0.01433, 0.1355, -0.02007)),
@@ -146,6 +149,9 @@ fn setup_skeleton() -> impl SceneList {
                 inertia: Inertia::new(0.002, 0.001, 0.001, 0.0, 0.0, 0.0),
             }
             Children [
+                (#scapula_mesh
+                    Mesh3d("gltf/scapula.glb#Mesh0/Primitive0")
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 (#DELT2_P3 Site Transform::from_xyz(0.00005, 0.022, -0.003)),
                 // Offset frame for acromioclavicular joint (converted from MuJoCo Z-up to Bevy Y-up)
                 (#acromioclavicular_offset Frame Transform::from_xyz(-0.00955, 0.009, 0.034)),
@@ -177,6 +183,9 @@ fn setup_skeleton() -> impl SceneList {
                 inertia: Inertia::new(0.013, 0.012, 0.002, 0.0, 0.0, 0.0),
             }
             Children [
+                (#humerus_mesh
+                    Mesh3d("gltf/humerus.glb#Mesh0/Primitive0")
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 // Offset frame for shoulder joint (converted from MuJoCo Z-up to Bevy Y-up)
                 ( #shoulder_offset Frame Transform::from_xyz(0.0061, -0.0123, 0.2904)),
             ]
@@ -204,6 +213,9 @@ fn setup_skeleton() -> impl SceneList {
                 inertia: Inertia::new(0.0005, 0.0005, 0.00003, 0.0, 0.0, 0.0),
             }
             Children [
+                (#ulna_mesh
+                    Mesh3d("gltf/ulna.glb#Mesh0/Primitive0")
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
                 (#pro_sup_offset Frame Transform::from_xyz(0.0004, 0.020, 0.0115)),
             ]
         ),
@@ -237,6 +249,11 @@ fn setup_skeleton() -> impl SceneList {
                 mass_center: nalgebra::Vector3::new(0.034, -0.182, 0.016),
                 inertia: Inertia::new(0.001, 0.001, 0.001, 0.0, 0.0, 0.0),
             }
+            Children [
+                (#radius_mesh
+                    Mesh3d("gltf/radius.glb#Mesh0/Primitive0")
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
+            ]
         ),
 
         // Deltoid 1
@@ -278,82 +295,26 @@ fn setup_skeleton() -> impl SceneList {
     ]
 }
 
-/// Spawn meshes attached to bodies using Mesh3d + MeshMaterial3d.
-/// This approach loads individual meshes from GLTF files and gives us direct
-/// control over the transform hierarchy, ensuring proper transform propagation.
+/// Attach the shared bone material to every mesh declared in the BSN model.
 ///
-/// Mesh coordinate convention (MuJoCo):
-/// The GLB files are direct exports of the MuJoCo STL meshes, so their vertices are
-/// already expressed in the MuJoCo body frame (origin at the joint, Z-up). The
-/// MuJoCo compiler does compute `mesh_pos`/`mesh_quat` to centre/align the mesh for
-/// its internal geom/inertial frame, but the *displayed* mesh is the original local
-/// frame mesh. Therefore the only transform each mesh needs is the Z-up to Y-up
-/// rotation that maps MuJoCo coordinates into Bevy coordinates.
-fn spawn_meshes(
+/// Mesh geometry + placement are now declared declaratively in the BSN (each
+/// body's `Children`), so this only supplies the one shared `StandardMaterial`.
+/// It's a simple, generic pass: add a material to any `Mesh3d` that lacks one.
+fn attach_bone_materials(
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    asset_server: Res<AssetServer>,
-    bodies: Query<(Entity, &Name), With<Body>>,
+    meshes: Query<(Entity, &Mesh3d), Without<MeshMaterial3d<StandardMaterial>>>,
 ) {
-    // Mesh definitions: body name, GLTF path, and the coordinate-frame rotation.
-    //
-    // The GLB files are direct conversions of the MuJoCo STL files, so their vertex
-    // coordinates are in the MuJoCo body frame (Z-up, X-right, Y-forward). Bevy's
-    // frame is Y-up (X-right, Y-up, Z-back). The only rotation each mesh needs is
-    // the -90° X-axis rotation that maps Z-up to Y-up.
-    //
-    // MuJoCo's `mesh_pos`/`mesh_quat` are *not* used here: those offsets describe how
-    // the compiler centres/aligns the mesh internally for the geom/inertial frame, but
-    // the displayed mesh is the original local-frame mesh (the `^L v_n` in discussion
-    // #2171). Since we are loading the original GLB, the compiler's offset is already
-    // baked into the geometry we see.
-    let mesh_defs: Vec<(&str, &str, [f32; 4])> = vec![
-        ("clavicle", "gltf/clavicle.glb", [-0.707107, 0.0, 0.0, 0.707107]), // -90° X: Z-up -> Y-up
-        ("scapula", "gltf/scapula.glb", [-0.707107, 0.0, 0.0, 0.707107]),
-        ("humerus", "gltf/humerus.glb", [-0.707107, 0.0, 0.0, 0.707107]),
-        ("ulna", "gltf/ulna.glb", [-0.707107, 0.0, 0.0, 0.707107]),
-        ("radius", "gltf/radius.glb", [-0.707107, 0.0, 0.0, 0.707107]),
-    ];
+    if meshes.is_empty() {
+        return;
+    }
 
-    // Create a simple material for the bones
     let bone_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.8, 0.7, 0.6),
         ..default()
     });
 
-    for (entity, name) in bodies.iter() {
-        let body_name = name.as_str();
-
-        for &(mesh_name, mesh_path, quat_xyzw) in &mesh_defs {
-            if body_name.contains(mesh_name) {
-                // Load mesh from GLTF using GltfAssetLabel
-                let mesh_handle: Handle<Mesh> = asset_server.load(
-                    GltfAssetLabel::Primitive { mesh: 0, primitive: 0 }
-                        .from_asset(mesh_path)
-                );
-
-                // Spawn Frame with rotation offset as child of body
-                // This matches the importer pattern: Body > Frame (offset) > Mesh
-                let mut frame_id = Entity::PLACEHOLDER;
-                commands.entity(entity).with_children(|parent| {
-                    frame_id = parent.spawn((
-                        Frame,
-                        Transform::from_rotation(Quat::from_xyzw(
-                            quat_xyzw[0], quat_xyzw[1], quat_xyzw[2], quat_xyzw[3]
-                        )),
-                        Name::new(format!("{}_frame", mesh_name)),
-                    )).id();
-                });
-                // Then spawn mesh as child of the frame
-                commands.entity(frame_id).with_children(|frame_parent| {
-                    frame_parent.spawn((
-                        Mesh3d(mesh_handle),
-                        MeshMaterial3d(bone_material.clone()),
-                        Name::new(format!("{}_mesh", mesh_name)),
-                    ));
-                });
-                break;
-            }
-        }
+    for (entity, _mesh) in &meshes {
+        commands.entity(entity).insert(MeshMaterial3d(bone_material.clone()));
     }
 }
