@@ -33,14 +33,16 @@ impl JointCoordinates {
 
 /// Relationship: this coordinate is owned by a joint.
 ///
-/// Injected by the relationship machinery (the owner's `JointCoordinates`), so
-/// it is *not* authored in BSN — mirroring Bevy's own `ChildOf`, which is why it
-/// deliberately does **not** derive `FromTemplate`: doing so made scene spawn
-/// build a default instance whose bare `Entity` field resolved to the
-/// coordinate's own id (the old self-referential warning).
-#[derive(Component, Clone, Debug, Reflect)]
+/// Injected by the relationship machinery from the owner's `JointCoordinates`
+/// (like Bevy's own `ChildOf`), not authored in scene notation.
+///
+/// Note: an earlier "self-referential relationship" warning was *not* caused by
+/// this component. It came from the myoarm model naming a coordinate identically
+/// to its owning joint (`#pro_sup`), so scene name-resolution pointed the
+/// relationship at the wrong (self) entity. Keep entity names distinct.
+#[derive(Component, Clone, Debug, FromTemplate, Reflect)]
 #[relationship(relationship_target = JointCoordinates)]
-pub struct CoordinateOf(#[entities] pub Entity);
+pub struct CoordinateOf(pub Entity);
 
 #[derive(Component, Clone, Debug, Reflect)]
 pub struct CoordinateProperties {
