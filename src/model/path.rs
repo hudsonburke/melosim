@@ -18,9 +18,13 @@ impl PathEntities {
 }
 
 /// Relationship: this entity is part of a muscle/cable path.
+///
+/// `#[entities]` marks the field that holds the owning path's target entity (the
+/// muscle/cable with `PathEntities`), so Bevy populates it correctly instead of
+/// defaulting to the path-point's own entity.
 #[derive(Component, Clone, Debug, FromTemplate, Reflect)]
 #[relationship(relationship_target = PathEntities)]
-pub struct PathElement(pub Entity);
+pub struct PathElement(#[entities] pub Entity);
 
 // ── Wrapping surface marker ──
 
