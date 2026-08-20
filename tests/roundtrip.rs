@@ -1,0 +1,96 @@
+//! Round-trip test: import a myo_sim MJCF into the melosim World, export it
+//! back via `to_mjcf`, save to XML, reload in MjSpec, and compare counts.
+//!
+//! Requires `--features mujoco` and `TEST_MJCF` pointing to a myo_sim model.
+//!
+//! ```sh
+//! TEST_MJCF=/path/to/myolegs_osl.xml cargo test --features mujoco --test roundtrip -- --nocapture
+//! ```
+
+#![cfg(feature = "mujoco")]
+
+use bevy::app::App;
+use bevy::ecs::component::Component;
+use bevy::prelude::*;
+use melosim::exporter::to_mjcf;
+use melosim::importer::import_mjcf;
+use melosim::model::{Body, Coordinate, Joint, Muscle, Site};
+use mujoco_rs::wrappers::mj_editing::MjSpec;
+
+fn count<T: Component>(world: &mut World) -> usize {
+    world.query_filtered::<Entity, With<T>>().iter(world).count()
+}
+
+#[test]
+fn roundtrip_myo_sim() {
+    let path = std::env::var("TEST_MJCF").expect("set TEST_MJCF to a myo_sim .xml file");
+    eprintln!("roundtrip: importing {path}");
+
+    let mut app = App::new();
+    app.add_plugins(bevy::MinimalPlugins);
+    app.add_plugins(bevy::transform::TransformPlugin::default());
+
+    // ── 1. Import ──
+    let root = {
+        let mut world = app.world_mut();
+        let xml_path = std::path::PathBuf::from(&path);
+        let parent = xml_path.parent().unwrap_or(std::path::Path::new("."));
+        std::env::set_current_dir(parent).expect("set_current_dir");
+        import_mjcf(world, &xml_path).expect("import failed")
+    };
+    app.update();
+
+    // Count entities.
+    let (bodies_i, joints_i, sites_i, muscles_i, coords_i) = {
+        let mut w = app.world_mut();
+        (
+            count::<Body>(&mut w),
+            count::<Joint>(&mut w),
+            count::<Site>(&mut w),
+            count::<Muscle>(&mut w),
+            count::<Coordinate>(&mut w),
+        )
+    };
+    eprintln!("import: bodies={bodies_i} joints={joints_i} sites={sites_i} muscles={muscles_i} coords={coords_i}");
+
+    // ── 2. Export to MjSpec ──
+    let mut spec = {
+        let mut world = app.world_mut();
+        to_mjcf(world, root).expect("export failed")
+    };
+
+    // ── 3. Compile + save ──
+    spec.compile().expect("MjSpec compile failed");
+    let xml = spec.save_xml_string(1 << 20).expect("save_xml_string failed");
+    eprintln!("exported XML: {} bytes", xml.len());
+
+    let dir = std::env::temp_dir().join("melosim_roundtrip");
+    std::fs::create_dir_all(&dir).ok();
+    let out_path = dir.join("roundtrip.xml");
+    std::fs::write(&out_path, &xml).expect("write XML");
+
+    // ── 4. Reload + compare ──
+    let mut reimported = MjSpec::from_xml(&out_path).expect("reimport failed");
+    let recompiled = reimported.compile().expect("recompile failed");
+    let bodies_o = recompiled.nbody() as usize;
+    let joints_o = recompiled.njnt() as usize;
+    let sites_o = recompiled.nsite() as usize;
+
+    eprintln!("reimport: bodies={bodies_o} joints={joints_o} sites={sites_o}");
+    eprintln!("original: bodies={bodies_i} joints={joints_i} sites={sites_i}");
+
+    // Compare bodies (allow +1 for a possible ground/worldbody).
+    let body_diff = (bodies_o as isize - bodies_i as isize).unsigned_abs();
+    eprintln!("bodies: delta={body_diff}");
+    assert!(body_diff <= 1, "body count diverged: {bodies_i} vs {bodies_o}");
+    eprintln!("joint count: import={joints_i} reimport={joints_o}");
+    eprintln!("site count:  import={sites_i} reimport={sites_o}");
+
+    // Dump the exported XML for debugging.
+    if let Ok(content) = std::fs::read_to_string(&out_path) {
+        eprintln!("--- exported XML (first 2000 chars) ---");
+        eprintln!("{}", &content[..content.len().min(2000)]);
+    }
+
+    eprintln!("roundtrip check complete — {}", out_path.display());
+}

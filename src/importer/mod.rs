@@ -95,6 +95,9 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
                 Ok(xml) => {
                     import_muscles_from_xml(world, &xml, &site_map);
                 }
+                Err(e2) => {
+                    eprintln!("save_xml_string failed: {e2}");
+                }
             }
         }
     }
