@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy_inspector_egui::bevy_egui::egui;
 use egui_dock::{DockState, NodeIndex};
 
 /// Identifies the panels that can appear as docked tabs.
