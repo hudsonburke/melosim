@@ -61,7 +61,6 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
             world,
             child_ent,
             anchor,
-            &model_name,
             &model_dir,
             &meshdir,
             &mesh_src,
@@ -136,7 +135,6 @@ fn spawn_body(
     world: &mut World,
     mj: &MjsBody,
     parent: Entity,
-    model_name: &str,
     model_dir: &Path,
     meshdir: &str,
     mesh_src: &HashMap<String, String>,
@@ -195,13 +193,13 @@ fn spawn_body(
     // no `AssetServer` (e.g. bare-World unit tests).
     if world.get_resource::<AssetServer>().is_some() {
         for g in mj.geom_iter(false) {
-            spawn_geom(world, &g, body_ent, model_name, model_dir, meshdir, mesh_src, counter);
+            spawn_geom(world, &g, body_ent, model_dir, meshdir, mesh_src, counter);
         }
     }
 
     // Children bodies.
     for child in mj.body_iter(false) {
-        spawn_body(world, child, body_ent, model_name, model_dir, meshdir, mesh_src, counter, site_map)?;
+        spawn_body(world, child, body_ent, model_dir, meshdir, mesh_src, counter, site_map)?;
     }
     Ok(())
 }
@@ -226,7 +224,6 @@ fn spawn_geom(
     world: &mut World,
     g: &MjsGeom,
     body_ent: Entity,
-    model_name: &str,
     model_dir: &Path,
     meshdir: &str,
     mesh_src: &HashMap<String, String>,
@@ -251,8 +248,9 @@ fn spawn_geom(
         return;
     };
 
-    // Copy into assets/imported/<model>/ and load via AssetServer.
-    let dest_rel = format!("imported/{model_name}/{fn_name}");
+    // Copy flat into `assets/imported/` (NOT a per-model subdir — Bevy's file
+    // reader doesn't pick up subdirectories created at runtime), then load.
+    let dest_rel = format!("imported/{fn_name}");
     let dest_abs = Path::new("assets").join(&dest_rel);
     let _ = std::fs::create_dir_all(dest_abs.parent().unwrap_or(Path::new(".")));
     if !dest_abs.exists() {
@@ -270,7 +268,6 @@ fn spawn_geom(
 
     let handle: Handle<Mesh> = {
         let assets = world.resource::<AssetServer>();
-        // Owned AssetPath so `load` doesn't borrow a local string.
         assets.load(AssetPath::from(PathBuf::from(&dest_rel)))
     };
     let material: Handle<StandardMaterial> = {
