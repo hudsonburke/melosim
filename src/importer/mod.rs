@@ -84,8 +84,11 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
 
     // Muscles: try compile first (fast, complete). If it fails, try to
     // serialise the spec to XML (resolves includes) and parse tendons from that.
+    // Also update body inertial properties from the compiled model (the spec
+    // has raw XML values; MuJoCo computes mass/inertia during compilation).
     match spec.compile() {
         Ok(compiled) => {
+            update_body_inertias_from_compiled(world, &compiled);
             import_muscles_compiled(world, &compiled, &site_map);
         }
         Err(e) => {
@@ -102,6 +105,27 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         }
     }
     Ok(anchor)
+}
+
+/// Update body entities' inertial properties from the compiled MuJoCo model.
+fn update_body_inertias_from_compiled(world: &mut World, compiled: &MjModel) {
+    use mujoco_rs::wrappers::mj_model::MjtObj;
+    let name_to_entity: HashMap<String, Entity> = world
+        .query::<(Entity, &Name)>().iter(world)
+        .map(|(e, n)| (n.as_str().to_owned(), e))
+        .collect();
+    for i in 0..compiled.nbody() as usize {
+        let Some(name) = compiled.id_to_name(MjtObj::mjOBJ_BODY, i) else { continue };
+        let Some(&ent) = name_to_entity.get(name) else { continue };
+        let mass = compiled.body_mass()[i];
+        let ipos = compiled.body_ipos()[i];   // [f64; 3]
+        let din = compiled.body_inertia()[i]; // diagonal [f64; 3]
+        if let Some(mut ip) = world.get_mut::<InertialProperties>(ent) {
+            ip.mass = mass;
+            ip.mass_center = Vector3::new(ipos[0], ipos[1], ipos[2]);
+            ip.inertia = Inertia([din[0], din[1], din[2], 0.0, 0.0, 0.0]);
+        }
+    }
 }
 
 /// Fast path: import muscles from the compiled model's arrays.
