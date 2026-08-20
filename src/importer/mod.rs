@@ -55,7 +55,16 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         .collect();
 
     // Top-level container (Frame) so imported bodies group under it.
-    let anchor = world.spawn((Name::new(model_name.clone()), Frame)).id();
+    // The Z-up→Y-up rotation lives here (on the root), NOT on every body —
+    // bodies use translation-only transforms so GlobalTransform propagation
+    // multiplies parent-child translations correctly without spurious rotations.
+    let anchor = world
+        .spawn((
+            Name::new(model_name.clone()),
+            Frame,
+            Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        ))
+        .id();
 
     let mut counter = 0u64;
     let mut site_map: HashMap<String, Entity> = HashMap::new();
@@ -137,8 +146,8 @@ fn to_vec3(a: [f64; 3]) -> Vec3 {
 }
 
 /// Instanced pose of a mesh geom in its body frame, composing the geom's own
-/// `pos`/`quat` with the mesh's reference frame (`refpos`/`refquat`/`scale`),
-/// then mapping Z-up → Y-up. (MuJoCo orients bone meshes via the mesh ref frame.)
+/// `pos`/`quat` with the mesh's reference frame (`refpos`/`refquat`/`scale`).
+/// Stays in the MJCF Z-up frame — the root rotation converts the entire model.
 fn mesh_instance_transform(
     geom_pos: [f64; 3],
     geom_quat: [f64; 4],
@@ -148,15 +157,13 @@ fn mesh_instance_transform(
 ) -> Transform {
     let g_pos = to_vec3(geom_pos);
     let g_q = to_quat_mjcf(geom_quat);
-    // Compose in the MJCF body frame.
+    // Compose in the MJCF body frame (still Z-up — root converts later).
     let rot_mjcf = g_q * to_quat_mjcf(refquat);
     let pos_mjcf = g_pos + g_q.mul_vec3(to_vec3(refpos));
-    // Map Z-up -> Y-up.
-    let z = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     Transform {
-        translation: z.mul_vec3(pos_mjcf),
-        rotation: z * rot_mjcf,
-        scale: z.mul_vec3(to_vec3(scale)),
+        translation: pos_mjcf,
+        rotation: rot_mjcf,
+        scale: to_vec3(scale),
     }
 }
 
@@ -186,8 +193,10 @@ fn spawn_body(
             mass_center: Vector3::from(*mj.ipos()),
             inertia: Inertia(*mj.fullinertia()),
         },
-        Transform::from_translation(zup_to_yup(to_vec3(*mj.pos())))
-            .with_rotation(zup_quat_to_yup(*mj.quat())),
+        // Body transform = translation only (MJCF Z-up positions, raw).
+        // The root's rotation converts the entire model from Z-up to Y-up;
+        // body local positions should NOT be pre-rotated.
+        Transform::from_translation(to_vec3(*mj.pos())),
     ));
     body.insert(ChildOf(parent));
     let body_ent = body.id();
@@ -210,8 +219,7 @@ fn spawn_body(
             .spawn((
                 Name::new(sname.clone()),
                 Site,
-                Transform::from_translation(zup_to_yup(to_vec3(*s.pos()))),
-            ))
+                Transform::from_translation(to_vec3(*s.pos())),            ))
             .insert(ChildOf(body_ent))
             .id();
         if !sname.is_empty() {
