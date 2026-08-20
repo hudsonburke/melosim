@@ -1,239 +1,250 @@
-//! Model import: external formats (OpenSim `.osim`, MuJoCo `.xml`) → ECS.
+//! MuJoCo MJCF → melosim model (built anew for the *current* model).
 //!
-//! Files are parsed by the *reference implementations* — OpenSim's Python
-//! API (PyO3, `opensim` feature) and MuJoCo's `MjSpec` (`mujoco` feature) —
-//! never by hand-rolled XML parsing. Each loader produces the format-neutral
-//! [`ModelData`] asset; [`spawn_model`] then builds the same entity
-//! structure that hand-authored `bsn!` models use:
+//! `mujoco-rs`'s `MjSpec` parses the XML (includes, defaults, classes); we walk
+//! the spec and spawn current-model entities so an imported model visualizes in
+//! the editor: `Body` (+ `InertialProperties`), `Site`, `Joint` →
+//! `Coordinate` (+ `Twist`, `CoordinateProperties`, `CoordinateState`).
 //!
-//! ```text
-//! ModelSource entity
-//!   └─ Body
-//!        ├─ FixedFrame (geometry, with Mesh3d when an AssetServer exists)
-//!        └─ FixedFrame (joint parent offset)
-//!             └─ Joint
-//!                  ├─ Coordinate + CoordinateState (per coordinate)
-//!                  ├─ Twist + DrivesCoordinate (+ Function) (per axis)
-//!                  └─ FixedFrame (child offset)
-//!                       └─ Body (child, reparented here)
-//! ```
-//!
-//! Usage: put `ModelSource(asset_server.load("model.osim"))` on an entity;
-//! the spawn system builds the model as its children once the asset loads.
+//! Bodies are parented to their MJCF parent body directly (static pose for
+//! visualization); joints attach to the body they drive. See
+//! `docs/plans/2026-08-20-mujoco-exporter.md` for the round-trip plan.
 
-pub mod ir;
-pub use ir::*;
+use std::path::Path;
 
-#[cfg(feature = "mujoco")]
-pub mod mujoco;
-#[cfg(feature = "opensim")]
-pub mod opensim;
-
+use bevy::ecs::world::World;
 use bevy::prelude::*;
+use mujoco_rs::wrappers::mj_editing::*;
+use mujoco_rs::wrappers::mj_model::MjtJoint;
+use nalgebra::Vector3;
 
-/// Registers the `ModelData` asset, the format loaders, and the spawn
-/// system. `asset_root` must match `AssetPlugin.file_path` — the loaders
-/// join it with asset paths to get real filesystem paths for the
-/// path-bound reference parsers (OpenSim's `Model`, MuJoCo's `MjSpec`).
-pub struct ImporterPlugin {
-    asset_root: std::path::PathBuf,
+use crate::model::{
+    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, Inertia, InertialProperties,
+    Joint, JointCoordinates, Site, Twist,
+};
+
+/// Import failure.
+#[derive(Debug)]
+pub enum ImportError {
+    Load(String),
 }
 
-impl ImporterPlugin {
-    pub fn new(asset_root: impl Into<std::path::PathBuf>) -> Self {
-        Self { asset_root: asset_root.into() }
+/// Parse the MJCF at `path` and spawn the model into `world`.
+/// Returns the top-level container entity.
+pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError> {
+    let spec = MjSpec::from_xml(path).map_err(|e| ImportError::Load(format!("{e}")))?;
+    let model_name = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "model".into());
+
+    // Top-level container (Frame) so imported bodies group under it.
+    let anchor = world.spawn((Name::new(model_name), Frame)).id();
+
+    let world_body = spec.world_body();
+    let mut counter = 0u64;
+    for child_ent in world_body.body_iter(false) {
+        spawn_body(world, child_ent, anchor, &mut counter)?;
     }
+    Ok(anchor)
 }
 
-impl Default for ImporterPlugin {
-    fn default() -> Self {
-        Self::new("assets")
-    }
+/// MJCF (Z-up) → melosim (Y-up): invert the exporter's `zup`.
+fn zup_to_yup(v: Vec3) -> Vec3 {
+    Vec3::new(v.x, v.z, -v.y)
 }
 
-impl Plugin for ImporterPlugin {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(AssetRoot(self.asset_root.clone()))
-            .init_asset::<ModelData>()
-            .add_systems(Update, (spawn_loaded_models, handle_file_drop));
-        #[cfg(feature = "mujoco")]
-        app.register_asset_loader(mujoco::MjcfLoader {
-            asset_root: self.asset_root.clone(),
-        });
-        #[cfg(feature = "opensim")]
-        app.register_asset_loader(opensim::OpensimLoader {
-            asset_root: self.asset_root.clone(),
-        });
-    }
+fn zup_quat_to_yup(q: [f64; 4]) -> Quat {
+    // MuJoCo quat is (w,x,y,z); Bevy is xyzw.
+    let mj = Quat::from_xyzw(q[1] as f32, q[2] as f32, q[3] as f32, q[0] as f32);
+    // Rotation mapping Z-up→Y-up: +90° about X.
+    let r = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    r * mj
 }
 
-/// The asset root directory, for resolving drag-and-drop file paths.
-#[derive(Resource)]
-pub struct AssetRoot(pub std::path::PathBuf);
-
-/// Put this on an entity to populate it with a loaded model's structure.
-///
-/// `Transform`/`Visibility` are required so the model root is a proper
-/// propagation node — without them the spawned tree would never receive
-/// `GlobalTransform` updates (warning B0004, one level up).
-#[derive(Component)]
-#[require(Transform, Visibility)]
-pub struct ModelSource(pub Handle<ModelData>);
-
-/// Marker: this `ModelSource` entity has already been populated.
-#[derive(Component)]
-struct ModelSpawned;
-
-fn spawn_loaded_models(world: &mut World) {
-    let mut sources =
-        world.query_filtered::<(Entity, &ModelSource), Without<ModelSpawned>>();
-    let pending: Vec<(Entity, Handle<ModelData>)> = sources
-        .iter(world)
-        .map(|(e, s)| (e, s.0.clone()))
-        .collect();
-
-    for (entity, handle) in pending {
-        let spawned = world.resource_scope(|world, models: Mut<Assets<ModelData>>| {
-            models.get(&handle).map(|model| spawn_model(world, entity, model))
-        });
-        if spawned.is_some() {
-            world.entity_mut(entity).insert(ModelSpawned);
-        }
-    }
+fn to_vec3(a: [f64; 3]) -> Vec3 {
+    Vec3::new(a[0] as f32, a[1] as f32, a[2] as f32)
 }
 
-/// Handle drag-and-drop: when a `.osim` or `.xml` file is dropped onto
-/// the window, load it as a `ModelData` asset and spawn a `ModelSource`.
-fn handle_file_drop(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    asset_root: Res<AssetRoot>,
-    window_events: Option<
-        bevy::ecs::message::MessageReader<bevy::window::WindowEvent>,
-    >,
-) {
-    let Some(mut window_events) = window_events else {
-        warn_once!("file drop: WindowEvent message not available");
-        return;
+fn spawn_body(
+    world: &mut World,
+    mj: &MjsBody,
+    parent: Entity,
+    counter: &mut u64,
+) -> Result<(), ImportError> {
+    let name = if mj.name().is_empty() {
+        *counter += 1;
+        format!("body_{}", *counter)
+    } else {
+        mj.name().to_string()
     };
-    for event in window_events.read() {
-        match event {
-            bevy::window::WindowEvent::FileDragAndDrop(
-                bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. },
-            ) => {
-                info!("file dropped: {}", path_buf.display());
 
-                // Resolve the absolute dropped path to an asset-root-relative
-                // path. Canonicalize the asset root first so strip_prefix
-                // works against the absolute path from the OS.
-                let canon_root = std::fs::canonicalize(&asset_root.0)
-                    .unwrap_or_else(|e| {
-                        warn!("file drop: cannot canonicalize asset root {:?}: {e}", asset_root.0);
-                        asset_root.0.clone()
-                    });
-                info!("asset root: {}", canon_root.display());
+    let mut body = world.spawn((
+        Name::new(name.clone()),
+        Body,
+        InertialProperties {
+            mass: mj.mass(),
+            mass_center: Vector3::from(*mj.ipos()),
+            inertia: Inertia(*mj.fullinertia()),
+        },
+        Transform::from_translation(zup_to_yup(to_vec3(*mj.pos())))
+            .with_rotation(zup_quat_to_yup(*mj.quat())),
+    ));
+    if parent != Entity::PLACEHOLDER {
+        body.insert(ChildOf(parent));
+    }
+    let body_ent = body.id();
 
-                let asset_path = path_buf
-                    .strip_prefix(&canon_root)
-                    .map_err(|e| {
-                        warn!(
-                            "file drop: {} is not under asset root {}: {e}",
-                            path_buf.display(),
-                            canon_root.display(),
-                        );
-                    })
-                    .map(|p| p.to_string_lossy().into_owned());
+    // Joints on this body (driving it) → Joint + Coordinate + Twist.
+    let joints: Vec<_> = mj.joint_iter(false).collect();
+    for j in joints {
+        spawn_joint(world, j, body_ent, counter)?;
+    }
 
-                let Ok(asset_path) = asset_path else {
-                    continue;
-                };
+    // Sites (points on the body).
+    for s in mj.site_iter(false) {
+        let sname = if s.name().is_empty() {
+            *counter += 1;
+            format!("site_{}", *counter)
+        } else {
+            s.name().to_string()
+        };
+        world
+            .spawn((
+                Name::new(sname),
+                Site,
+                Transform::from_translation(zup_to_yup(to_vec3(*s.pos()))),
+            ))
+            .insert(ChildOf(body_ent));
+    }
 
-                if !asset_path.ends_with(".osim") && !asset_path.ends_with(".xml") {
-                    warn!("file drop: unsupported file type: {asset_path}");
-                    continue;
-                }
+    // Children bodies.
+    for child in mj.body_iter(false) {
+        spawn_body(world, child, body_ent, counter)?;
+    }
+    Ok(())
+}
 
-                info!("file drop: loading {asset_path}");
-                commands.spawn(ModelSource(asset_server.load(asset_path.clone())));
+fn spawn_joint(
+    world: &mut World,
+    mj: &MjsJoint,
+    body_ent: Entity,
+    counter: &mut u64,
+) -> Result<(), ImportError> {
+    let base = if mj.name().is_empty() {
+        *counter += 1;
+        format!("joint_{}", *counter)
+    } else {
+        mj.name().to_string()
+    };
+
+    let mut coord_ids: Vec<Entity> = Vec::new();
+    match mj.type_() {
+        MjtJoint::mjJNT_HINGE => coord_ids.push(spawn_coord(
+            world, mj, &base, "", Vector3::from(*mj.axis()), Vector3::zeros(), counter,
+        )),
+        MjtJoint::mjJNT_SLIDE => coord_ids.push(spawn_coord(
+            world, mj, &base, "", Vector3::zeros(), Vector3::from(*mj.axis()), counter,
+        )),
+        MjtJoint::mjJNT_BALL => {
+            for (s, a) in [("_rx", Vector3::x()), ("_ry", Vector3::y()), ("_rz", Vector3::z())] {
+                coord_ids.push(spawn_coord(world, mj, &base, s, a, Vector3::zeros(), counter));
             }
-            bevy::window::WindowEvent::FileDragAndDrop(
-                bevy::window::FileDragAndDrop::HoveredFile { path_buf, .. },
-            ) => {
-                info!("file hover: {}", path_buf.display());
+        }
+        MjtJoint::mjJNT_FREE => {
+            for (s, a) in [("_tx", Vector3::x()), ("_ty", Vector3::y()), ("_tz", Vector3::z())] {
+                coord_ids.push(spawn_coord(world, mj, &base, s, Vector3::zeros(), a, counter));
             }
-            _ => {}
+            for (s, a) in [("_rx", Vector3::x()), ("_ry", Vector3::y()), ("_rz", Vector3::z())] {
+                coord_ids.push(spawn_coord(world, mj, &base, s, a, Vector3::zeros(), counter));
+            }
         }
     }
+
+    let joint_name = if coord_ids.len() == 1 {
+        base.clone()
+    } else {
+        format!("{base}_{}", coord_ids.len())
+    };
+    world
+        .spawn((
+            Name::new(joint_name),
+            Joint,
+            JointCoordinates::new(coord_ids),
+            Transform::IDENTITY,
+        ))
+        .insert(ChildOf(body_ent));
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_coord(
+    world: &mut World,
+    mj: &MjsJoint,
+    base: &str,
+    suffix: &str,
+    angular: Vector3<f64>,
+    linear: Vector3<f64>,
+    counter: &mut u64,
+) -> Entity {
+    let _ = counter;
+    let limited = matches!(mj.limited(), MjtLimited::mjLIMITED_TRUE);
+    let range = *mj.range();
+    world
+        .spawn((
+            Name::new(format!("{base}{suffix}")),
+            Coordinate,
+            Twist { angular, linear },
+            CoordinateProperties {
+                range: if limited { (range[0], range[1]) } else { (-f64::MAX, f64::MAX) },
+                clamped: limited,
+                locked: false,
+                stiffness: mj.stiffness().first().copied().unwrap_or(0.0),
+                damping: mj.damping().first().copied().unwrap_or(0.0),
+            },
+            CoordinateState { value: *mj.ref_(), velocity: 0.0 },
+        ))
+        .id()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Body;
 
-    fn pipeline_app() -> App {
-        let mut app = App::new();
-        app.add_plugins((
-            bevy::app::TaskPoolPlugin::default(),
-            AssetPlugin {
-                file_path: "tests/fixtures".into(),
-                ..default()
-            },
-        ))
-        .add_plugins(ImporterPlugin::new("tests/fixtures"));
-        app
+    fn tmp_mjcf(xml: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join("melosim_import_test.xml");
+        std::fs::write(&p, xml).unwrap();
+        p
     }
 
-    fn count_bodies(app: &mut App) -> usize {
-        app.world_mut()
-            .query_filtered::<Entity, With<Body>>()
-            .iter(app.world())
-            .count()
-    }
-
-    /// Pump updates until the model under `handle` has spawned bodies
-    /// (async asset loads complete in wall-clock time, not frame counts).
-    fn wait_for_spawn(app: &mut App, handle: &Handle<ModelData>) -> usize {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        loop {
-            app.update();
-            let bodies = count_bodies(app);
-            if bodies > 0 {
-                return bodies;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "model never spawned; load state: {:?}",
-                app.world().resource::<AssetServer>().load_state(handle)
-            );
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-    }
-
-    /// End-to-end: `ModelSource` + asset path → registered loader parses the
-    /// file asynchronously → spawn system builds the body tree.
+    /// A minimal 2-body hinge model: parses and spawns bodies + joint.
     #[test]
-    fn loads_and_spawns_mjcf_via_asset_pipeline() {
-        let mut app = pipeline_app();
-        let handle = app
-            .world()
-            .resource::<AssetServer>()
-            .load("myo_sim/osl/myolegs_osl.xml");
-        app.world_mut().spawn(ModelSource(handle.clone()));
+    fn imports_two_body_hinge() {
+        let xml = r#"<mujoco model="test2">
+          <worldbody>
+            <body name="base" pos="0 0 0">
+              <joint name="hinge" type="hinge" axis="0 0 1" range="-1 1" damping="0.5"/>
+              <body name="link" pos="0 0 1">
+                <site name="tip" pos="0 0 0.1"/>
+              </body>
+            </body>
+          </worldbody>
+        </mujoco>"#;
+        let path = tmp_mjcf(xml);
+        let mut world = World::new();
+        let anchor = import_mjcf(&mut world, &path).expect("import");
+        let _ = anchor;
 
-        assert!(wait_for_spawn(&mut app, &handle) > 10);
-    }
-
-    #[cfg(feature = "opensim")]
-    #[test]
-    fn loads_and_spawns_osim_via_asset_pipeline() {
-        let mut app = pipeline_app();
-        let handle = app
-            .world()
-            .resource::<AssetServer>()
-            .load("Rajagopal/Rajagopal2015.osim");
-        app.world_mut().spawn(ModelSource(handle.clone()));
-
-        assert_eq!(wait_for_spawn(&mut app, &handle), 23, "22 bodies + ground");
+        assert!(
+            world.query_filtered::<Entity, With<Body>>().iter(&world).count() >= 2,
+            "expected base + link bodies"
+        );
+        assert!(
+            world.query_filtered::<Entity, With<Joint>>().iter(&world).count() >= 1,
+            "expected a joint"
+        );
+        assert!(
+            world.query_filtered::<Entity, With<Site>>().iter(&world).count() >= 1,
+            "expected a site"
+        );
     }
 }

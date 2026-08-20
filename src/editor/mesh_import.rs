@@ -187,6 +187,7 @@ pub fn import_dropped_mesh(
 /// Runs in the egui pass (separate system so `editor_ui` stays under 16 params).
 pub fn mesh_import_ui(
     mut contexts: EguiContexts,
+    mut pending: ResMut<super::PendingModelImport>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -219,6 +220,15 @@ pub fn mesh_import_ui(
                     }
                 }
             });
+            ui.separator();
+            if ui.button("Import Model (.xml)").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("MuJoCo model", &["xml"])
+                    .pick_file()
+                {
+                    pending.0 = Some(path);
+                }
+            }
         });
 }
 

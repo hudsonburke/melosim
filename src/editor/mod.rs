@@ -6,6 +6,30 @@ pub mod selection;
 pub mod ui;
 pub mod viewport;
 
+use std::path::PathBuf;
+
+/// A `.xml` model the user chose to import; processed by `process_model_imports`.
+/// (Resource, not a `World`-param button system, so the egui pass tuple stays
+/// chainable.)
+#[derive(Default, Resource)]
+pub struct PendingModelImport(pub Option<PathBuf>);
+
+fn process_model_imports(world: &mut World) {
+    let Some(path) = world.resource_mut::<PendingModelImport>().0.take() else {
+        return;
+    };
+    #[cfg(feature = "mujoco")]
+    match crate::importer::import_mjcf(world, &path) {
+        Ok(_) => info!("imported model: {}", path.display()),
+        Err(e) => error!("model import failed: {e:?}"),
+    }
+    #[cfg(not(feature = "mujoco"))]
+    {
+        let _ = (&path, world);
+        warn!("MuJoCo model import requires the `mujoco` feature");
+    }
+}
+
 use bevy::{
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
     dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
@@ -40,6 +64,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<Selection>();
         app.init_resource::<models::ModelRegistry>();
         app.init_resource::<path_editor::PathEditor>();
+        app.init_resource::<PendingModelImport>();
         // Load the default model (MyoArm) at startup; the UI can change this.
         app.insert_resource(models::SelectedModel(Some(0)));
 
@@ -82,6 +107,10 @@ impl Plugin for MelosimEditorPlugin {
                 models::tag_model_roots,
             ),
         );
+
+        // Load a model chosen via the Import panel (needs exclusive `World`
+        // access, so it's a standalone system, not part of the Update tuple).
+        app.add_systems(Update, process_model_imports);
 
         // egui UI runs inside the egui primary context pass (after egui begins
         // the frame) — running it in `Update` panics because egui's fonts /
