@@ -32,6 +32,9 @@ rfd = "0.15"
 # egui windows (capture_pointer_input) — clicks on panels/sliders never pick the 3D scene.
 bevy_egui = { version = "0.40", features = ["picking"] }
 pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
+# MuJoCo I/O via its editing API (MjSpec) — parse + build MJCF, no hand XML.
+mujoco-rs = { version = "5", features = ["auto-download-mujoco"], optional = true }
+anyhow = { version = "1", optional = true }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -45,3 +48,6 @@ opt-level = 3
 # OpenSim import via the Python API (PyO3). Needs the repo venv; on this
 # machine .cargo/config.toml supplies PYO3_PYTHON / PYTHONPATH / LD_LIBRARY_PATH.
 opensim = ["dep:pyo3"]
+# MuJoCo import/export via mujoco-rs MjSpec. Downloads MuJoCo into .mujoco/ at
+# build (auto-download-mujoco); set LD_LIBRARY_PATH to .mujoco at runtime.
+mujoco = ["dep:mujoco-rs", "dep:anyhow"]
