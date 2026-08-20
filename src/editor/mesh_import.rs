@@ -1,15 +1,16 @@
-//! Layer 1: import a mesh as a new Body/part.
+//! Layer 1: import a mesh as a new Body/part, normalized to glTF conventions.
+//!
+//! **Canonical mesh space = glTF conventions: Y-up, right-handed, meters.**
+//! - **GLB / glTF** already conform — imported as-is (whole scene, all
+//!   nodes/primitives).
+//! - **STL / OBJ** (CAD) adapt to those conventions: rotated Z-up → Y-up and
+//!   scaled to meters (unit picked on import).
 //!
 //! CAD-native files (STEP / IGES / Fusion F3D / SolidWorks SLDPRT) can't be read
-//! directly — export as a mesh first: **STL** (universal) or **GLB/glTF**
-//! (preferred; keeps material, Bevy's native mesh format).
+//! directly — export as a mesh first (STL or GLB).
 //!
-//! Two sources, both spawning a **new root Body** holding the mesh:
-//! - **File picker** (Browse…) — native `rfd` GTK dialog.
-//! - **Drag & drop** a mesh file onto the window.
-//!
-//! The file is copied into `assets/imported/` (so `AssetServer` can load it) and
-//! the CAD Z-up → Bevy Y-up rotation is baked in.
+//! Sources: file picker (Browse…, native `rfd`) + drag & drop. Each import
+//! spawns a **new root Body** holding the mesh.
 
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,44 @@ use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use crate::model::{Body, InertialProperties};
 
+/// Z-up (CAD/MuJoCo) → Y-up (glTF) rotation, matching the myoarm mesh nodes.
+fn zup_to_yup() -> Quat {
+    Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107)
+}
+
+/// Source unit of the imported file (converted to meters on import).
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImportUnit {
+    #[default]
+    Mm,
+    Cm,
+    M,
+    In,
+    Ft,
+}
+
+impl ImportUnit {
+    /// Scale factor to meters.
+    fn to_m(self) -> f32 {
+        match self {
+            ImportUnit::Mm => 0.001,
+            ImportUnit::Cm => 0.01,
+            ImportUnit::M => 1.0,
+            ImportUnit::In => 0.0254,
+            ImportUnit::Ft => 0.3048,
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            ImportUnit::Mm => "mm",
+            ImportUnit::Cm => "cm",
+            ImportUnit::M => "m",
+            ImportUnit::In => "in",
+            ImportUnit::Ft => "ft",
+        }
+    }
+}
+
 fn is_mesh_ext(path: &Path) -> bool {
     matches!(
         path.extension()
@@ -32,19 +71,25 @@ fn is_mesh_ext(path: &Path) -> bool {
     )
 }
 
-/// Spawn a new root `Body` with the given mesh file as a child.
-///
-/// - **STL / OBJ** load directly as a single `Mesh`.
-/// - **GLB / glTF** are spawned via `SceneRoot` so the *whole scene* is
-///   instantiated — all nodes/primitives. Loading only `#Mesh0/Primitive0`
-///   would drop everything but the first primitive of multi-piece parts
-///   (e.g. a cable guide exported as 81 primitives).
+/// glTF is meters / Y-up; CAD mesh formats are assumed mm and Z-up.
+fn default_unit(path: &Path) -> ImportUnit {
+    let ext = path.extension().and_then(|e| e.to_str());
+    if matches!(ext, Some("glb") | Some("gltf")) {
+        ImportUnit::M
+    } else {
+        ImportUnit::Mm
+    }
+}
+
+/// Spawn a new root `Body` holding the given mesh file, normalized to glTF
+/// conventions (Y-up, meters): glTF as-is; STL/OBJ rotated Z-up→Y-up + scaled.
 fn spawn_mesh_body(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
     asset_path: String,
     name: &str,
+    unit: ImportUnit,
 ) {
     let body_id = commands
         .spawn((Name::new(name.to_owned()), Body, InertialProperties::default()))
@@ -54,14 +99,21 @@ fn spawn_mesh_body(
         .extension()
         .and_then(|e| e.to_str())
         .map(|s| s.to_ascii_lowercase());
+    let is_gltf = matches!(ext.as_deref(), Some("glb") | Some("gltf"));
 
-    let mesh_child = if matches!(ext.as_deref(), Some("glb") | Some("gltf")) {
-        // Spawn the whole glTF scene (`#Scene0`) via its WorldAsset — all nodes
-        // and primitives hydrate as children. (Loading `#Mesh0/Primitive0` would
-        // drop every primitive except the first of a multi-piece part.)
+    // Normalize to glTF Y-up + meters.
+    let transform = Transform::from_rotation(if is_gltf {
+        Quat::IDENTITY
+    } else {
+        zup_to_yup()
+    })
+    .with_scale(Vec3::splat(unit.to_m()));
+
+    let mesh_child = if is_gltf {
+        // Whole glTF scene (`#Scene0`) via its WorldAsset — all nodes/primitives.
         let scene: Handle<WorldAsset> = asset_server.load(format!("{asset_path}#Scene0"));
         commands
-            .spawn((Name::new(format!("{name}_mesh")), WorldAssetRoot(scene)))
+            .spawn((Name::new(format!("{name}_mesh")), WorldAssetRoot(scene), transform))
             .insert(ChildOf(body_id))
             .id()
     } else {
@@ -71,11 +123,7 @@ fn spawn_mesh_body(
             ..default()
         });
         commands
-            .spawn((
-                Name::new(format!("{name}_mesh")),
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-            ))
+            .spawn((Name::new(format!("{name}_mesh")), Mesh3d(mesh), MeshMaterial3d(material), transform))
             .insert(ChildOf(body_id))
             .id()
     };
@@ -89,6 +137,7 @@ fn import_file(
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
     src: &Path,
+    unit: ImportUnit,
 ) {
     if !is_mesh_ext(src) {
         error!("mesh import: unsupported extension for {}", src.display());
@@ -112,11 +161,11 @@ fn import_file(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("part");
-    spawn_mesh_body(commands, asset_server, materials, asset_path, stem);
+    spawn_mesh_body(commands, asset_server, materials, asset_path, stem, unit);
     info!("imported mesh: {}", dest.display());
 }
 
-/// Handle files dropped onto the window.
+/// Handle files dropped onto the window (uses the format's default unit).
 pub fn import_dropped_mesh(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -128,31 +177,48 @@ pub fn import_dropped_mesh(
             continue;
         };
         if is_mesh_ext(path_buf) {
-            import_file(&mut commands, &asset_server, &mut materials, path_buf);
+            import_file(&mut commands, &asset_server, &mut materials, path_buf, default_unit(path_buf));
         }
     }
 }
 
-/// Small panel to import a mesh via the native file picker (or drag & drop).
-/// Runs in the egui pass (separate system so `editor_ui` stays under Bevy's
-/// 16-parameter limit).
+/// Small panel to import a mesh via the native file picker. Lets you choose the
+/// source unit (STL/OBJ are assumed mm and Z-up; glTF is meters/Y-up).
+/// Runs in the egui pass (separate system so `editor_ui` stays under 16 params).
 pub fn mesh_import_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut unit: Local<ImportUnit>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Import Mesh")
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -36.0))
         .collapsible(false)
         .show(ctx, |ui| {
-            ui.label("Drag & drop a mesh, or pick a file:");
-            if ui.button("Browse…").clicked() {
-                if let Some(path) = pick_mesh_file() {
-                    import_file(&mut commands, &asset_server, &mut materials, &path);
+            ui.label("Drag & drop a mesh, or pick a file.");
+            ui.horizontal(|ui| {
+                ui.label("Unit:");
+                egui::ComboBox::from_id_salt("import_unit")
+                    .selected_text(unit.label())
+                    .show_ui(ui, |ui| {
+                        for u in [
+                            ImportUnit::Mm,
+                            ImportUnit::Cm,
+                            ImportUnit::M,
+                            ImportUnit::In,
+                            ImportUnit::Ft,
+                        ] {
+                            ui.selectable_value(&mut *unit, u, u.label());
+                        }
+                    });
+                if ui.button("Browse…").clicked() {
+                    if let Some(path) = pick_mesh_file() {
+                        import_file(&mut commands, &asset_server, &mut materials, &path, *unit);
+                    }
                 }
-            }
+            });
         });
 }
 
