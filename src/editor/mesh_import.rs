@@ -40,7 +40,21 @@ fn spawn_mesh_body(
     asset_path: String,
     name: &str,
 ) {
-    let mesh: Handle<Mesh> = asset_server.load(asset_path);
+    // glTF/GLB files aren't a bare `Mesh` asset — a mesh is addressed by a
+    // `#MeshN/PrimitiveM` label (e.g. glTF "gltf/part.glb#Mesh0/Primitive0").
+    // STL/OBJ load directly as a `Mesh`, no label needed.
+    let mut load_path = asset_path;
+    if !load_path.contains('#') {
+        let ext = Path::new(&load_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase());
+        if matches!(ext.as_deref(), Some("glb") | Some("gltf")) {
+            load_path.push_str("#Mesh0/Primitive0");
+        }
+    }
+
+    let mesh: Handle<Mesh> = asset_server.load(load_path);
     let material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.8, 0.7, 0.6),
         ..default()
