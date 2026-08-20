@@ -49,7 +49,9 @@ impl Plugin for RenderPlugin {
             .add_systems(
                 Update,
                 (
-                    visualize::draw_model_gizmos,
+                    visualize::draw_bodies,
+                    visualize::draw_frames,
+                    visualize::draw_sites,
                     visualize::draw_muscle_paths,
                     visualize::draw_joint_axes,
                 ),

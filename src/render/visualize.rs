@@ -4,55 +4,69 @@ use bevy::prelude::*;
 
 use crate::render::RenderSettings;
 
+/// Standard RGB = XYZ axis visualization colors/lengths shared by Body & Frame.
+const AXES: [Vec3; 3] = [Vec3::X, Vec3::Y, Vec3::Z];
+const COLORS: [Color; 3] = [
+    Color::srgb(1.0, 0.0, 0.0),
+    Color::srgb(0.0, 1.0, 0.0),
+    Color::srgb(0.0, 0.0, 1.0),
+];
+
 // ── Gizmo systems ────────────────────────────────────
 
-/// Draw the "own-transform" model visuals in one pass: Body → RGB axes + origin
-/// sphere, Frame → smaller RGB axes, Site → cyan sphere.
-///
-/// These three only need the entity's own `GlobalTransform`, so they fit one
-/// `Option<>` query. (Muscle paths and joint axes stay separate because they
-/// depend on *other* entities' transforms — path points / the parent frame.)
-pub fn draw_model_gizmos(
+/// Draw each `Body`: RGB coordinate axes + a small origin sphere.
+pub fn draw_bodies(
     mut gizmos: Gizmos,
     settings: Res<RenderSettings>,
-    model: Query<(
-        &GlobalTransform,
-        Option<&crate::model::Body>,
-        Option<&crate::model::Frame>,
-        Option<&crate::model::Site>,
-    )>,
+    bodies: Query<&GlobalTransform, With<crate::model::Body>>,
 ) {
-    const AXES: [Vec3; 3] = [Vec3::X, Vec3::Y, Vec3::Z];
-    const COLORS: [Color; 3] = [
-        Color::srgb(1.0, 0.0, 0.0),
-        Color::srgb(0.0, 1.0, 0.0),
-        Color::srgb(0.0, 0.0, 1.0),
-    ];
-
-    for (gt, body, frame, site) in &model {
+    if !settings.bodies {
+        return;
+    }
+    for gt in &bodies {
         let pos = gt.translation();
         let rot = gt.rotation();
-
-        if body.is_some() && settings.bodies {
-            for (axis, color) in AXES.iter().zip(COLORS.iter()) {
-                gizmos.line(pos, pos + rot * *axis * 0.02, *color);
-            }
-            gizmos.sphere(
-                Isometry3d::from_translation(pos),
-                0.005,
-                Color::srgb(1.0, 1.0, 0.0),
-            );
-        } else if frame.is_some() && settings.frames {
-            for (axis, color) in AXES.iter().zip(COLORS.iter()) {
-                gizmos.line(pos, pos + rot * *axis * 0.015, *color);
-            }
-        } else if site.is_some() && settings.sites {
-            gizmos.sphere(
-                Isometry3d::from_translation(pos),
-                0.003,
-                Color::srgb(0.0, 1.0, 1.0),
-            );
+        for (axis, color) in AXES.iter().zip(COLORS.iter()) {
+            gizmos.line(pos, pos + rot * *axis * 0.02, *color);
         }
+        gizmos.sphere(Isometry3d::from_translation(pos), 0.005, Color::srgb(1.0, 1.0, 0.0));
+    }
+}
+
+/// Draw each `Frame` as a small local RGB axis triplet (its own coordinate
+/// system), so attachment frames are visible and aimable.
+pub fn draw_frames(
+    mut gizmos: Gizmos,
+    settings: Res<RenderSettings>,
+    frames: Query<&GlobalTransform, With<crate::model::Frame>>,
+) {
+    if !settings.frames {
+        return;
+    }
+    for gt in &frames {
+        let pos = gt.translation();
+        let rot = gt.rotation();
+        for (axis, color) in AXES.iter().zip(COLORS.iter()) {
+            gizmos.line(pos, pos + rot * *axis * 0.015, *color);
+        }
+    }
+}
+
+/// Draw each `Site` as a small cyan sphere (cable-routing / landmark points).
+pub fn draw_sites(
+    mut gizmos: Gizmos,
+    settings: Res<RenderSettings>,
+    sites: Query<&GlobalTransform, With<crate::model::Site>>,
+) {
+    if !settings.sites {
+        return;
+    }
+    for gt in &sites {
+        gizmos.sphere(
+            Isometry3d::from_translation(gt.translation()),
+            0.003,
+            Color::srgb(0.0, 1.0, 1.0),
+        );
     }
 }
 
