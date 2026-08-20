@@ -1,4 +1,5 @@
 pub mod gizmo;
+pub mod mesh_import;
 pub mod models;
 pub mod selection;
 pub mod ui;
@@ -37,6 +38,7 @@ impl Plugin for MelosimEditorPlugin {
         // Resources
         app.init_resource::<Selection>();
         app.init_resource::<models::ModelRegistry>();
+        app.init_resource::<mesh_import::MeshImport>();
         // Load the default model (MyoArm) at startup; the UI can change this.
         app.insert_resource(models::SelectedModel(Some(0)));
 
@@ -82,7 +84,10 @@ impl Plugin for MelosimEditorPlugin {
         // egui UI runs inside the egui primary context pass (after egui begins
         // the frame) — running it in `Update` panics because egui's fonts /
         // available-rect aren't set up before `Context::run()`.
-        app.add_systems(EguiPrimaryContextPass, ui::editor_ui);
+        app.add_systems(
+            EguiPrimaryContextPass,
+            (ui::editor_ui, mesh_import::mesh_import_ui).chain(),
+        );
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so
