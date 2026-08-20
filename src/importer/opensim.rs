@@ -1,874 +1,625 @@
-// ── OpenSim Importer ──────────────────────────────────
-// Intermediate data types and import functions for OpenSim models.
-//
-// Architecture:
-//   Python extraction script (on user's machine with OpenSim installed)
-//   → JSON file → Rust importer (via serde_json)
-//
-// Each OpenSim component type has a corresponding *Data struct that
-// carries only the fields needed for import. The import functions
-// create melosim ECS entities and components from these structs.
-//
-// The importer is designed to be built incrementally:
-//   1. Start with one joint type (PinJoint) + two bodies
-//   2. Verify round-trip (JSON → World → validate)
-//   3. Add more component types iteratively
+//! OpenSim `.osim` import via the official Python API (PyO3).
+//!
+//! OpenSim itself parses the XML — including older document versions, which
+//! it upgrades on load — and we walk the live model object. Environment on
+//! this machine comes from `.cargo/config.toml` (venv + library paths).
+//!
+//! Mapping notes:
+//! - Socket frames are resolved to `(body, composed offset)` by walking up
+//!   the `PhysicalOffsetFrame` chain; those become the joint's parent/child
+//!   offsets.
+//! - `CustomJoint` spatial transforms become axes; the built-in joint types
+//!   (Pin, Slider, Ball, Universal, Free, Weld) map to their fixed axis
+//!   layouts. Other types import their coordinates but no axes (warned).
+//! - `TransformAxis` entries with no coordinate are constant offsets and are
+//!   skipped, matching the old importer's behavior.
+//! - Markers, muscles, wrap objects, actuators, contact: not imported (yet).
 
-use serde::Deserialize;
-use std::collections::HashMap;
+use std::path::Path;
 
-use crate::components::*;
-use crate::id::EntityID;
-use crate::math::Transform;
-use crate::world::World;
+use bevy::asset::io::Reader;
+use bevy::asset::{AssetLoader, LoadContext};
+use bevy::log::warn;
+use bevy::reflect::TypePath;
+use nalgebra::{Isometry3, Translation, UnitQuaternion, Vector3};
+use pyo3::prelude::*;
 
-// ── Intermediate Data Types ───────────────────────────
-// These mirror the OpenSim model structure and are deserialized
-// from JSON produced by the Python extraction script.
+use super::{AxisData, BodyData, CoordinateData, GeometryData, JointData, ModelData};
+use crate::model::{Function, Inertia, InertialProperties, Twist};
 
-/// Full OpenSim model representation.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimModelData {
-    pub name: String,
-    pub bodies: Vec<OpenSimBodyData>,
-    pub joints: Vec<OpenSimJointData>,
-    pub markers: Vec<OpenSimMarkerData>,
-    pub muscles: Vec<OpenSimMuscleData>,
-    pub wrap_objects: Vec<OpenSimWrapData>,
-    pub display_geometries: Vec<OpenSimDisplayGeometryData>,
-    #[serde(default)]
-    pub coordinate_actuators: Vec<OpenSimCoordinateActuatorData>,
-}
+type Res<T> = Result<T, String>;
 
-/// An OpenSim Body's essential properties.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimBodyData {
-    pub name: String,
-    pub mass: f64,
-    pub mass_center: [f64; 3],
-    /// Inertia tensor: [Ixx, Iyy, Izz, Ixy, Ixz, Iyz]
-    pub inertia: [f64; 6],
-}
-
-/// An OpenSim Joint, with type-specific data in optional fields.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimJointData {
-    pub name: String,
-    pub joint_type: String, // "PinJoint", "CustomJoint", "UniversalJoint", etc.
-    pub parent_body: String,
-    pub child_body: String,
-    /// Translation from parent frame to joint frame.
-    pub location_in_parent: [f64; 3],
-    /// Euler angles (radians) from parent frame to joint frame.
-    pub orientation_in_parent: [f64; 3],
-    /// Translation from child frame to joint frame.
-    pub location_in_child: [f64; 3],
-    /// Euler angles (radians) from child frame to joint frame.
-    pub orientation_in_child: [f64; 3],
-    // PinJoint / hinge-like joints
-    pub axis: Option<[f64; 3]>,
-    pub coordinate: Option<OpenSimCoordinateData>,
-    // CustomJoint
-    pub coordinates: Option<Vec<OpenSimCoordinateData>>,
-    pub spatial_transform: Option<OpenSimSpatialTransformData>,
-}
-
-/// An OpenSim Coordinate (generalized DOF).
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimCoordinateData {
-    pub name: String,
-    pub range_min: f64,
-    pub range_max: f64,
-    pub default_value: f64,
-    pub stiffness: f64,
-    pub damping: f64,
-    pub clamped: bool,
-    pub locked: bool,
-    /// Polynomial coefficients for prescribed function (optional).
-    pub prescribed_function: Option<Vec<f64>>,
-}
-
-/// SpatialTransform for CustomJoint — up to 6 CoordinateEffects.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimSpatialTransformData {
-    pub rotation_x: Option<OpenSimEffectData>,
-    pub rotation_y: Option<OpenSimEffectData>,
-    pub rotation_z: Option<OpenSimEffectData>,
-    pub translation_x: Option<OpenSimEffectData>,
-    pub translation_y: Option<OpenSimEffectData>,
-    pub translation_z: Option<OpenSimEffectData>,
-}
-
-/// A single CoordinateEffect within a SpatialTransform.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimEffectData {
-    pub coordinate_name: String,
-    pub function_type: String, // "Constant", "Linear", "Polynomial"
-    pub coefficients: Vec<f64>,
-}
-
-/// An OpenSim Marker (anatomical landmark on a body).
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimMarkerData {
-    pub name: String,
-    pub body: String,
-    pub location: [f64; 3],
-}
-
-/// An OpenSim Muscle's essential properties for import.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimMuscleData {
-    pub name: String,
-    pub muscle_type: String,
-    pub max_isometric_force: f64,
-    pub optimal_fiber_length: f64,
-    pub tendon_slack_length: f64,
-    pub pennation_angle_at_optimal: f64,
-    pub max_contraction_velocity: f64,
-    pub activation_time_constant: f64,
-    pub deactivation_time_constant: f64,
-    pub minimum_activation: f64,
-    pub fiber_damping: f64,
-    pub ignore_activation_dynamics: bool,
-    pub ignore_tendon_compliance: bool,
-    pub path_points: Vec<OpenSimPathPointData>,
-}
-
-/// A single point along a muscle path, as represented in import data.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimPathPointData {
-    pub point_type: String,  // "BodyFixedPathPoint", "MovingPathPoint"
-    pub body: String,
-    pub location: [f64; 3],
-    pub coordinate: Option<String>,
-    pub function: Option<Vec<f64>>,
-}
-
-/// A wrapping surface imported from OpenSim.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimWrapData {
-    pub name: String,
-    pub body: String,
-    pub wrap_type: String, // "Sphere", "Cylinder", "Ellipsoid"
-    pub dimensions: Vec<f64>,
-    pub location: [f64; 3],
-    pub orientation: [f64; 3],
-}
-
-/// A display (visual) geometry imported from OpenSim.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimDisplayGeometryData {
-    pub body: String,
-    pub mesh_file: Option<String>,
-    pub scale: [f64; 3],
-    pub color: [f64; 3],
-    pub opacity: f64,
-    pub location: [f64; 3],
-    pub orientation: [f64; 3],
-}
-
-/// A CoordinateActuator — torque on a single coordinate.
-#[derive(Clone, Debug, Deserialize)]
-pub struct OpenSimCoordinateActuatorData {
-    pub name: String,
-    pub coordinate: String,
-    #[serde(default = "default_optimal_force")]
-    pub optimal_force: f64,
-    #[serde(default = "default_min_control")]
-    pub min_control: f64,
-    #[serde(default = "default_max_control")]
-    pub max_control: f64,
-}
-
-fn default_optimal_force() -> f64 { 1.0 }
-fn default_min_control() -> f64 { -1.0 }
-fn default_max_control() -> f64 { 1.0 }
-
-// ── Import Functions ──────────────────────────────────
-
-/// Import a full OpenSim model from intermediate data into a World.
-///
-/// Returns Ok(()) on success, or Err with a list of error messages
-/// if any component failed to import (missing body references, etc.).
-pub fn import_opensim_model(
-    world: &mut World,
-    data: &OpenSimModelData,
-) -> Result<(), Vec<String>> {
-    let mut body_map: HashMap<String, EntityID> = HashMap::new();
-    let mut coord_map: HashMap<String, EntityID> = HashMap::new();
-    let mut errors = Vec::new();
-
-    // Phase 1: Import all bodies, build name → key map
-    for body_data in &data.bodies {
-        match import_opensim_body(world, body_data) {
-            Ok(key) => {
-                body_map.insert(body_data.name.clone(), key);
-            }
-            Err(e) => errors.push(e),
-        }
-    }
-
-    // Phase 2: Import all joints using resolved body keys
-    for joint_data in &data.joints {
-        let parent = body_map.get(&joint_data.parent_body).copied();
-        let child = body_map.get(&joint_data.child_body).copied();
-        match (parent, child) {
-            (Some(parent_key), Some(child_key)) => {
-                if let Err(e) =
-                    import_opensim_joint(world, joint_data, parent_key, child_key)
-                {
-                    errors.push(e);
-                }
-            }
-            (None, _) => errors.push(format!(
-                "Joint '{}': parent body '{}' not found",
-                joint_data.name, joint_data.parent_body
-            )),
-            (_, None) => errors.push(format!(
-                "Joint '{}': child body '{}' not found",
-                joint_data.name, joint_data.child_body
-            )),
-        }
-    }
-
-    // Build coordinate name → key map from the world
-    for (key, _coord) in world.iter::<JointCoordinate>() {
-        if let Some(name) = world.get::<Name>(key) {
-            coord_map.insert(name.value.clone(), key);
-        }
-    }
-
-    // Phase 3: Import markers
-    for marker_data in &data.markers {
-        if let Some(&body_key) = body_map.get(&marker_data.body) {
-            import_opensim_marker(world, marker_data, body_key);
-        } else {
-            errors.push(format!(
-                "Marker '{}': body '{}' not found",
-                marker_data.name, marker_data.body
-            ));
-        }
-    }
-
-    // Phase 4: Import muscles (using body_map AND coord_map)
-    for muscle_data in &data.muscles {
-        match import_opensim_muscle(world, muscle_data, &body_map, &coord_map) {
-            Ok(_) => {}
-            Err(e) => errors.push(e),
-        }
-    }
-
-    // Phase 5: Import wrap objects
-    for wrap_data in &data.wrap_objects {
-        match import_opensim_wrap(world, wrap_data, &body_map) {
-            Ok(_) => {}
-            Err(e) => errors.push(e),
-        }
-    }
-
-    // Phase 6: Import display geometries
-    for geom_data in &data.display_geometries {
-        if let Err(e) = import_opensim_display_geometry(world, geom_data, &body_map) {
-            errors.push(e);
-        }
-    }
-
-    // Phase 7: Import coordinate actuators
-    for act_data in &data.coordinate_actuators {
-        match import_coordinate_actuator(world, act_data, &coord_map) {
-            Ok(_) => {}
-            Err(e) => errors.push(e),
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
-/// Import a single OpenSim body: creates InertialProperties + Frame entities.
-pub fn import_opensim_body(
-    world: &mut World,
-    data: &OpenSimBodyData,
-) -> Result<EntityID, String> {
-    let body_entity = world.spawn();
-    world.attach(body_entity, InertialProperties {
-        mass: data.mass,
-        com: data.mass_center,
-        inertia: data.inertia,
-    });
-    world.attach(body_entity, Name { value: data.name.clone() });
-    // Frame is a separate entity referencing the body
-    let frame_entity = world.spawn();
-    world.attach(frame_entity, Frame {
-        parent: body_entity,
-        transform: Transform::default(),
-    });
-    Ok(body_entity)
-}
-
-/// Import a single OpenSim joint, dispatching by type.
-pub fn import_opensim_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    match data.joint_type.as_str() {
-        "PinJoint" => import_pin_joint(world, data, parent_key, child_key),
-        "WeldJoint" => import_weld_joint(world, data, parent_key, child_key),
-        "BallJoint" => import_ball_joint(world, data, parent_key, child_key),
-        "FreeJoint" => import_free_joint(world, data, parent_key, child_key),
-        "UniversalJoint" => import_universal_joint(world, data, parent_key, child_key),
-        "CustomJoint" => import_custom_joint(world, data, parent_key, child_key),
-        other => Err(format!(
-            "Joint '{}': unsupported type '{}'",
-            data.name, other
-        )),
-    }
-}
-
-/// Import a single OpenSim marker: creates a Site entity with Name.
-pub fn import_opensim_marker(
-    world: &mut World,
-    data: &OpenSimMarkerData,
-    body_key: EntityID,
-) -> EntityID {
-    let site_entity = world.spawn();
-    world.attach(site_entity, Site {
-        parent: body_key,
-        offset: data.location.into(),
-    });
-    world.attach(site_entity, Name { value: data.name.clone() });
-    site_entity
-}
-
-/// Import a single CoordinateActuator.
-pub fn import_coordinate_actuator(
-    world: &mut World,
-    data: &OpenSimCoordinateActuatorData,
-    coord_map: &HashMap<String, EntityID>,
-) -> Result<EntityID, String> {
-    let coord_key = coord_map.get(&data.coordinate).copied().ok_or_else(|| {
-        format!(
-            "CoordinateActuator '{}': coordinate '{}' not found",
-            data.name, data.coordinate
-        )
-    })?;
-    let entity = world.spawn();
-    world.attach(entity, CoordinateActuator {
-        coordinate: coord_key,
-        optimal_force: data.optimal_force,
-        min_control: data.min_control,
-        max_control: data.max_control,
-    });
-    world.attach(entity, Name { value: data.name.clone() });
-    Ok(entity)
-}
-
-/// Import a single OpenSim muscle: creates Muscle + MusclePath + Millard2012Params.
-pub fn import_opensim_muscle(
-    world: &mut World,
-    data: &OpenSimMuscleData,
-    body_map: &HashMap<String, EntityID>,
-    coord_map: &HashMap<String, EntityID>,
-) -> Result<EntityID, String> {
-    // Step 1: Create the Muscle entity
-    let muscle_entity = world.spawn();
-    world.attach(muscle_entity, Muscle);
-    world.attach(muscle_entity, Name { value: data.name.clone() });
-
-    // Step 2: Create Millard2012Params entity referencing the muscle
-    let params_entity = world.spawn();
-    world.attach(params_entity, Millard2012Params {
-        muscle: muscle_entity,
-        max_isometric_force: data.max_isometric_force,
-        optimal_fiber_length: data.optimal_fiber_length,
-        tendon_slack_length: data.tendon_slack_length,
-        pennation_angle_at_optimal: data.pennation_angle_at_optimal,
-        max_contraction_velocity: data.max_contraction_velocity,
-        activation_time_constant: data.activation_time_constant,
-        deactivation_time_constant: data.deactivation_time_constant,
-        minimum_activation: data.minimum_activation,
-        fiber_damping: data.fiber_damping,
-        ignore_activation_dynamics: data.ignore_activation_dynamics,
-        ignore_tendon_compliance: data.ignore_tendon_compliance,
-    });
-
-    // Step 3: Build PathPoints
-    let mut path_points: Vec<PathPoint> = Vec::new();
-    for pt in &data.path_points {
-        let body_key = body_map.get(&pt.body).ok_or_else(|| {
-            format!(
-                "Muscle '{}': path point references unknown body '{}'",
-                data.name, pt.body
-            )
+/// Parse the `.osim` file at `path` into the format-neutral IR.
+pub fn extract_osim(path: &Path) -> Res<ModelData> {
+    Python::attach(|py| {
+        let osim = py.import("opensim").map_err(|e| {
+            format!("import opensim failed (check PYTHONPATH/LD_LIBRARY_PATH): {e}")
         })?;
+        let model = osim
+            .getattr("Model")
+            .and_then(|m| m.call1((path.to_string_lossy().as_ref(),)))
+            .map_err(|e| format!("failed to load {}: {e}", path.display()))?;
 
-        let path_point = match pt.point_type.as_str() {
-            "BodyFixedPathPoint" => PathPoint::BodyFixed {
-                body: *body_key,
-                location: pt.location,
-            },
-            "MovingPathPoint" => {
-                let coord_key = pt.coordinate.as_ref().and_then(|name| coord_map.get(name)).copied().ok_or_else(|| {
-                    format!(
-                        "Muscle '{}': MovingPathPoint references unknown coordinate '{:?}'",
-                        data.name, pt.coordinate
-                    )
-                })?;
+        let mut data = ModelData {
+            name: get_str(&model, "getName")?,
+            mesh_dir: path.parent().unwrap_or(Path::new("")).to_path_buf(),
+            bodies: vec![BodyData {
+                name: "ground".into(),
+                inertial: InertialProperties {
+                    mass: 0.0,
+                    mass_center: Vector3::zeros(),
+                    inertia: Inertia::default(),
+                },
+                geometry: vec![],
+            }],
+            joints: vec![],
+        };
 
-                let empty_fn: Vec<f64> = Vec::new();
-                let fn_coeffs = pt.function.as_ref().unwrap_or(&empty_fn);
-                let location_functions = [
-                    fn_coeffs.clone(),
-                    fn_coeffs.clone(),
-                    fn_coeffs.clone(),
-                ];
+        let body_set = call0(&model, "getBodySet")?;
+        let n: usize = call0(&body_set, "getSize")?.extract().map_err(err)?;
+        for i in 0..n {
+            data.bodies
+                .push(extract_body(&osim, &call1(&body_set, "get", i)?)?);
+        }
 
-                PathPoint::Moving {
-                    body: *body_key,
-                    coordinate: coord_key,
-                    location_functions,
-                }
+        let joint_set = call0(&model, "getJointSet")?;
+        let n: usize = call0(&joint_set, "getSize")?.extract().map_err(err)?;
+        for i in 0..n {
+            data.joints
+                .push(extract_joint(&osim, &call1(&joint_set, "get", i)?)?);
+        }
+
+        Ok(data)
+    })
+}
+
+// ── Bodies ────────────────────────────────────────────
+
+fn extract_body(osim: &Bound<'_, PyModule>, body: &Bound<'_, PyAny>) -> Res<BodyData> {
+    let inertia = call0(body, "getInertia")?;
+    let moments = vec3(&call0(&inertia, "getMoments")?)?;
+    let products = vec3(&call0(&inertia, "getProducts")?)?;
+
+    Ok(BodyData {
+        name: get_str(body, "getName")?,
+        inertial: InertialProperties {
+            mass: f64_or(body, "getMass", 0.0),
+            mass_center: vec3(&call0(body, "getMassCenter")?)?,
+            inertia: Inertia::new(
+                moments[0],
+                moments[1],
+                moments[2],
+                products[0],
+                products[1],
+                products[2],
+            ),
+        },
+        geometry: extract_meshes(osim, body),
+    })
+}
+
+fn extract_meshes(osim: &Bound<'_, PyModule>, body: &Bound<'_, PyAny>) -> Vec<GeometryData> {
+    let mut out = Vec::new();
+    // get_attached_geometry(i) takes an index, not a zero-arg collection.
+    for i in 0..32 {
+        let Ok(geom) = call1(body, "get_attached_geometry", i) else {
+            break;
+        };
+        let Ok(Some(mesh)) = downcast(osim, "Mesh", &geom) else {
+            continue;
+        };
+        let Ok(file) = get_str(&mesh, "get_mesh_file") else {
+            continue;
+        };
+        // OpenSim convention: mesh files are relative to <model_dir>/Geometry/.
+        let file = if file.contains('/') || file.contains('\\') {
+            file
+        } else {
+            format!("Geometry/{file}")
+        };
+        out.push(GeometryData {
+            name: file.clone(),
+            mesh: file,
+            offset: Isometry3::identity(),
+        });
+    }
+    out
+}
+
+// ── Joints ────────────────────────────────────────────
+
+fn extract_joint(osim: &Bound<'_, PyModule>, joint: &Bound<'_, PyAny>) -> Res<JointData> {
+    let name = get_str(joint, "getName")?;
+    let class = get_str(joint, "getConcreteClassName")?;
+
+    // Socket frames → (body name, composed offset from that body).
+    let (parent_body, parent_offset) = resolve_frame(osim, &call0(joint, "getParentFrame")?)?;
+    let (child_body, socket_offset) = resolve_frame(osim, &call0(joint, "getChildFrame")?)?;
+    // resolve_frame gives T(child_body → socket frame); the tree needs the
+    // child body's offset from the JOINT frame — the inverse.
+    let child_offset = socket_offset.inverse();
+
+    // Coordinates.
+    let n: usize = call0(joint, "numCoordinates")?.extract().map_err(err)?;
+    let mut coordinates = Vec::with_capacity(n);
+    for i in 0..n {
+        coordinates.push(extract_coordinate(&call1(joint, "get_coordinates", i)?)?);
+    }
+
+    // Motion axes.
+    let axes = if class == "CustomJoint" {
+        extract_transform_axes(osim, joint)?
+    } else {
+        builtin_axes(&name, &class, &coordinates)
+    };
+
+    Ok(JointData {
+        name,
+        parent_body,
+        child_body,
+        parent_offset,
+        child_offset,
+        coordinates,
+        axes,
+    })
+}
+
+/// Walk a socket frame up its `PhysicalOffsetFrame` chain to the owning
+/// body, composing the fixed offsets along the way.
+fn resolve_frame(
+    osim: &Bound<'_, PyModule>,
+    frame: &Bound<'_, PyAny>,
+) -> Res<(String, Isometry3<f64>)> {
+    let mut current = frame.clone();
+    let mut composed = Isometry3::identity();
+    loop {
+        let Some(offset_frame) = downcast(osim, "PhysicalOffsetFrame", &current)? else {
+            // Not an offset frame — it's the body itself.
+            return Ok((get_str(&current, "getName")?, composed));
+        };
+        let t = vec3(&call0(&offset_frame, "get_translation")?)?;
+        let r = vec3(&call0(&offset_frame, "get_orientation")?)?;
+        composed = Isometry3::from_parts(Translation::from(t), euler_xyz(r)) * composed;
+        current = call0(&offset_frame, "getParentFrame")?;
+    }
+}
+
+fn extract_coordinate(coord: &Bound<'_, PyAny>) -> Res<CoordinateData> {
+    Ok(CoordinateData {
+        name: get_str(coord, "getName")?,
+        default_value: f64_or(coord, "getDefaultValue", 0.0),
+        range: (
+            f64_or(coord, "getRangeMin", -std::f64::consts::PI),
+            f64_or(coord, "getRangeMax", std::f64::consts::PI),
+        ),
+        clamped: bool_or(coord, "get_clamped", false),
+        locked: bool_or(coord, "get_locked", false),
+        stiffness: f64_or(coord, "getStiffness", 0.0),
+        damping: f64_or(coord, "getDamping", 0.0),
+    })
+}
+
+/// The six `TransformAxis` slots of a CustomJoint. OpenSim composes the
+/// joint transform as rotations first, then translations in the parent
+/// frame — T = T₁·T₂·T₃·R₁·R₂·R₃ — so translation axes are emitted FIRST
+/// (PoE composes children in insertion order).
+fn extract_transform_axes(
+    osim: &Bound<'_, PyModule>,
+    joint: &Bound<'_, PyAny>,
+) -> Res<Vec<AxisData>> {
+    let Some(cj) = downcast(osim, "CustomJoint", joint)? else {
+        return Ok(vec![]);
+    };
+    let st = call0(&cj, "getSpatialTransform")?;
+    let mut axes = Vec::new();
+    let getters = [
+        ("get_translation1", false),
+        ("get_translation2", false),
+        ("get_translation3", false),
+        ("get_rotation1", true),
+        ("get_rotation2", true),
+        ("get_rotation3", true),
+    ];
+    for (getter, is_rotation) in getters {
+        let ta = call0(&st, getter)?;
+        let axis = vec3(&call0(&ta, "get_axis")?)?;
+        if axis.norm() < 1e-12 {
+            continue; // unused slot
+        }
+        let function = extract_function(osim, &call0(&ta, "get_function")?)?;
+        let twist = if is_rotation {
+            Twist {
+                angular: axis,
+                linear: Vector3::zeros(),
             }
-            other => {
-                return Err(format!(
-                    "Muscle '{}': unsupported path point type '{}'",
-                    data.name, other
-                ));
+        } else {
+            Twist {
+                angular: Vector3::zeros(),
+                linear: axis,
             }
         };
-        path_points.push(path_point);
-    }
-
-    // Step 4: Create MusclePath entity
-    let path_entity = world.spawn();
-    world.attach(path_entity, MusclePath {
-        muscle: muscle_entity,
-        points: path_points,
-    });
-
-    Ok(muscle_entity)
-}
-
-/// Import a single OpenSim wrap object: creates WrapGeom entity.
-pub fn import_opensim_wrap(
-    world: &mut World,
-    data: &OpenSimWrapData,
-    body_map: &HashMap<String, EntityID>,
-) -> Result<EntityID, String> {
-    let body_key = body_map.get(&data.body).copied().ok_or_else(|| {
-        format!(
-            "Wrap '{}': references unknown body '{}'",
-            data.name, data.body
-        )
-    })?;
-
-    let transform = Transform {
-        translation: data.location.into(),
-        rotation: euler_to_quaternion(data.orientation),
-    };
-
-    let geom_type = match data.wrap_type.as_str() {
-        "Sphere" => {
-            let radius = data.dimensions.first().copied().unwrap_or(0.0);
-            WrapGeomType::Sphere { radius }
-        }
-        "Cylinder" => {
-            let radius = data.dimensions.first().copied().unwrap_or(0.0);
-            let length = data.dimensions.get(1).copied().unwrap_or(0.0);
-            WrapGeomType::Cylinder { radius, length }
-        }
-        "Ellipsoid" => {
-            let radii = [
-                data.dimensions.first().copied().unwrap_or(0.0),
-                data.dimensions.get(1).copied().unwrap_or(0.0),
-                data.dimensions.get(2).copied().unwrap_or(0.0),
-            ];
-            WrapGeomType::Ellipsoid { radii }
-        }
-        other => {
-            return Err(format!(
-                "Wrap '{}': unsupported type '{}'",
-                data.name, other
-            ));
-        }
-    };
-
-    let entity = world.spawn();
-    world.attach(entity, WrapGeom {
-        body: body_key,
-        transform,
-        geom_type,
-    });
-    world.attach(entity, Name { value: data.name.clone() });
-
-    Ok(entity)
-}
-
-/// Import a single OpenSim display geometry: creates DisplayGeometry entity.
-pub fn import_opensim_display_geometry(
-    world: &mut World,
-    data: &OpenSimDisplayGeometryData,
-    body_map: &HashMap<String, EntityID>,
-) -> Result<(), String> {
-    let body_key = body_map.get(&data.body).copied().ok_or_else(|| {
-        format!(
-            "Display geometry: references unknown body '{}'",
-            data.body
-        )
-    })?;
-
-    let transform = Transform {
-        translation: data.location.into(),
-        rotation: euler_to_quaternion(data.orientation),
-    };
-
-    let entity = world.spawn();
-    world.attach(entity, DisplayGeometry {
-        body: body_key,
-        mesh_file: data.mesh_file.clone(),
-        scale: data.scale,
-        color: data.color,
-        opacity: data.opacity,
-        transform,
-    });
-
-    Ok(())
-}
-
-// ── Helpers ───────────────────────────────────────────
-
-/// Convert XYZ Euler angles (in radians) to a Quaternion.
-fn euler_to_quaternion(euler: [f64; 3]) -> crate::math::Quaternion {
-    let (roll, pitch, yaw) = (euler[0], euler[1], euler[2]);
-    let cr = (roll * 0.5).cos();
-    let sr = (roll * 0.5).sin();
-    let cp = (pitch * 0.5).cos();
-    let sp = (pitch * 0.5).sin();
-    let cy = (yaw * 0.5).cos();
-    let sy = (yaw * 0.5).sin();
-
-    crate::math::Quaternion {
-        w: cr * cp * cy + sr * sp * sy,
-        x: sr * cp * cy - cr * sp * sy,
-        y: cr * sp * cy + sr * cp * sy,
-        z: cr * cp * sy - sr * sp * cy,
-    }
-}
-
-// ── Type-specific joint importers ─────────────────────
-
-fn import_pin_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    let axis = data
-        .axis
-        .ok_or_else(|| format!("PinJoint '{}' missing axis", data.name))?;
-
-    let joint_entity = world.spawn();
-    world.attach(joint_entity, HingeJoint {
-        body_a: parent_key,
-        body_b: child_key,
-        limits: data.coordinate.as_ref().map(|c| JointLimits {
-            lower: c.range_min,
-            upper: c.range_max,
-        }),
-        axis,
-    });
-
-    // Import coordinate as a separate entity
-    if let Some(coord) = &data.coordinate {
-        let coord_entity = world.spawn();
-        world.attach(coord_entity, JointCoordinate {
-            range_min: coord.range_min,
-            range_max: coord.range_max,
-            default_value: coord.default_value,
-            stiffness: coord.stiffness,
-            damping: coord.damping,
-            clamped: coord.clamped,
-            locked: coord.locked,
-            prescribed_function: coord.prescribed_function.as_ref().map(|c| {
-                JointFunction::Polynomial {
-                    coefficients: c.clone(),
-                }
-            }),
-        });
-        world.attach(coord_entity, Name { value: coord.name.clone() });
-    }
-
-    // Update the child body's frame to account for joint transform
-    update_child_frame(world, child_key, data);
-
-    Ok(joint_entity)
-}
-
-fn import_weld_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    let joint_entity = world.spawn();
-    world.attach(joint_entity, FixedJoint {
-        body_a: parent_key,
-        body_b: child_key,
-        limits: None,
-    });
-
-    update_child_frame(world, child_key, data);
-    Ok(joint_entity)
-}
-
-fn import_ball_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    let joint_entity = world.spawn();
-    world.attach(joint_entity, BallJoint {
-        body_a: parent_key,
-        body_b: child_key,
-        limits: data.coordinate.as_ref().map(|c| JointLimits {
-            lower: c.range_min,
-            upper: c.range_max,
-        }),
-    });
-
-    if let Some(coord) = &data.coordinate {
-        let coord_entity = world.spawn();
-        world.attach(coord_entity, JointCoordinate {
-            range_min: coord.range_min,
-            range_max: coord.range_max,
-            default_value: coord.default_value,
-            stiffness: coord.stiffness,
-            damping: coord.damping,
-            clamped: coord.clamped,
-            locked: coord.locked,
-            prescribed_function: None,
-        });
-        world.attach(coord_entity, Name { value: coord.name.clone() });
-    }
-
-    update_child_frame(world, child_key, data);
-    Ok(joint_entity)
-}
-
-fn import_free_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    let joint_entity = world.spawn();
-    world.attach(joint_entity, FreeJoint {
-        body_a: parent_key,
-        body_b: child_key,
-        limits: None,
-    });
-
-    update_child_frame(world, child_key, data);
-    Ok(joint_entity)
-}
-
-fn import_universal_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    // UniversalJoint uses two axes from its coordinates
-    let coords = data
-        .coordinates
-        .as_ref()
-        .ok_or_else(|| format!("UniversalJoint '{}' missing coordinates", data.name))?;
-
-    if coords.len() < 2 {
-        return Err(format!(
-            "UniversalJoint '{}' needs 2 coordinates, got {}",
-            data.name,
-            coords.len()
-        ));
-    }
-
-    // Default axes: axis1 around X, axis2 around Y if not specified by effects
-    let axis1 = [1.0, 0.0, 0.0];
-    let axis2 = [0.0, 1.0, 0.0];
-
-    let joint_entity = world.spawn();
-    world.attach(joint_entity, UniversalJoint {
-        body_a: parent_key,
-        body_b: child_key,
-        limits: None,
-        axis1,
-        axis2,
-    });
-
-    // Import coordinates
-    for coord in coords {
-        let coord_entity = world.spawn();
-        world.attach(coord_entity, JointCoordinate {
-            range_min: coord.range_min,
-            range_max: coord.range_max,
-            default_value: coord.default_value,
-            stiffness: coord.stiffness,
-            damping: coord.damping,
-            clamped: coord.clamped,
-            locked: coord.locked,
-            prescribed_function: None,
-        });
-        world.attach(coord_entity, Name { value: coord.name.clone() });
-    }
-
-    update_child_frame(world, child_key, data);
-    Ok(joint_entity)
-}
-
-fn import_custom_joint(
-    world: &mut World,
-    data: &OpenSimJointData,
-    parent_key: EntityID,
-    child_key: EntityID,
-) -> Result<EntityID, String> {
-    let coords = data
-        .coordinates
-        .as_ref()
-        .ok_or_else(|| format!("CustomJoint '{}' missing coordinates", data.name))?;
-
-    let st = data
-        .spatial_transform
-        .as_ref()
-        .ok_or_else(|| format!("CustomJoint '{}' missing spatial_transform", data.name))?;
-
-    // Phase 1: Import all coordinates
-    let mut coord_ids: HashMap<String, EntityID> = HashMap::new();
-    for coord in coords {
-        let coord_entity = world.spawn();
-        world.attach(coord_entity, JointCoordinate {
-            range_min: coord.range_min,
-            range_max: coord.range_max,
-            default_value: coord.default_value,
-            stiffness: coord.stiffness,
-            damping: coord.damping,
-            clamped: coord.clamped,
-            locked: coord.locked,
-            prescribed_function: coord.prescribed_function.as_ref().map(|c| {
-                JointFunction::Polynomial {
-                    coefficients: c.clone(),
-                }
-            }),
-        });
-        world.attach(coord_entity, Name { value: coord.name.clone() });
-        coord_ids.insert(coord.name.clone(), coord_entity);
-    }
-
-    // Phase 2: Create the joint
-    let coord_refs: Vec<EntityID> = coords
-        .iter()
-        .map(|c| coord_ids[&c.name])
-        .collect();
-
-    let joint_entity = world.spawn();
-    world.attach(joint_entity, CustomJoint {
-        body_a: parent_key,
-        body_b: child_key,
-        limits: None,
-        coordinates: coord_refs,
-    });
-
-    // Phase 3: Import CoordinateEffects and SpatialTransform
-    let mut effect_ids: Vec<EntityID> = Vec::new();
-
-    let effects = [
-        ("rotation_x", &st.rotation_x),
-        ("rotation_y", &st.rotation_y),
-        ("rotation_z", &st.rotation_z),
-        ("translation_x", &st.translation_x),
-        ("translation_y", &st.translation_y),
-        ("translation_z", &st.translation_z),
-    ];
-
-    for (slot_name, effect_opt) in &effects {
-        if let Some(effect) = effect_opt {
-            let coord_id = coord_ids.get(&effect.coordinate_name).ok_or_else(|| {
-                format!(
-                    "CustomJoint '{}': effect '{}' references unknown coordinate '{}'",
-                    data.name, slot_name, effect.coordinate_name
-                )
-            })?;
-
-            let component = match *slot_name {
-                "rotation_x" => TransformComponent::RotationX,
-                "rotation_y" => TransformComponent::RotationY,
-                "rotation_z" => TransformComponent::RotationZ,
-                "translation_x" => TransformComponent::TranslationX,
-                "translation_y" => TransformComponent::TranslationY,
-                "translation_z" => TransformComponent::TranslationZ,
-                _ => unreachable!(),
-            };
-
-            let function = match effect.function_type.as_str() {
-                "Constant" => JointFunction::Constant(effect.coefficients[0]),
-                "Linear" => JointFunction::Linear {
-                    slope: effect.coefficients[0],
-                    intercept: effect.coefficients.get(1).copied().unwrap_or(0.0),
-                },
-                "Polynomial" | _ => JointFunction::Polynomial {
-                    coefficients: effect.coefficients.clone(),
-                },
-            };
-
-            let effect_entity = world.spawn();
-            world.attach(effect_entity, CoordinateEffect {
-                coordinate: *coord_id,
-                joint: joint_entity,
-                component,
+        let names = call0(&ta, "getCoordinateNames")?;
+        let count: usize = call0(&names, "size")?.extract().map_err(err)?;
+        if count == 0 {
+            // No driving coordinate: a fixed offset carried by the function.
+            // Zero constants are the identity — skip them entirely.
+            match &function {
+                None => continue,
+                Some(Function::Constant(c)) if c.abs() < 1e-12 => continue,
+                _ => {}
+            }
+            axes.push(AxisData {
+                twist,
+                coordinate: None,
                 function,
             });
-            effect_ids.push(effect_entity);
+            continue;
+        }
+        let coordinate = call1(&names, "getValue", 0usize)?.extract().map_err(err)?;
+        axes.push(AxisData {
+            twist,
+            coordinate: Some(coordinate),
+            function,
+        });
+    }
+    Ok(axes)
+}
+
+/// Fixed axis layouts for OpenSim's built-in joint types.
+fn builtin_axes(name: &str, class: &str, coordinates: &[CoordinateData]) -> Vec<AxisData> {
+    let axis = |i: usize, angular: Vector3<f64>, linear: Vector3<f64>| AxisData {
+        twist: Twist { angular, linear },
+        coordinate: Some(coordinates[i].name.clone()),
+        function: None,
+    };
+    let (x, y, z, o) = (Vector3::x(), Vector3::y(), Vector3::z(), Vector3::zeros());
+    match (class, coordinates.len()) {
+        ("WeldJoint", _) => vec![],
+        ("PinJoint", 1) => vec![axis(0, z, o)],
+        ("SliderJoint", 1) => vec![axis(0, o, x)],
+        ("UniversalJoint", 2) => vec![axis(0, x, o), axis(1, y, o)],
+        ("BallJoint", 3) => vec![axis(0, x, o), axis(1, y, o), axis(2, z, o)],
+        // OpenSim composes rotations first, then translations — so
+        // translation axes come first in the PoE chain.
+        ("FreeJoint", 6) => vec![
+            axis(3, o, x),
+            axis(4, o, y),
+            axis(5, o, z),
+            axis(0, x, o),
+            axis(1, y, o),
+            axis(2, z, o),
+        ],
+        (other, _) => {
+            warn!("joint '{name}': unsupported type '{other}', coordinates imported but no axes");
+            vec![]
+        }
+    }
+}
+
+// ── Functions ─────────────────────────────────────────
+
+fn extract_function(osim: &Bound<'_, PyModule>, f: &Bound<'_, PyAny>) -> Res<Option<Function>> {
+    let class = get_str(f, "getConcreteClassName")?;
+    match class.as_str() {
+        "NullFunction" => Ok(None),
+        "LinearFunction" => {
+            let Some(lf) = downcast(osim, "LinearFunction", f)? else {
+                return Ok(None);
+            };
+            Ok(Some(Function::Linear {
+                slope: f64_or(&lf, "getSlope", 1.0),
+                intercept: f64_or(&lf, "getIntercept", 0.0),
+            }))
+        }
+        "Constant" => {
+            let Some(c) = downcast(osim, "Constant", f)? else {
+                return Ok(None);
+            };
+            Ok(Some(Function::Constant(f64_or(&c, "getValue", 0.0))))
+        }
+        "PolynomialFunction" => {
+            let Some(p) = downcast(osim, "PolynomialFunction", f)? else {
+                return Ok(None);
+            };
+            let coeffs = double_vector(&call0(&p, "getCoefficients")?)?;
+            Ok(Some(Function::Polynomial(coeffs)))
+        }
+        "SimmSpline" => {
+            let Some(s) = downcast(osim, "SimmSpline", f)? else {
+                return Ok(None);
+            };
+            let n: usize = call0(&s, "getNumberOfPoints")?.extract().map_err(err)?;
+            let mut x = Vec::with_capacity(n);
+            let mut y = Vec::with_capacity(n);
+            for i in 0..n {
+                x.push(call1(&s, "getX", i)?.extract::<f64>().map_err(err)?);
+                y.push(call1(&s, "getY", i)?.extract::<f64>().map_err(err)?);
+            }
+            Ok(Some(Function::CubicSpline { x, y }))
+        }
+        other => {
+            warn!("unsupported function type '{other}', using identity");
+            Ok(None)
+        }
+    }
+}
+
+// ── py helpers ────────────────────────────────────────
+
+fn err<E: ToString>(e: E) -> String {
+    e.to_string()
+}
+
+fn call0<'py>(obj: &Bound<'py, PyAny>, method: &str) -> Res<Bound<'py, PyAny>> {
+    obj.call_method0(method)
+        .map_err(|e| format!("{method}: {e}"))
+}
+
+fn call1<'py, A: IntoPyObject<'py>>(
+    obj: &Bound<'py, PyAny>,
+    method: &str,
+    arg: A,
+) -> Res<Bound<'py, PyAny>> {
+    obj.call_method1(method, (arg,))
+        .map_err(|e| format!("{method}: {e}"))
+}
+
+fn get_str(obj: &Bound<'_, PyAny>, method: &str) -> Res<String> {
+    call0(obj, method)?.extract().map_err(err)
+}
+
+fn f64_or(obj: &Bound<'_, PyAny>, method: &str, default: f64) -> f64 {
+    obj.call_method0(method)
+        .and_then(|v| v.extract::<f64>())
+        .unwrap_or(default)
+}
+
+fn bool_or(obj: &Bound<'_, PyAny>, method: &str, default: bool) -> bool {
+    obj.call_method0(method)
+        .and_then(|v| v.extract::<bool>())
+        .unwrap_or(default)
+}
+
+fn vec3(v: &Bound<'_, PyAny>) -> Res<Vector3<f64>> {
+    let mut out = Vector3::zeros();
+    for i in 0..3 {
+        out[i] = v
+            .get_item(i)
+            .and_then(|x| x.extract::<f64>())
+            .map_err(err)?;
+    }
+    Ok(out)
+}
+
+/// A SWIG-wrapped `std::vector<double>` (supports `__len__`/`__getitem__`).
+fn double_vector(v: &Bound<'_, PyAny>) -> Res<Vec<f64>> {
+    let n: usize = call0(v, "__len__")?.extract().map_err(err)?;
+    (0..n)
+        .map(|i| call1(v, "__getitem__", i)?.extract::<f64>().map_err(err))
+        .collect()
+}
+
+/// `osim.<class>.safeDownCast(obj)` — `None` when `obj` isn't a `<class>`.
+fn downcast<'py>(
+    osim: &Bound<'py, PyModule>,
+    class: &str,
+    obj: &Bound<'py, PyAny>,
+) -> Res<Option<Bound<'py, PyAny>>> {
+    let cls = osim.getattr(class).map_err(err)?;
+    let result = cls.call_method1("safeDownCast", (obj,)).map_err(err)?;
+    Ok((!result.is_none()).then_some(result))
+}
+
+/// OpenSim orientations are body-fixed Euler XYZ angles (radians):
+/// R = Rx(x) · Ry(y) · Rz(z).
+fn euler_xyz(v: Vector3<f64>) -> UnitQuaternion<f64> {
+    UnitQuaternion::from_axis_angle(&Vector3::x_axis(), v.x)
+        * UnitQuaternion::from_axis_angle(&Vector3::y_axis(), v.y)
+        * UnitQuaternion::from_axis_angle(&Vector3::z_axis(), v.z)
+}
+
+/// `.osim` → [`ModelData`] asset loader (registered by `ImporterPlugin`).
+#[derive(TypePath)]
+pub struct OpensimLoader {
+    /// Joined with the asset path to get the real filesystem path the
+    /// OpenSim API parses from.
+    pub asset_root: std::path::PathBuf,
+}
+
+impl AssetLoader for OpensimLoader {
+    type Asset = ModelData;
+    type Settings = ();
+    type Error = std::io::Error;
+
+    async fn load(
+        &self,
+        _reader: &mut dyn Reader,
+        _settings: &Self::Settings,
+        load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let real_path = self.asset_root.join(load_context.path().path());
+        let mut model = extract_osim(&real_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        // Mesh paths must be asset-root-relative for later AssetServer loads.
+        if let Ok(rel) = model.mesh_dir.strip_prefix(&self.asset_root) {
+            model.mesh_dir = rel.to_path_buf();
+        }
+        Ok(model)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["osim"]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::{App, GlobalTransform, IntoScheduleConfigs, PostUpdate, Transform};
+
+    fn check_integrity(model: &ModelData) {
+        for j in &model.joints {
+            assert!(
+                model.bodies.iter().any(|b| b.name == j.parent_body),
+                "parent {}",
+                j.parent_body
+            );
+            assert!(
+                model.bodies.iter().any(|b| b.name == j.child_body),
+                "child {}",
+                j.child_body
+            );
+            for a in &j.axes {
+                let Some(name) = &a.coordinate else { continue };
+                assert!(
+                    model
+                        .joints
+                        .iter()
+                        .flat_map(|j| &j.coordinates)
+                        .any(|c| &c.name == name),
+                    "axis coordinate {name} of joint {}",
+                    j.name,
+                );
+            }
         }
     }
 
-    // Phase 4: SpatialTransform groups the effects
-    let st_entity = world.spawn();
-    world.attach(st_entity, SpatialTransform {
-        joint: joint_entity,
-        effects: effect_ids,
-    });
+    #[test]
+    fn extract_rat_hindlimb() {
+        let model = extract_osim(Path::new(
+            "tests/fixtures/rat_hindlimb/rat_hindlimb_bilateral.osim",
+        ))
+        .unwrap();
+        assert_eq!(model.bodies.len(), 10); // 9 + ground
+        assert_eq!(model.joints.len(), 9);
+        check_integrity(&model);
 
-    update_child_frame(world, child_key, data);
-    Ok(joint_entity)
-}
+        let mut app = bevy::app::App::new();
+        app.add_plugins(bevy::app::TaskPoolPlugin::default());
+        let root = app.world_mut().spawn_empty().id();
+        let spawned = super::super::spawn_model(app.world_mut(), root, &model);
+        assert_eq!(spawned.bodies.len(), model.bodies.len());
+        assert_eq!(spawned.joints.len(), model.joints.len());
+    }
 
-// ── Frame helper ──────────────────────────────────────
+    #[test]
+    fn extract_rajagopal() {
+        let model = extract_osim(Path::new("tests/fixtures/Rajagopal/Rajagopal2015.osim")).unwrap();
+        assert_eq!(model.bodies.len(), 23); // 22 + ground
+        assert_eq!(model.joints.len(), 22);
+        check_integrity(&model);
+    }
 
-/// Update a body's Frame transform with the joint's parent-frame offset.
-/// In OpenSim, the joint's location_in_parent / orientation_in_parent defines
-/// where the child body attaches relative to the parent body's frame.
-/// For now we store this in the child's Frame component.
-fn update_child_frame(_world: &mut World, _child_key: EntityID, _data: &OpenSimJointData) {
-    // TODO: Compose location_in_parent + orientation_in_parent into the
-    // child body's Frame transform. This requires computing a Transform from
-    // the Euler angles and translation, which needs quaternion math.
-    //
-    // For now, frames use default transforms. The joint parent/child offsets
-    // are captured by the joint's body_a/body_b fields. Adding full frame
-    // transform computation is the next step after basic import validation.
-}
+    /// FK oracle: our world transforms must match OpenSim's own forward
+    /// kinematics on the same file, same coordinate values. Poses set one
+    /// coordinate at a time (isolating each axis's convention), plus the
+    /// all-default pose.
+    #[test]
+    fn fk_matches_opensim_rat_hindlimb() {
+        use crate::model::CoordinateState;
 
-// ── JSON loading helper ───────────────────────────────
+        let path = "tests/fixtures/rat_hindlimb/rat_hindlimb_bilateral.osim";
+        const TEST_VALUE: f64 = 0.1;
 
-/// Load OpenSim model data from a JSON file.
-pub fn load_opensim_json(path: &str) -> Result<OpenSimModelData, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read '{}': {}", path, e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse '{}': {}", path, e))
+        // ── Our world ──
+        let model = extract_osim(Path::new(path)).unwrap();
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            bevy::transform::TransformPlugin,
+        ));
+        app.add_systems(
+            PostUpdate,
+            crate::model::sync_kinematics
+                .before(bevy::transform::TransformSystems::Propagate),
+        );
+        let root = app.world_mut().spawn(Transform::default()).id();
+        let spawned = crate::importer::spawn_model(app.world_mut(), root, &model);
+
+        // ── Reference: OpenSim in-process ──
+        Python::attach(|py| {
+            let osim = py.import("opensim").unwrap();
+            let m = osim.getattr("Model").unwrap().call1((path,)).unwrap();
+            let body_set = call0(&m, "getBodySet").unwrap();
+            let coord_set = call0(&m, "getCoordinateSet").unwrap();
+            let n: usize = call0(&coord_set, "getSize").unwrap().extract().unwrap();
+            let coords: Vec<_> = (0..n)
+                .map(|i| call1(&coord_set, "get", i).unwrap())
+                .collect();
+            let names: Vec<String> = coords
+                .iter()
+                .map(|c| get_str(c, "getName").unwrap())
+                .collect();
+            let defaults: Vec<f64> = coords
+                .iter()
+                .map(|c| f64_or(c, "getDefaultValue", 0.0))
+                .collect();
+
+            // Pose values must stay inside each coordinate's range —
+            // OpenSim clamps on setValue, we don't.
+            let ranges: Vec<(f64, f64)> = coords
+                .iter()
+                .map(|c| (f64_or(c, "getRangeMin", 0.0), f64_or(c, "getRangeMax", 0.0)))
+                .collect();
+            let mut poses: Vec<(String, Vec<f64>)> = vec![("default".into(), defaults.clone())];
+            for (i, name) in names.iter().enumerate() {
+                let mut v = defaults.clone();
+                v[i] = (defaults[i] + TEST_VALUE).clamp(ranges[i].0, ranges[i].1);
+                poses.push((name.clone(), v));
+            }
+
+            for (pose, values) in poses {
+                let state = call0(&m, "initSystem").unwrap();
+                for (coord, &v) in coords.iter().zip(&values) {
+                    // Some models lock coordinates (rat sacroiliac) — unlock
+                    // before posing or OpenSim silently keeps the default.
+                    coord.call_method1("setLocked", (&state, false)).unwrap();
+                    coord.call_method1("setValue", (&state, v)).unwrap();
+                }
+                call1(&m, "realizePosition", &state).unwrap();
+
+                for (name, &v) in names.iter().zip(&values) {
+                    if let Some(&e) = spawned.coordinates.get(name) {
+                        app.world_mut().get_mut::<CoordinateState>(e).unwrap().value = v;
+                    }
+                }
+                app.update();
+
+                for (body_name, &entity) in &spawned.bodies {
+                    if body_name == "ground" {
+                        continue; // identity on both sides
+                    }
+                    let ours = *app.world().get::<GlobalTransform>(entity).unwrap();
+                    let body = call1(&body_set, "get", body_name.as_str()).unwrap();
+                    let t = call1(&body, "getTransformInGround", &state).unwrap();
+                    let p = vec3(&call0(&t, "p").unwrap()).unwrap();
+                    // Simbody vectors aren't subscriptable from Python;
+                    // angle-axis Vec4 (angle, x, y, z) is read via `.get(i)`.
+                    let aa = call0(&call0(&t, "R").unwrap(), "convertRotationToAngleAxis").unwrap();
+                    let aa: [f64; 4] =
+                        core::array::from_fn(|i| call1(&aa, "get", i).unwrap().extract().unwrap());
+
+                    let ot = ours.translation();
+                    assert!(
+                        (f64::from(ot.x) - p[0]).abs() < 1e-4
+                            && (f64::from(ot.y) - p[1]).abs() < 1e-4
+                            && (f64::from(ot.z) - p[2]).abs() < 1e-4,
+                        "pose '{pose}', body '{body_name}': translation ours={ot:?} opensim={p:?}"
+                    );
+                    let (half, s) = ((aa[0] / 2.0) as f32, ((aa[0] / 2.0) as f32).sin());
+                    let theirs = bevy::math::Quat::from_xyzw(
+                        aa[1] as f32 * s,
+                        aa[2] as f32 * s,
+                        aa[3] as f32 * s,
+                        half.cos(),
+                    );
+                    let angle = ours.rotation().angle_between(theirs);
+                    assert!(
+                        angle < 1e-3,
+                        "pose '{pose}', body '{body_name}': rotation differs by {angle} rad"
+                    );
+                }
+            }
+        });
+    }
 }

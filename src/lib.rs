@@ -1,7 +1,7 @@
-pub mod components;
+pub mod editor;
+#[cfg(feature = "mujoco")]
 pub mod exporter;
-pub mod id;
+#[cfg(feature = "mujoco")]
 pub mod importer;
-pub mod math;
-pub mod systems;
-pub mod world;
+pub mod model;
+pub mod render;

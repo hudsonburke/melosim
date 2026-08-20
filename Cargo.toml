@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "app", "python", "server"]
+members = ["."]
 
 [package]
 name = "melosim"
@@ -8,14 +8,46 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-anymap2 = "0.13"
-inventory = "0.3"
-mujoco-rs = { version = "5", features = [
-  "auto-download-mujoco",
-], optional = true }
+bevy = { version = "0.19.1", default-features = false, features = [
+  "3d",
+  "bevy_dev_tools",
+  "free_camera",
+  "x11",
+  "wayland",
+  "png",
+  "bevy_window",
+  "bevy_state",
+  "dynamic_linking",
+  "bevy_world_serialization",
+  "bevy_picking",
+  "bevy_ui",
+  "bevy_ui_render",
+  "bevy_feathers",
+] }
+nalgebra = "0.35"
+bevy_obj = "0.19"
+bevy-inspector-egui = "0.37"
+rfd = "0.15"
+# Enable bevy_egui's `picking` feature so it suppresses `bevy_picking` events over
+# egui windows (capture_pointer_input) — clicks on panels/sliders never pick the 3D scene.
+bevy_egui = { version = "0.40", features = ["picking"] }
+pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
+# MuJoCo I/O via its editing API (MjSpec) — parse + build MJCF, no hand XML.
+mujoco-rs = { version = "5", features = ["auto-download-mujoco"], optional = true }
+anyhow = { version = "1", optional = true }
+
+# Enable a small amount of optimization in the dev profile.
+[profile.dev]
+opt-level = 1
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
 
 [features]
-default = ["mujoco"]
-mujoco = ["dep:mujoco-rs"]
+# OpenSim import via the Python API (PyO3). Needs the repo venv; on this
+# machine .cargo/config.toml supplies PYO3_PYTHON / PYTHONPATH / LD_LIBRARY_PATH.
+opensim = ["dep:pyo3"]
+# MuJoCo import/export via mujoco-rs MjSpec. Downloads MuJoCo into .mujoco/ at
+# build (auto-download-mujoco); set LD_LIBRARY_PATH to .mujoco at runtime.
+mujoco = ["dep:mujoco-rs", "dep:anyhow"]
