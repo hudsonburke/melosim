@@ -3,14 +3,18 @@
 //! `mujoco-rs`'s `MjSpec` parses the XML (includes, defaults, classes); we walk
 //! the spec and spawn current-model entities so an imported model visualizes in
 //! the editor: `Body` (+ `InertialProperties`), `Site`, `Joint` →
-//! `Coordinate` (+ `Twist`, `CoordinateProperties`, `CoordinateState`).
+//! `Coordinate` (+ `Twist`, `CoordinateProperties`, `CoordinateState`), and
+//! mesh **geom**s as `Mesh3d` children (copied into `assets/imported/` and
+//! loaded via `AssetServer`, using the STL loader when present).
 //!
-//! Bodies are parented to their MJCF parent body directly (static pose for
-//! visualization); joints attach to the body they drive. See
-//! `docs/plans/2026-08-20-mujoco-exporter.md` for the round-trip plan.
+//! Bodies are parented to their MJCF parent body directly (static pose);
+//! joints attach to the body they drive. Geometry requires the app's asset
+//! resources — in a bare `World` (unit tests) geoms are skipped gracefully.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
+use bevy::asset::AssetPath;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 use mujoco_rs::wrappers::mj_editing::*;
@@ -37,13 +41,20 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "model".into());
 
-    // Top-level container (Frame) so imported bodies group under it.
-    let anchor = world.spawn((Name::new(model_name), Frame)).id();
+    // Resolve mesh geometry sources (model dir + compiler meshdir + file).
+    let model_dir = path.parent().unwrap_or(Path::new(""));
+    let mesh_dir = model_dir.join(spec.compiler().meshdir());
+    let mesh_src: HashMap<String, PathBuf> = spec
+        .mesh_iter()
+        .map(|m| (m.name().to_string(), mesh_dir.join(m.file())))
+        .collect();
 
-    let world_body = spec.world_body();
+    // Top-level container (Frame) so imported bodies group under it.
+    let anchor = world.spawn((Name::new(model_name.clone()), Frame)).id();
+
     let mut counter = 0u64;
-    for child_ent in world_body.body_iter(false) {
-        spawn_body(world, child_ent, anchor, &mut counter)?;
+    for child_ent in spec.world_body().body_iter(false) {
+        spawn_body(world, child_ent, anchor, &model_name, &mesh_src, &mut counter)?;
     }
     Ok(anchor)
 }
@@ -69,6 +80,8 @@ fn spawn_body(
     world: &mut World,
     mj: &MjsBody,
     parent: Entity,
+    model_name: &str,
+    mesh_src: &HashMap<String, PathBuf>,
     counter: &mut u64,
 ) -> Result<(), ImportError> {
     let name = if mj.name().is_empty() {
@@ -89,9 +102,7 @@ fn spawn_body(
         Transform::from_translation(zup_to_yup(to_vec3(*mj.pos())))
             .with_rotation(zup_quat_to_yup(*mj.quat())),
     ));
-    if parent != Entity::PLACEHOLDER {
-        body.insert(ChildOf(parent));
-    }
+    body.insert(ChildOf(parent));
     let body_ent = body.id();
 
     // Joints on this body (driving it) → Joint + Coordinate + Twist.
@@ -117,11 +128,76 @@ fn spawn_body(
             .insert(ChildOf(body_ent));
     }
 
+    // Mesh geoms → Mesh3d children (visualization). Skipped when the app has
+    // no `AssetServer` (e.g. bare-World unit tests).
+    if world.get_resource::<AssetServer>().is_some() {
+        for g in mj.geom_iter(false) {
+            spawn_geom(world, &g, body_ent, model_name, mesh_src, counter);
+        }
+    }
+
     // Children bodies.
     for child in mj.body_iter(false) {
-        spawn_body(world, child, body_ent, counter)?;
+        spawn_body(world, child, body_ent, model_name, mesh_src, counter)?;
     }
     Ok(())
+}
+
+fn spawn_geom(
+    world: &mut World,
+    g: &MjsGeom,
+    body_ent: Entity,
+    model_name: &str,
+    mesh_src: &HashMap<String, PathBuf>,
+    counter: &mut u64,
+) {
+    // Only mesh geoms for now (primitives come later).
+    let mesh_name = g.meshname();
+    if mesh_name.is_empty() {
+        return;
+    }
+    let Some(src) = mesh_src.get(mesh_name) else {
+        return;
+    };
+    let Some(file_name) = src.file_name().map(|f| f.to_string_lossy().into_owned()) else {
+        return;
+    };
+
+    // Copy into assets/imported/<model>/ and load via AssetServer.
+    let dest_rel = format!("imported/{model_name}/{file_name}");
+    let dest_abs = Path::new("assets").join(&dest_rel);
+    let _ = std::fs::create_dir_all(dest_abs.parent().unwrap_or(Path::new(".")));
+    if !dest_abs.exists() {
+        let _ = std::fs::copy(src, &dest_abs);
+    }
+
+    let handle: Handle<Mesh> = {
+        let assets = world.resource::<AssetServer>();
+        // Owned AssetPath so `load` doesn't borrow a local string.
+        assets.load(AssetPath::from(PathBuf::from(&dest_rel)))
+    };
+    let material: Handle<StandardMaterial> = {
+        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+        materials.add(StandardMaterial::default())
+    };
+
+    let gname = if g.name().is_empty() {
+        *counter += 1;
+        format!("geom_{}", *counter)
+    } else {
+        g.name().to_string()
+    };
+    let t = Transform::from_translation(zup_to_yup(to_vec3(*g.pos())))
+        .with_rotation(zup_quat_to_yup(*g.quat()));
+
+    world
+        .spawn((
+            Name::new(gname),
+            Mesh3d(handle),
+            MeshMaterial3d(material),
+            t,
+        ))
+        .insert(ChildOf(body_ent));
 }
 
 fn spawn_joint(
@@ -231,8 +307,7 @@ mod tests {
         </mujoco>"#;
         let path = tmp_mjcf(xml);
         let mut world = World::new();
-        let anchor = import_mjcf(&mut world, &path).expect("import");
-        let _ = anchor;
+        let _ = import_mjcf(&mut world, &path).expect("import");
 
         assert!(
             world.query_filtered::<Entity, With<Body>>().iter(&world).count() >= 2,
