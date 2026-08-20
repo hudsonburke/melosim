@@ -1,6 +1,8 @@
+pub mod dock;
 pub mod gizmo;
 pub mod mesh_import;
 pub mod models;
+pub mod panels;
 pub mod path_editor;
 pub mod selection;
 pub mod ui;
@@ -128,6 +130,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<PendingModelImport>();
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
+        app.init_resource::<dock::EditorDockState>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
         app.insert_resource(models::SelectedModel(None));

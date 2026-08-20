@@ -35,6 +35,7 @@ pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
 # MuJoCo I/O via its editing API (MjSpec) — parse + build MJCF, no hand XML.
 mujoco-rs = { version = "5", features = ["auto-download-mujoco"], optional = true }
 anyhow = { version = "1", optional = true }
+egui_dock = "0.19"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
