@@ -121,8 +121,9 @@ fn zup_to_yup(v: Vec3) -> Vec3 {
 fn zup_quat_to_yup(q: [f64; 4]) -> Quat {
     // MuJoCo quat is (w,x,y,z); Bevy is xyzw.
     let mj = Quat::from_xyzw(q[1] as f32, q[2] as f32, q[3] as f32, q[0] as f32);
-    // Rotation mapping Z-up→Y-up: +90° about X.
-    let r = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    // Rotation mapping Z-up→Y-up = -90° about X, so quats stay consistent with
+    // `zup_to_yup`'s (x, z, -y) position mapping. (The exporter uses +90°.)
+    let r = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
     r * mj
 }
 
