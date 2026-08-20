@@ -19,6 +19,7 @@ use crate::model::{
     Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
     InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
 };
+use crate::render::RenderSettings;
 
 /// Editor shell UI: toolbar + left hierarchy of model entities, right inspector.
 #[allow(deprecated, clippy::too_many_arguments)]
@@ -28,6 +29,7 @@ pub fn editor_ui(
     mut selection: ResMut<Selection>,
     registry: Res<ModelRegistry>,
     mut selected_model: ResMut<SelectedModel>,
+    mut settings: ResMut<RenderSettings>,
     mut part_counter: Local<u64>,
     mut names: Query<&mut Name>,
     root_entities: Query<Entity, (Without<ChildOf>, Or<(With<Body>, With<Frame>, With<Joint>, With<Muscle>, With<Site>, With<Coordinate>)>)>,
@@ -75,6 +77,14 @@ pub fn editor_ui(
                         ui.close_menu();
                     }
                 }
+            });
+            ui.separator();
+            ui.menu_button("View", |ui| {
+                ui.checkbox(&mut settings.bodies, "Bodies");
+                ui.checkbox(&mut settings.frames, "Frames");
+                ui.checkbox(&mut settings.sites, "Sites");
+                ui.checkbox(&mut settings.muscles, "Muscles");
+                ui.checkbox(&mut settings.joint_axes, "Joint Axes");
             });
         });
     });

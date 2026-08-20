@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 
+use crate::render::RenderSettings;
+
 // ── Gizmo systems ────────────────────────────────────
 
 /// Draw the "own-transform" model visuals in one pass: Body → RGB axes + origin
@@ -12,6 +14,7 @@ use bevy::prelude::*;
 /// depend on *other* entities' transforms — path points / the parent frame.)
 pub fn draw_model_gizmos(
     mut gizmos: Gizmos,
+    settings: Res<RenderSettings>,
     model: Query<(
         &GlobalTransform,
         Option<&crate::model::Body>,
@@ -30,7 +33,7 @@ pub fn draw_model_gizmos(
         let pos = gt.translation();
         let rot = gt.rotation();
 
-        if body.is_some() {
+        if body.is_some() && settings.bodies {
             for (axis, color) in AXES.iter().zip(COLORS.iter()) {
                 gizmos.line(pos, pos + rot * *axis * 0.02, *color);
             }
@@ -39,11 +42,11 @@ pub fn draw_model_gizmos(
                 0.005,
                 Color::srgb(1.0, 1.0, 0.0),
             );
-        } else if frame.is_some() {
+        } else if frame.is_some() && settings.frames {
             for (axis, color) in AXES.iter().zip(COLORS.iter()) {
                 gizmos.line(pos, pos + rot * *axis * 0.015, *color);
             }
-        } else if site.is_some() {
+        } else if site.is_some() && settings.sites {
             gizmos.sphere(
                 Isometry3d::from_translation(pos),
                 0.003,
@@ -56,9 +59,13 @@ pub fn draw_model_gizmos(
 /// Draw muscle paths as line segments between path entities.
 pub fn draw_muscle_paths(
     mut gizmos: Gizmos,
+    settings: Res<RenderSettings>,
     muscles: Query<&crate::model::PathEntities>,
     transforms: Query<&GlobalTransform>,
 ) {
+    if !settings.muscles {
+        return;
+    }
     for path_entities in &muscles {
         let points: Vec<Vec3> = path_entities
             .iter()
@@ -76,10 +83,13 @@ pub fn draw_muscle_paths(
 /// Draw joint axes as short lines showing rotation/translation directions.
 pub fn draw_joint_axes(
     mut gizmos: Gizmos,
+    settings: Res<RenderSettings>,
     axes: Query<(&crate::model::Twist, &ChildOf)>,
     transforms: Query<&GlobalTransform>,
 ) {
-
+    if !settings.joint_axes {
+        return;
+    }
     for (twist, child_of) in &axes {
         let Ok(joint_gt) = transforms.get(child_of.0) else {
             continue;
