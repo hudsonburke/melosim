@@ -4,14 +4,14 @@
 //! directly — export as a mesh first: **STL** (universal) or **GLB/glTF**
 //! (preferred; keeps material, Bevy's native mesh format).
 //!
-//! Import sources:
-//! - **Drag & drop** a mesh file onto the window (copied into `assets/imported/`).
-//! - **Type an asset path** in the Import Mesh panel (relative to `assets/`).
+//! Two sources, both spawning a **new root Body** holding the mesh:
+//! - **File picker** (Browse…) — native `rfd` GTK dialog.
+//! - **Drag & drop** a mesh file onto the window.
 //!
-//! Each import spawns a **new root Body** holding the mesh (a part you can then
-//! place and joint in Layer 2), with the CAD Z-up → Bevy Y-up rotation baked in.
+//! The file is copied into `assets/imported/` (so `AssetServer` can load it) and
+//! the CAD Z-up → Bevy Y-up rotation is baked in.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
@@ -20,12 +20,6 @@ use bevy_inspector_egui::bevy_egui::egui;
 use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use crate::model::{Body, InertialProperties};
-
-/// Import UI state: the typed asset-path fallback.
-#[derive(Resource, Default)]
-pub struct MeshImport {
-    pub path: String,
-}
 
 fn is_mesh_ext(path: &Path) -> bool {
     matches!(
@@ -39,7 +33,7 @@ fn is_mesh_ext(path: &Path) -> bool {
 
 /// Spawn a new root `Body` with the given mesh as a Z-up→Y-up-rotated child.
 /// `asset_path` is relative to the `assets/` root (e.g. `imported/part.stl`).
-pub fn spawn_mesh_body(
+fn spawn_mesh_body(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
@@ -68,8 +62,40 @@ pub fn spawn_mesh_body(
     commands.entity(body_id).add_children(&[mesh_child]);
 }
 
-/// Handle files dropped onto the window: copy mesh files into `assets/imported/`
-/// and spawn a new Body for each.
+/// Copy a mesh file into `assets/imported/` and spawn a new Body for it.
+fn import_file(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    materials: &mut Assets<StandardMaterial>,
+    src: &Path,
+) {
+    if !is_mesh_ext(src) {
+        error!("mesh import: unsupported extension for {}", src.display());
+        return;
+    }
+    let Some(file_name) = src.file_name().and_then(|s| s.to_str()) else {
+        return;
+    };
+    let dest_dir = Path::new("assets").join("imported");
+    if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+        error!("mesh import: cannot create {}: {e}", dest_dir.display());
+        return;
+    }
+    let dest = dest_dir.join(file_name);
+    if let Err(e) = std::fs::copy(src, &dest) {
+        error!("mesh import: cannot copy {} → {}: {e}", src.display(), dest.display());
+        return;
+    }
+    let asset_path = format!("imported/{}", file_name);
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("part");
+    spawn_mesh_body(commands, asset_server, materials, asset_path, stem);
+    info!("imported mesh: {}", dest.display());
+}
+
+/// Handle files dropped onto the window.
 pub fn import_dropped_mesh(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -80,33 +106,13 @@ pub fn import_dropped_mesh(
         let &FileDragAndDrop::DroppedFile { ref path_buf, .. } = event else {
             continue;
         };
-        if !is_mesh_ext(path_buf) {
-            continue;
+        if is_mesh_ext(path_buf) {
+            import_file(&mut commands, &asset_server, &mut materials, path_buf);
         }
-        let Some(file_name) = path_buf.file_name().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        let dest_dir = Path::new("assets").join("imported");
-        if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-            error!("mesh import: cannot create {}: {e}", dest_dir.display());
-            continue;
-        }
-        let dest = dest_dir.join(file_name);
-        if let Err(e) = std::fs::copy(path_buf, &dest) {
-            error!("mesh import: cannot copy {} → {}: {e}", path_buf.display(), dest.display());
-            continue;
-        }
-        let asset_path = format!("imported/{}", file_name);
-        let stem = Path::new(file_name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("part");
-        spawn_mesh_body(&mut commands, &asset_server, &mut materials, asset_path, stem);
-        info!("imported mesh: {}", dest.display());
     }
 }
 
-/// Small panel to import a mesh by typed asset path (fallback to drag & drop).
+/// Small panel to import a mesh via the native file picker (or drag & drop).
 /// Runs in the egui pass (separate system so `editor_ui` stays under Bevy's
 /// 16-parameter limit).
 pub fn mesh_import_ui(
@@ -114,32 +120,24 @@ pub fn mesh_import_ui(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut import: ResMut<MeshImport>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Import Mesh")
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -36.0))
-        .default_width(380.0)
         .collapsible(false)
         .show(ctx, |ui| {
-            ui.label("Drag & drop a mesh file, or enter an asset path (.glb/.obj/.stl):");
-            let imported = ui
-                .horizontal(|ui| {
-                    ui.text_edit_singleline(&mut import.path);
-                    ui.button("Import").clicked()
-                })
-                .inner;
-            if imported {
-                let asset_path = import.path.trim().to_owned();
-                if !asset_path.is_empty() {
-                    let stem = Path::new(&asset_path)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("part")
-                        .to_owned();
-                    spawn_mesh_body(&mut commands, &asset_server, &mut materials, asset_path, &stem);
-                    import.path.clear();
+            ui.label("Drag & drop a mesh, or pick a file:");
+            if ui.button("Browse…").clicked() {
+                if let Some(path) = pick_mesh_file() {
+                    import_file(&mut commands, &asset_server, &mut materials, &path);
                 }
             }
         });
+}
+
+/// Open the native file dialog filtered to mesh formats.
+fn pick_mesh_file() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("Meshes", &["stl", "glb", "gltf", "obj"])
+        .pick_file()
 }

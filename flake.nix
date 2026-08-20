@@ -29,6 +29,9 @@
             libxcursor
             libxrandr
             libxi
+            # GTK3 — `rfd` (native file dialog) links against gtk+-3.0. Its
+            # transitive deps (glib, gdk-pixbuf, cairo, pango, ...) come along.
+            gtk3
           ];
         in
         {

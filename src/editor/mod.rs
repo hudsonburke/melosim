@@ -38,7 +38,6 @@ impl Plugin for MelosimEditorPlugin {
         // Resources
         app.init_resource::<Selection>();
         app.init_resource::<models::ModelRegistry>();
-        app.init_resource::<mesh_import::MeshImport>();
         // Load the default model (MyoArm) at startup; the UI can change this.
         app.insert_resource(models::SelectedModel(Some(0)));
 
