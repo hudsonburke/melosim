@@ -73,11 +73,27 @@ fn headless_import() {
     eprintln!("\n--- headless import: body transforms ---");
     for (_ent, name, gt) in query.iter(world) {
         let t = gt.translation();
-        let r = gt.rotation();
-        eprintln!(
-            "  {name:30}  pos=[{:8.4}, {:8.4}, {:8.4}]  quat=[{:8.5}, {:8.5}, {:8.5}, {:8.5}]",
-            t.x, t.y, t.z, r.w, r.x, r.y, r.z,
-        );
+        eprintln!("  {name:30}  pos=[{:8.4}, {:8.4}, {:8.4}]", t.x, t.y, t.z);
+    }
+
+    // ── Dump every Muscle entity and its PathEntities ──
+    use melosim::model::{Muscle, PathEntities};
+    let muscle_data: Vec<(String, Vec<Entity>)> = {
+        let mut mquery = world.query::<(&Name, &PathEntities)>();
+        mquery
+            .iter(world)
+            .map(|(name, path)| (name.as_str().to_owned(), path.iter().collect()))
+            .collect()
+    };
+    eprintln!("\n--- headless import: muscles ({}) ---", muscle_data.len());
+    for (name, path) in &muscle_data {
+        eprintln!("  muscle '{name}' → {} sites:", path.len());
+        for &s in path {
+            if let Ok((sname, sgt)) = world.query::<(&Name, &GlobalTransform)>().get(world, s) {
+                let t = sgt.translation();
+                eprintln!("    site '{}' @ [{:.4}, {:.4}, {:.4}]", sname, t.x, t.y, t.z);
+            }
+        }
     }
     eprintln!("--- done ({})\n", xml_path.display());
 

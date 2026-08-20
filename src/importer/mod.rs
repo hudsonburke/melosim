@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 use mujoco_rs::wrappers::mj_editing::*;
-use mujoco_rs::wrappers::mj_model::MjtJoint;
+use mujoco_rs::wrappers::mj_model::{MjModel, MjtJoint};
 use nalgebra::Vector3;
 
 use crate::model::{
@@ -82,17 +82,62 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         )?;
     }
 
-    // Muscles: read tendon/site data directly from the original XML (no compile
-    // needed) so individual broken tendons don't block the rest.
-    if let Ok(xml) = std::fs::read_to_string(path) {
-        import_muscles_from_xml(world, &xml, &site_map);
+    // Muscles: try compile (fast, complete). If it fails (e.g. a bad tendon
+    // reference), fall back to parsing the original XML.
+    match spec.compile() {
+        Ok(compiled) => import_muscles_compiled(world, &compiled, &site_map),
+        Err(e) => {
+            warn!("MuJoCo compile failed ({e}); falling back to XML parsing for tendons");
+            if let Ok(xml) = std::fs::read_to_string(path) {
+                import_muscles_from_xml(world, &xml, &site_map);
+            }
+        }
     }
     Ok(anchor)
 }
 
-/// Build Muscle entities from the original MJCF file's tendon definitions.
-/// Reads site names directly from the XML — no `compile()` needed, so individual
-/// broken tendons are gracefully skipped (their sites just aren't in `site_map`).
+/// Fast path: import muscles from the compiled model's arrays.
+fn import_muscles_compiled(
+    world: &mut World,
+    compiled: &MjModel,
+    site_map: &HashMap<String, Entity>,
+) {
+    use mujoco_rs::wrappers::mj_model::{MjtObj, MjtWrap};
+    for t in 0..compiled.ntendon() as usize {
+        let adr = compiled.tendon_adr()[t].max(0) as usize;
+        let num = compiled.tendon_num()[t].max(0) as usize;
+        let name = compiled
+            .id_to_name(MjtObj::mjOBJ_TENDON, t)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("muscle_{t}"));
+
+        let mut path = Vec::new();
+        for w in adr..adr + num {
+            if w >= compiled.nwrap() as usize {
+                break;
+            }
+            if compiled.wrap_type()[w] == MjtWrap::mjWRAP_SITE {
+                let siteid = compiled.wrap_objid()[w].max(0) as usize;
+                if let Some(sname) = compiled.id_to_name(MjtObj::mjOBJ_SITE, siteid) {
+                    if let Some(e) = site_map.get(sname) {
+                        path.push(*e);
+                    }
+                }
+            }
+        }
+        if path.is_empty() {
+            continue;
+        }
+        world.spawn((
+            Name::new(name),
+            Muscle,
+            HillTypeMuscleParams::default(),
+            PathEntities::new(path),
+        ));
+    }
+}
+
+/// Fallback: parse muscle paths from the original MJCF XML.
 fn import_muscles_from_xml(
     world: &mut World,
     xml: &str,
