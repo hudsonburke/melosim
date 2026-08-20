@@ -33,13 +33,12 @@ impl JointCoordinates {
 
 /// Relationship: this coordinate is owned by a joint.
 ///
-/// `allow_self_referential` silences a spurious Bevy warning: the BSN spawn
-/// inserts `CoordinateOf` pointing at the coordinate's own entity. It's the
-/// unused inverse link (the FK reads the forward `JointCoordinates`), so it's
-/// harmless — but it's not worth letting Bevy churn on every load.
+/// `#[entities]` marks the field that holds the owning joint's entity — without
+/// it Bevy doesn't know which field stores the target and defaults it to the
+/// coordinate's own entity (the old self-referential warning + removal).
 #[derive(Component, Clone, Debug, FromTemplate, Reflect)]
-#[relationship(relationship_target = JointCoordinates, allow_self_referential)]
-pub struct CoordinateOf(pub Entity);
+#[relationship(relationship_target = JointCoordinates)]
+pub struct CoordinateOf(#[entities] pub Entity);
 
 #[derive(Component, Clone, Debug, Reflect)]
 pub struct CoordinateProperties {
