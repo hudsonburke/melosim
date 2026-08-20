@@ -33,10 +33,12 @@ impl JointCoordinates {
 
 /// Relationship: this coordinate is owned by a joint.
 ///
-/// `#[entities]` marks the field that holds the owning joint's entity — without
-/// it Bevy doesn't know which field stores the target and defaults it to the
-/// coordinate's own entity (the old self-referential warning + removal).
-#[derive(Component, Clone, Debug, FromTemplate, Reflect)]
+/// Injected by the relationship machinery (the owner's `JointCoordinates`), so
+/// it is *not* authored in BSN — mirroring Bevy's own `ChildOf`, which is why it
+/// deliberately does **not** derive `FromTemplate`: doing so made scene spawn
+/// build a default instance whose bare `Entity` field resolved to the
+/// coordinate's own id (the old self-referential warning).
+#[derive(Component, Clone, Debug, Reflect)]
 #[relationship(relationship_target = JointCoordinates)]
 pub struct CoordinateOf(#[entities] pub Entity);
 

@@ -19,10 +19,10 @@ impl PathEntities {
 
 /// Relationship: this entity is part of a muscle/cable path.
 ///
-/// `#[entities]` marks the field that holds the owning path's target entity (the
-/// muscle/cable with `PathEntities`), so Bevy populates it correctly instead of
-/// defaulting to the path-point's own entity.
-#[derive(Component, Clone, Debug, FromTemplate, Reflect)]
+/// Same as `CoordinateOf`: injected by the relationship machinery, so it is not
+/// authored in BSN and deliberately does **not** derive `FromTemplate` (which
+/// otherwise built a default instance with a self-referential entity field).
+#[derive(Component, Clone, Debug, Reflect)]
 #[relationship(relationship_target = PathEntities)]
 pub struct PathElement(#[entities] pub Entity);
 
