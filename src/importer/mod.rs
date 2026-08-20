@@ -41,12 +41,14 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "model".into());
 
-    // Resolve mesh geometry sources (model dir + compiler meshdir + file).
-    let model_dir = path.parent().unwrap_or(Path::new(""));
-    let mesh_dir = model_dir.join(spec.compiler().meshdir());
-    let mesh_src: HashMap<String, PathBuf> = spec
+    // Mesh geometry sources: name → file string from the spec. MuJoCo resolves
+    // `file` relative to `model_dir + meshdir` (or absolute); we replicate that
+    // per geom and copy the resolved file into assets/ (see `spawn_geom`).
+    let model_dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
+    let meshdir = spec.compiler().meshdir().to_string();
+    let mesh_src: HashMap<String, String> = spec
         .mesh_iter()
-        .map(|m| (m.name().to_string(), mesh_dir.join(m.file())))
+        .map(|m| (m.name().to_string(), m.file().to_string()))
         .collect();
 
     // Top-level container (Frame) so imported bodies group under it.
@@ -60,6 +62,8 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
             child_ent,
             anchor,
             &model_name,
+            &model_dir,
+            &meshdir,
             &mesh_src,
             &mut counter,
             &mut site_map,
@@ -133,7 +137,9 @@ fn spawn_body(
     mj: &MjsBody,
     parent: Entity,
     model_name: &str,
-    mesh_src: &HashMap<String, PathBuf>,
+    model_dir: &Path,
+    meshdir: &str,
+    mesh_src: &HashMap<String, String>,
     counter: &mut u64,
     site_map: &mut HashMap<String, Entity>,
 ) -> Result<(), ImportError> {
@@ -189,15 +195,31 @@ fn spawn_body(
     // no `AssetServer` (e.g. bare-World unit tests).
     if world.get_resource::<AssetServer>().is_some() {
         for g in mj.geom_iter(false) {
-            spawn_geom(world, &g, body_ent, model_name, mesh_src, counter);
+            spawn_geom(world, &g, body_ent, model_name, model_dir, meshdir, mesh_src, counter);
         }
     }
 
     // Children bodies.
     for child in mj.body_iter(false) {
-        spawn_body(world, child, body_ent, model_name, mesh_src, counter, site_map)?;
+        spawn_body(world, child, body_ent, model_name, model_dir, meshdir, mesh_src, counter, site_map)?;
     }
     Ok(())
+}
+
+/// Replicate MuJoCo's mesh resolution: `file` absolute, or relative to
+/// `model_dir + meshdir`, or relative to `model_dir`. Returns the first that
+/// exists.
+fn resolve_mesh(model_dir: &Path, meshdir: &str, file: &str) -> Option<PathBuf> {
+    let f = PathBuf::from(file);
+    if f.is_absolute() && f.exists() {
+        return Some(f);
+    }
+    for cand in [model_dir.join(meshdir).join(file), model_dir.join(file)] {
+        if cand.exists() {
+            return Some(cand);
+        }
+    }
+    None
 }
 
 fn spawn_geom(
@@ -205,7 +227,9 @@ fn spawn_geom(
     g: &MjsGeom,
     body_ent: Entity,
     model_name: &str,
-    mesh_src: &HashMap<String, PathBuf>,
+    model_dir: &Path,
+    meshdir: &str,
+    mesh_src: &HashMap<String, String>,
     counter: &mut u64,
 ) {
     // Only mesh geoms for now (primitives come later).
@@ -213,19 +237,35 @@ fn spawn_geom(
     if mesh_name.is_empty() {
         return;
     }
-    let Some(src) = mesh_src.get(mesh_name) else {
+    let Some(file) = mesh_src.get(mesh_name) else {
+        warn!("model import: geom references unknown mesh '{mesh_name}'");
         return;
     };
-    let Some(file_name) = src.file_name().map(|f| f.to_string_lossy().into_owned()) else {
+    let Some(src) = resolve_mesh(model_dir, meshdir, file) else {
+        error!(
+            "model import: mesh '{mesh_name}' file '{file}' not found (model dir {model_dir:?}, meshdir '{meshdir}')"
+        );
+        return;
+    };
+    let Some(fn_name) = src.file_name().map(|f| f.to_string_lossy().into_owned()) else {
         return;
     };
 
     // Copy into assets/imported/<model>/ and load via AssetServer.
-    let dest_rel = format!("imported/{model_name}/{file_name}");
+    let dest_rel = format!("imported/{model_name}/{fn_name}");
     let dest_abs = Path::new("assets").join(&dest_rel);
     let _ = std::fs::create_dir_all(dest_abs.parent().unwrap_or(Path::new(".")));
     if !dest_abs.exists() {
-        let _ = std::fs::copy(src, &dest_abs);
+        if let Err(e) = std::fs::copy(&src, &dest_abs) {
+            error!(
+                "model import: cannot copy mesh {} → {}: {e}",
+                src.display(),
+                dest_abs.display()
+            );
+        }
+    }
+    if !dest_abs.exists() {
+        return;
     }
 
     let handle: Handle<Mesh> = {
@@ -248,12 +288,7 @@ fn spawn_geom(
         .with_rotation(zup_quat_to_yup(*g.quat()));
 
     world
-        .spawn((
-            Name::new(gname),
-            Mesh3d(handle),
-            MeshMaterial3d(material),
-            t,
-        ))
+        .spawn((Name::new(gname), Mesh3d(handle), MeshMaterial3d(material), t))
         .insert(ChildOf(body_ent));
 }
 

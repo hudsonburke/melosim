@@ -74,8 +74,9 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<path_editor::PathEditor>();
         app.init_resource::<PendingModelImport>();
         app.init_resource::<ToolPanels>();
-        // Load the default model (MyoArm) at startup; the UI can change this.
-        app.insert_resource(models::SelectedModel(Some(0)));
+        // Start with NO model loaded; the user picks one from the Model menu or
+        // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
+        app.insert_resource(models::SelectedModel(None));
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
