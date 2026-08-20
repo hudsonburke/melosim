@@ -49,6 +49,10 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         .mesh_iter()
         .map(|m| (m.name().to_string(), m.file().to_string()))
         .collect();
+    let mesh_ref: HashMap<String, ([f64; 3], [f64; 4], [f64; 3])> = spec
+        .mesh_iter()
+        .map(|m| (m.name().to_string(), (*m.refpos(), *m.refquat(), *m.scale())))
+        .collect();
 
     // Top-level container (Frame) so imported bodies group under it.
     let anchor = world.spawn((Name::new(model_name.clone()), Frame)).id();
@@ -63,6 +67,7 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
             &model_dir,
             &meshdir,
             &mesh_src,
+            &mesh_ref,
             &mut counter,
             &mut site_map,
         )?;
@@ -119,16 +124,40 @@ fn zup_to_yup(v: Vec3) -> Vec3 {
 }
 
 fn zup_quat_to_yup(q: [f64; 4]) -> Quat {
-    // MuJoCo quat is (w,x,y,z); Bevy is xyzw.
-    let mj = Quat::from_xyzw(q[1] as f32, q[2] as f32, q[3] as f32, q[0] as f32);
-    // Rotation mapping Z-up→Y-up = -90° about X, so quats stay consistent with
-    // `zup_to_yup`'s (x, z, -y) position mapping. (The exporter uses +90°.)
-    let r = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    r * mj
+    // MuJoCo quat is (w,x,y,z); Bevy is xyzw. Z-up→Y-up = -90° about X on the left.
+    Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2) * to_quat_mjcf(q)
+}
+
+fn to_quat_mjcf(q: [f64; 4]) -> Quat {
+    Quat::from_xyzw(q[1] as f32, q[2] as f32, q[3] as f32, q[0] as f32)
 }
 
 fn to_vec3(a: [f64; 3]) -> Vec3 {
     Vec3::new(a[0] as f32, a[1] as f32, a[2] as f32)
+}
+
+/// Instanced pose of a mesh geom in its body frame, composing the geom's own
+/// `pos`/`quat` with the mesh's reference frame (`refpos`/`refquat`/`scale`),
+/// then mapping Z-up → Y-up. (MuJoCo orients bone meshes via the mesh ref frame.)
+fn mesh_instance_transform(
+    geom_pos: [f64; 3],
+    geom_quat: [f64; 4],
+    refpos: [f64; 3],
+    refquat: [f64; 4],
+    scale: [f64; 3],
+) -> Transform {
+    let g_pos = to_vec3(geom_pos);
+    let g_q = to_quat_mjcf(geom_quat);
+    // Compose in the MJCF body frame.
+    let rot_mjcf = g_q * to_quat_mjcf(refquat);
+    let pos_mjcf = g_pos + g_q.mul_vec3(to_vec3(refpos));
+    // Map Z-up -> Y-up.
+    let z = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    Transform {
+        translation: z.mul_vec3(pos_mjcf),
+        rotation: z * rot_mjcf,
+        scale: z.mul_vec3(to_vec3(scale)),
+    }
 }
 
 fn spawn_body(
@@ -138,6 +167,7 @@ fn spawn_body(
     model_dir: &Path,
     meshdir: &str,
     mesh_src: &HashMap<String, String>,
+    mesh_ref: &HashMap<String, ([f64; 3], [f64; 4], [f64; 3])>,
     counter: &mut u64,
     site_map: &mut HashMap<String, Entity>,
 ) -> Result<(), ImportError> {
@@ -193,13 +223,13 @@ fn spawn_body(
     // no `Assets<Mesh>` (e.g. bare-World unit tests).
     if world.get_resource::<Assets<Mesh>>().is_some() {
         for g in mj.geom_iter(false) {
-            spawn_geom(world, &g, body_ent, model_dir, meshdir, mesh_src, counter);
+            spawn_geom(world, &g, body_ent, model_dir, meshdir, mesh_src, mesh_ref, counter);
         }
     }
 
     // Children bodies.
     for child in mj.body_iter(false) {
-        spawn_body(world, child, body_ent, model_dir, meshdir, mesh_src, counter, site_map)?;
+        spawn_body(world, child, body_ent, model_dir, meshdir, mesh_src, mesh_ref, counter, site_map)?;
     }
     Ok(())
 }
@@ -227,6 +257,7 @@ fn spawn_geom(
     model_dir: &Path,
     meshdir: &str,
     mesh_src: &HashMap<String, String>,
+    mesh_ref: &HashMap<String, ([f64; 3], [f64; 4], [f64; 3])>,
     counter: &mut u64,
 ) {
     // Only mesh geoms for now (primitives come later).
@@ -270,8 +301,13 @@ fn spawn_geom(
     } else {
         g.name().to_string()
     };
-    let t = Transform::from_translation(zup_to_yup(to_vec3(*g.pos())))
-        .with_rotation(zup_quat_to_yup(*g.quat()));
+    // Compose the geom pose with the mesh's reference frame (refquat orients
+    // parallel bones like ulna/radius), then map Z-up -> Y-up.
+    let (rp, rq, sc) = mesh_ref
+        .get(mesh_name)
+        .copied()
+        .unwrap_or(([0.0; 3], [1.0, 0.0, 0.0, 0.0], [1.0; 3]));
+    let t = mesh_instance_transform(*g.pos(), *g.quat(), rp, rq, sc);
 
     world
         .spawn((Name::new(gname), Mesh3d(handle), MeshMaterial3d(material), t))
