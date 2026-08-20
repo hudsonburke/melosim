@@ -84,23 +84,17 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
 
     // Muscles: try compile first (fast, complete). If it fails, try to
     // serialise the spec to XML (resolves includes) and parse tendons from that.
-    println!("[import] about to compile, nsites={}", site_map.len());
     match spec.compile() {
         Ok(compiled) => {
-            println!("[import] compile succeeded, ntendon={}", compiled.ntendon());
             import_muscles_compiled(world, &compiled, &site_map);
         }
         Err(e) => {
-            println!("[import] compile FAILED: {e}");
-            println!("[import] trying save_xml_string...");
             // save_xml_string produces the full resolved XML including inlined
             // <include> blocks, which is what we need for tendon parsing.
             match spec.save_xml_string(4 << 20) {
                 Ok(xml) => {
-                    println!("[import] save_xml_string OK, len={}", xml.len());
                     import_muscles_from_xml(world, &xml, &site_map);
                 }
-                Err(e2) => println!("[import] save_xml_string FAILED: {e2}"),
             }
         }
     }
@@ -116,10 +110,8 @@ fn import_muscles_compiled(
     use mujoco_rs::wrappers::mj_model::{MjtObj, MjtWrap};
     let ntendon = compiled.ntendon();
     let nwrap = compiled.nwrap();
-    eprintln!("[import] ntendon={ntendon} nwrap={nwrap} nsites={}", site_map.len());
     if site_map.len() < 5 {
         for name in site_map.keys().take(10) {
-            eprintln!("[import]   site_map: '{name}'");
         }
     }
     for t in 0..ntendon as usize {
