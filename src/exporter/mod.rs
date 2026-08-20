@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use mujoco_rs::wrappers::mj_editing::{MjSpec, SpecItem};
 use mujoco_rs::wrappers::mj_model::MjtJoint;
 
-use crate::model::{Body, Coordinate, Joint, JointCoordinates, Twist};
+use crate::model::{Body, Coordinate, InertialProperties, Joint, JointCoordinates, Twist};
 
 /// Export failure.
 #[derive(Debug)]
@@ -43,12 +43,14 @@ struct BodySpec {
     name: String,
     gpos: Vec3,
     parent_body: Option<Entity>,
+    inertial: Option<InertialProperties>,
     coords: Vec<CoordSpec>,
 }
 
 fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> {
     // ── Phase A: gather (borrows the world) ──
-    let mut body_q = world.query_filtered::<(Entity, &Name, &GlobalTransform), With<Body>>();
+    let mut body_q =
+        world.query_filtered::<(Entity, &Name, &GlobalTransform, Option<&InertialProperties>), With<Body>>();
     let mut child_of = world.query::<&ChildOf>();
     let mut body_marker = world.query::<&Body>();
     let mut joint_marker = world.query::<&Joint>();
@@ -71,7 +73,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
 
     let mut spec_map: HashMap<Entity, BodySpec> = HashMap::new();
     let mut nodes: Vec<Entity> = Vec::new();
-    for (e, name, gt) in body_q.iter(world) {
+    for (e, name, gt, inertial) in body_q.iter(world) {
         let mut probe = child_of.get(world, e).ok().map(|c| c.parent());
         let mut parent_body = None;
         let mut coords: Vec<CoordSpec> = Vec::new();
@@ -99,6 +101,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
                 name: name.as_str().to_owned(),
                 gpos: gt.translation(),
                 parent_body,
+                inertial: inertial.cloned(),
                 coords,
             },
         );
@@ -108,8 +111,16 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
         return Err(ExportError::NoRoot);
     }
 
-    let parent_set: HashSet<Entity> = spec_map.values().filter_map(|b| b.parent_body).collect();
-    let mut roots: Vec<Entity> = nodes.iter().copied().filter(|e| !parent_set.contains(e)).collect();
+    // Child → nearest Body ancestor map.
+    let parent: HashMap<Entity, Entity> = spec_map
+        .iter()
+        .filter_map(|(e, b)| b.parent_body.map(|p| (*e, p)))
+        .collect();
+
+    // Roots = bodies that are nobody's child. `parent` maps child → parent, so
+    // the child set is its KEYS (not values — a value is a *parent*).
+    let child_set: HashSet<Entity> = parent.keys().copied().collect();
+    let mut roots: Vec<Entity> = nodes.iter().copied().filter(|e| !child_set.contains(e)).collect();
     roots.sort_by_key(|e| e.index());
     let mut children: HashMap<Entity, Vec<Entity>> = HashMap::new();
     for (e, b) in &spec_map {
@@ -148,6 +159,16 @@ fn write_body_recursive(
         .with_name(&spec.name)
         .with_pos([pos.x as f64, pos.y as f64, pos.z as f64]);
 
+    // Emit inertial from InertialProperties (mass, COM, full inertia matrix).
+    if let Some(inert) = &spec.inertial {
+        let com = inert.mass_center;
+        child_mjs
+            .with_mass(inert.mass)
+            .with_fullinertia(inert.inertia.0) // (Ixx,Iyy,Izz,Ixy,Ixz,Iyz) == MuJoCo fullinertia
+            .with_ipos([com.x, com.y, com.z])
+            .with_explicitinertial(true);
+    }
+
     for c in &spec.coords {
         add_joint(&mut *child_mjs, c);
     }
@@ -183,16 +204,22 @@ fn add_joint(body_mjs: &mut mujoco_rs::wrappers::mj_editing::MjsBody, c: &CoordS
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Coordinate, Joint, JointCoordinates, Twist};
+    use crate::model::{Coordinate, Inertia, InertialProperties, Joint, JointCoordinates, Twist};
 
     /// P1+P2: body tree + a hinge joint export → MuJoCo XML.
     #[test]
     fn exports_body_tree_with_joint() {
         let mut world = World::new();
 
+        let inertial = || InertialProperties {
+            mass: 1.0,
+            mass_center: nalgebra::Vector3::new(0.0, 0.0, 0.0),
+            inertia: Inertia::new(0.01, 0.01, 0.01, 0.0, 0.0, 0.0),
+        };
+
         // anchor (root) body.
         let anchor = world
-            .spawn((Name::new("anchor"), Body, Transform::IDENTITY, GlobalTransform::IDENTITY))
+            .spawn((Name::new("anchor"), Body, inertial(), Transform::IDENTITY, GlobalTransform::IDENTITY))
             .id();
 
         // one coordinate driving a hinge (axis = +Z in the twist/local frame).
@@ -223,13 +250,15 @@ mod tests {
             .spawn((
                 Name::new("seg1"),
                 Body,
+                inertial(),
                 Transform::from_xyz(0.0, 1.0, 0.0),
                 GlobalTransform::from(Transform::from_xyz(0.0, 1.0, 0.0)),
             ))
             .id();
         world.entity_mut(seg1).insert(ChildOf(joint));
 
-        let spec = to_mjcf(&mut world, anchor).expect("export should succeed");
+        let mut spec = to_mjcf(&mut world, anchor).expect("export should succeed");
+        let _model = spec.compile().expect("compile should succeed");
         let xml = spec.save_xml_string(1 << 16).expect("serialize should succeed");
 
         // Bodies.
