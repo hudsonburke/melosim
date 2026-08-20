@@ -154,7 +154,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
             #pro_sup Joint
             ChildOf(#pro_sup_offset)
             JointCoordinates [
-                (#pro_sup Coordinate
+                (#pro_sup_rot Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
                     Twist{angular: nalgebra::Vector3::new(-0.017, 0.993, -0.120)}),
             ]
