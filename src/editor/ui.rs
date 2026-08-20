@@ -80,6 +80,7 @@ pub fn editor_ui(
             });
             ui.separator();
             ui.menu_button("View", |ui| {
+                ui.checkbox(&mut settings.meshes, "Meshes");
                 ui.checkbox(&mut settings.bodies, "Bodies");
                 ui.checkbox(&mut settings.frames, "Frames");
                 ui.checkbox(&mut settings.sites, "Sites");

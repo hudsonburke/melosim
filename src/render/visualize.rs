@@ -70,6 +70,43 @@ pub fn draw_sites(
     }
 }
 
+/// Toggle the real model meshes (bones) via `Visibility` when `settings.meshes`
+/// changes. Only meshes sitting under a model `Body` are affected — gizmo /
+/// editor meshes are left alone.
+pub fn sync_mesh_visibility(
+    settings: Res<RenderSettings>,
+    bodies: Query<(), With<crate::model::Body>>,
+    child_of: Query<&ChildOf>,
+    mut meshes: Query<(&ChildOf, &mut Visibility), With<Mesh3d>>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    let target = if settings.meshes {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+    for (mesh_child_of, mut vis) in &mut meshes {
+        // Walk up to the nearest ancestor with `Body`; if found, it's a model bone.
+        let mut parent = mesh_child_of.parent();
+        let mut under_body = false;
+        for _ in 0..32 {
+            if bodies.get(parent).is_ok() {
+                under_body = true;
+                break;
+            }
+            match child_of.get(parent) {
+                Ok(p) => parent = p.parent(),
+                Err(_) => break,
+            }
+        }
+        if under_body {
+            *vis = target;
+        }
+    }
+}
+
 /// Draw muscle paths as line segments between path entities.
 pub fn draw_muscle_paths(
     mut gizmos: Gizmos,

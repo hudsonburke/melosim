@@ -14,6 +14,7 @@ pub struct RenderSettings {
     pub sites: bool,
     pub muscles: bool,
     pub joint_axes: bool,
+    pub meshes: bool,
 }
 
 impl Default for RenderSettings {
@@ -24,6 +25,7 @@ impl Default for RenderSettings {
             sites: true,
             muscles: true,
             joint_axes: true,
+            meshes: true,
         }
     }
 }
@@ -54,6 +56,7 @@ impl Plugin for RenderPlugin {
                     visualize::draw_sites,
                     visualize::draw_muscle_paths,
                     visualize::draw_joint_axes,
+                    visualize::sync_mesh_visibility,
                 ),
             );
     }
