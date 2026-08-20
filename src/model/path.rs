@@ -8,12 +8,21 @@ use bevy::prelude::*;
 pub struct PathEntities(Vec<Entity>);
 
 impl PathEntities {
+    pub fn new(entities: Vec<Entity>) -> Self {
+        Self(entities)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
         self.0.iter().copied()
     }
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Replace the whole path (used by the editor to author a new path).
+    pub fn set(&mut self, entities: Vec<Entity>) {
+        self.0 = entities;
     }
 }
 
