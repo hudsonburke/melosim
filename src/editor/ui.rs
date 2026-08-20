@@ -7,7 +7,10 @@
 //! Phase 1 (panel extraction): toolbar, hierarchy, and inspector live in
 //! `panels/`. Phase 2 (egui_dock): `dock.rs` defines `Tab` enum and
 //! `EditorDockState` resource for future dock-area integration. Currently
-//! panels render via manual SidePanel/TopBottomPanel layout.
+//! panels render via manual Panel layout.
+//!
+//! The former monolithic `editor_ui` (16 params, at Bevy's cap) is split into
+//! narrow-scoped systems that each query only what they need.
 
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
@@ -23,17 +26,43 @@ use crate::model::{
 };
 use crate::render::RenderSettings;
 
-/// Editor shell UI: toolbar (top) + left hierarchy, right inspector.
-#[allow(clippy::too_many_arguments)]
-pub fn editor_ui(
+// ── Shared state for inter-system communication ─────────────
+
+/// Stores the entity clicked in the hierarchy panel during this frame.
+/// Written by `hierarchy_panel`, consumed by `apply_hierarchy_selection`.
+#[derive(Default, Resource)]
+pub struct HierarchyClick(pub Option<Entity>);
+
+// ── Narrow-scoped panel systems ─────────────────────────────
+
+/// Top toolbar: model name, model menu, view toggles.
+pub fn toolbar_panel(
     mut contexts: EguiContexts,
-    mut commands: Commands,
-    mut selection: ResMut<Selection>,
+    selection: Res<Selection>,
     registry: Res<ModelRegistry>,
     mut selected_model: ResMut<SelectedModel>,
     mut settings: ResMut<RenderSettings>,
-    mut part_counter: Local<u64>,
-    mut names: Query<&mut Name>,
+    names: Query<&mut Name>,
+) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
+    egui::Panel::top("melosim_toolbar")
+        .default_size(36.0)
+        .show(ctx, |ui| {
+            panels::toolbar::show(
+                ui,
+                &selection,
+                &registry,
+                &mut selected_model,
+                &mut settings,
+                &names,
+            );
+        });
+}
+
+/// Left hierarchy panel: tree of model entities.
+pub fn hierarchy_panel(
+    mut contexts: EguiContexts,
     root_entities: Query<
         Entity,
         (
@@ -48,8 +77,45 @@ pub fn editor_ui(
             )>,
         ),
     >,
+    names: Query<&mut Name>,
     children_query: Query<&Children>,
     joint_coords: Query<&JointCoordinates>,
+    model_markers: Query<(
+        Option<&Body>,
+        Option<&Joint>,
+        Option<&Coordinate>,
+        Option<&Site>,
+        Option<&Muscle>,
+        Option<&Frame>,
+    )>,
+    selection: Res<Selection>,
+    mut click: ResMut<HierarchyClick>,
+) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    click.0 = None;
+    #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
+    egui::Panel::left("melosim_hierarchy")
+        .resizable(true)
+        .default_size(260.0)
+        .show(ctx, |ui| {
+            click.0 = panels::hierarchy::show(
+                ui,
+                &root_entities,
+                &names,
+                &children_query,
+                &joint_coords,
+                &model_markers,
+                &selection,
+            );
+        });
+}
+
+/// Right inspector panel: component editing for the selected entity.
+pub fn inspector_panel(
+    mut contexts: EguiContexts,
+    mut selection: ResMut<Selection>,
+    mut names: Query<&mut Name>,
+    children_query: Query<&Children>,
     model_markers: Query<(
         Option<&Body>,
         Option<&Joint>,
@@ -62,60 +128,48 @@ pub fn editor_ui(
     mut twists: Query<&mut Twist>,
     mut coord_editor: Query<(&mut CoordinateProperties, &mut InitialConditions, &mut CoordinateState)>,
     mut hill: Query<&mut HillTypeMuscleParams>,
+    mut commands: Commands,
+    mut part_counter: Local<u64>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
-
-    // ── Toolbar (top — fixed, not docked) ───────────────────────────
-    egui::TopBottomPanel::top("melosim_toolbar").show(ctx, |ui| {
-        panels::toolbar::show(
-            ui,
-            &selection,
-            &registry,
-            &mut selected_model,
-            &mut settings,
-            &names,
-        );
-    });
-
-    // ── Hierarchy (left) ─────────────────────────────────────────────
-    let mut hierarchy_clicked: Option<Entity> = None;
-    egui::SidePanel::left("melosim_hierarchy")
+    #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
+    egui::Panel::right("melosim_inspector")
         .resizable(true)
-        .default_width(260.0)
+        .default_size(320.0)
         .show(ctx, |ui| {
-            hierarchy_clicked = panels::hierarchy::show(
-                ui,
-                &root_entities,
-                &names,
-                &children_query,
-                &joint_coords,
-                &model_markers,
-                &selection,
-            );
-        });
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.heading("Inspector");
 
-    // ── Inspector (right) ────────────────────────────────────────────
-    egui::SidePanel::right("melosim_inspector")
-        .resizable(true)
-        .default_width(320.0)
-        .show(ctx, |ui| {
-            panels::inspector::show(
-                ui,
-                &mut selection,
-                &mut names,
-                &children_query,
-                &model_markers,
-                &mut inertial,
-                &mut twists,
-                &mut coord_editor,
-                &mut hill,
-                &mut commands,
-                &mut part_counter,
-            );
-        });
+                let Some(entity) = panels::inspector::show_name(ui, &selection, &mut names) else {
+                    ui.label("Nothing selected");
+                    return;
+                };
 
-    // Apply a hierarchy-click selection after the egui pass.
-    if let Some(entity) = hierarchy_clicked {
+                panels::inspector::show_inertial(ui, entity, &mut inertial);
+                panels::inspector::show_twist(ui, entity, &mut twists);
+                panels::inspector::show_coordinate(ui, entity, &mut coord_editor);
+                panels::inspector::show_muscle(ui, entity, &mut hill);
+                panels::inspector::show_children(
+                    ui,
+                    entity,
+                    &mut selection,
+                    &mut names,
+                    &children_query,
+                    &model_markers,
+                    &mut commands,
+                    &mut part_counter,
+                );
+            });
+        });
+}
+
+/// Apply the hierarchy-click selection after the egui pass.
+pub fn apply_hierarchy_selection(
+    click: Res<HierarchyClick>,
+    mut selection: ResMut<Selection>,
+) {
+    if let Some(entity) = click.0 {
         selection.select_single(entity);
     }
 }

@@ -8,7 +8,7 @@ pub mod selection;
 pub mod ui;
 pub mod viewport;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// A `.xml` model the user chose to import; processed by `process_model_imports`.
 /// (Resource, not a `World`-param button system, so the egui pass tuple stays
@@ -54,7 +54,7 @@ fn process_mujoco_export(world: &mut World) {
     {
         // Canonicalize the output path so CWD changes don't break it.
         let abs_path = path.canonicalize().unwrap_or_else(|_| path.clone());
-        let parent = abs_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        let parent = abs_path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
         let mesh_dir = parent.join("assets");
         let _ = std::fs::create_dir_all(&mesh_dir);
 
@@ -102,6 +102,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use selection::{clear_selection_on_escape, sync_selection_markers, Selection};
+use ui::HierarchyClick;
 use viewport::{frame_camera_to_model, select_on_click};
 
 pub struct MelosimEditorPlugin;
@@ -131,6 +132,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
         app.init_resource::<dock::EditorDockState>();
+        app.init_resource::<HierarchyClick>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
         app.insert_resource(models::SelectedModel(None));
@@ -183,10 +185,20 @@ impl Plugin for MelosimEditorPlugin {
         // egui UI runs inside the egui primary context pass (after egui begins
         // the frame) — running it in `Update` panics because egui's fonts /
         // available-rect aren't set up before `Context::run()`.
+        //
+        // The former monolithic `editor_ui` is split into narrow-scoped systems:
+        //   1. toolbar_panel      — top toolbar (5 params)
+        //   2. hierarchy_panel    — left hierarchy tree (7 params)
+        //   3. inspector_panel    — right inspector (11 params)
+        //   4. apply_hierarchy_selection — reads click result, updates Selection
+        // Each system queries only the resources/components it needs.
         app.add_systems(
             EguiPrimaryContextPass,
             (
-                ui::editor_ui,
+                ui::toolbar_panel,
+                ui::hierarchy_panel,
+                ui::inspector_panel,
+                ui::apply_hierarchy_selection,
                 mesh_import::mesh_import_ui,
                 path_editor::path_editor_ui,
                 ui::tool_windows_toggle,

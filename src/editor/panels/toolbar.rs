@@ -35,7 +35,7 @@ pub fn show(
             for (i, def) in registry.0.iter().enumerate() {
                 if ui.button(def.name).clicked() {
                     selected_model.0 = Some(i);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });

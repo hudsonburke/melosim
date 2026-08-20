@@ -7,120 +7,39 @@ use crate::model::{
     InitialConditions, InertialProperties, Joint, Muscle, Site, Twist,
 };
 
-/// Render the inspector panel into the given `Ui`.
-#[allow(clippy::too_many_arguments)]
-pub fn show(
-    ui: &mut egui::Ui,
-    selection: &mut Selection,
-    names: &mut Query<&mut Name>,
-    children_query: &Query<&Children>,
-    model_markers: &Query<(
-        Option<&Body>,
-        Option<&Joint>,
-        Option<&Coordinate>,
-        Option<&Site>,
-        Option<&Muscle>,
-        Option<&Frame>,
-    )>,
-    inertial: &mut Query<&mut InertialProperties>,
-    twists: &mut Query<&mut Twist>,
-    coord_editor: &mut Query<(&mut CoordinateProperties, &mut InitialConditions, &mut CoordinateState)>,
-    hill: &mut Query<&mut HillTypeMuscleParams>,
-    commands: &mut Commands,
-    part_counter: &mut u64,
-) {
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.add_space(4.0);
-        ui.heading("Inspector");
+// ── Sub-panel functions ─────────────────────────────────────
+//
+// Each sub-panel is a plain function (not a system) called from the
+// inspector panel system. This keeps concerns separated while
+// avoiding Bevy's system-parameter limit.
 
-        let Some(entity) = selection.primary() else {
-            ui.label("Nothing selected");
-            return;
-        };
-        // Editable name (rename any named model entity).
-        let mut name = names
-            .get(entity)
-            .map(|n| n.as_str().to_owned())
-            .unwrap_or_else(|_| format!("{:?}", entity));
-        if names.contains(entity) {
-            ui.horizontal(|ui| {
-                ui.label("Name");
-                if ui.text_edit_singleline(&mut name).changed() {
-                    if let Ok(mut n) = names.get_mut(entity) {
-                        *n = Name::new(name);
-                    }
-                }
-            });
-        } else {
-            ui.label(egui::RichText::new(name).strong());
-        }
+/// Show the name sub-panel. Returns the selected entity (if any).
+pub fn show_name(ui: &mut egui::Ui, selection: &Selection, names: &mut Query<&mut Name>) -> Option<Entity> {
+    let entity = selection.primary()?;
 
-        edit_inertial(ui, entity, inertial);
-        edit_twist(ui, entity, twists);
-        edit_coordinate(ui, entity, coord_editor);
-        edit_muscle(ui, entity, hill);
-
-        // ── Children (Layer 1 part authoring): immediate Sites & Frames ──
-        ui.separator();
-        ui.label(egui::RichText::new("Children").strong());
-
-        let mut sites: Vec<Entity> = Vec::new();
-        let mut frames: Vec<Entity> = Vec::new();
-        if let Ok(children) = children_query.get(entity) {
-            for child in children.iter() {
-                match model_markers.get(child) {
-                    Ok((_, _, _, Some(_), _, _)) => sites.push(child),
-                    Ok((_, _, _, _, _, Some(_))) => frames.push(child),
-                    _ => {}
+    // Editable name (rename any named model entity).
+    let mut name = names
+        .get(entity)
+        .map(|n| n.as_str().to_owned())
+        .unwrap_or_else(|_| format!("{:?}", entity));
+    if names.contains(entity) {
+        ui.horizontal(|ui| {
+            ui.label("Name");
+            if ui.text_edit_singleline(&mut name).changed() {
+                if let Ok(mut n) = names.get_mut(entity) {
+                    *n = Name::new(name);
                 }
             }
-        }
+        });
+    } else {
+        ui.label(egui::RichText::new(name).strong());
+    }
 
-        ui.label("Sites");
-        if ui.button("＋ Add Site").clicked() {
-            let name = format!("site_{}", *part_counter);
-            *part_counter += 1;
-            let child = commands
-                .spawn((Name::new(name), Site, Transform::from_xyz(0.03, 0.0, 0.0)))
-                .insert(ChildOf(entity))
-                .id();
-            commands.entity(entity).add_children(&[child]);
-        }
-        for child in &sites {
-            let cname = names
-                .get(*child)
-                .map(|n| n.as_str().to_owned())
-                .unwrap_or_default();
-            if ui.selectable_label(selection.is_selected(*child), cname).clicked() {
-                selection.select_single(*child);
-            }
-        }
-
-        ui.add_space(4.0);
-        ui.label("Frames");
-        if ui.button("＋ Add Frame").clicked() {
-            let name = format!("frame_{}", *part_counter);
-            *part_counter += 1;
-            let child = commands
-                .spawn((Name::new(name), Frame, Transform::from_xyz(0.03, 0.0, 0.0)))
-                .insert(ChildOf(entity))
-                .id();
-            commands.entity(entity).add_children(&[child]);
-        }
-        for child in &frames {
-            let cname = names
-                .get(*child)
-                .map(|n| n.as_str().to_owned())
-                .unwrap_or_default();
-            if ui.selectable_label(selection.is_selected(*child), cname).clicked() {
-                selection.select_single(*child);
-            }
-        }
-    });
+    Some(entity)
 }
 
 /// Editable inspector for a Body's `InertialProperties`.
-fn edit_inertial(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut InertialProperties>) {
+pub fn show_inertial(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut InertialProperties>) {
     let Ok(mut ip) = q.get_mut(entity) else { return };
 
     ui.separator();
@@ -191,7 +110,7 @@ fn edit_inertial(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut InertialP
 }
 
 /// Editable inspector for a joint's `Twist` (se(3) screw axis).
-fn edit_twist(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut Twist>) {
+pub fn show_twist(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut Twist>) {
     let Ok(mut tw) = q.get_mut(entity) else { return };
 
     ui.separator();
@@ -235,7 +154,7 @@ fn edit_twist(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut Twist>) {
 }
 
 /// Editable inspector for a generalized coordinate: properties + initial + state.
-fn edit_coordinate(
+pub fn show_coordinate(
     ui: &mut egui::Ui,
     entity: Entity,
     q: &mut Query<(
@@ -286,7 +205,7 @@ fn edit_coordinate(
 }
 
 /// Editable inspector for `HillTypeMuscleParams`.
-fn edit_muscle(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut HillTypeMuscleParams>) {
+pub fn show_muscle(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut HillTypeMuscleParams>) {
     let Ok(mut m) = q.get_mut(entity) else { return };
 
     ui.separator();
@@ -321,4 +240,80 @@ fn edit_muscle(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut HillTypeMus
             .speed(0.01)
             .suffix("fiber damping"),
     );
+}
+
+/// Children sub-panel: list Sites & Frames under the selected entity, with
+/// buttons to add new ones.
+pub fn show_children(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    selection: &mut Selection,
+    names: &mut Query<&mut Name>,
+    children_query: &Query<&Children>,
+    model_markers: &Query<(
+        Option<&Body>,
+        Option<&Joint>,
+        Option<&Coordinate>,
+        Option<&Site>,
+        Option<&Muscle>,
+        Option<&Frame>,
+    )>,
+    commands: &mut Commands,
+    part_counter: &mut u64,
+) {
+    ui.separator();
+    ui.label(egui::RichText::new("Children").strong());
+
+    let mut sites: Vec<Entity> = Vec::new();
+    let mut frames: Vec<Entity> = Vec::new();
+    if let Ok(children) = children_query.get(entity) {
+        for child in children.iter() {
+            match model_markers.get(child) {
+                Ok((_, _, _, Some(_), _, _)) => sites.push(child),
+                Ok((_, _, _, _, _, Some(_))) => frames.push(child),
+                _ => {}
+            }
+        }
+    }
+
+    ui.label("Sites");
+    if ui.button("＋ Add Site").clicked() {
+        let name = format!("site_{}", *part_counter);
+        *part_counter += 1;
+        let child = commands
+            .spawn((Name::new(name), Site, Transform::from_xyz(0.03, 0.0, 0.0)))
+            .insert(ChildOf(entity))
+            .id();
+        commands.entity(entity).add_children(&[child]);
+    }
+    for child in &sites {
+        let cname = names
+            .get(*child)
+            .map(|n| n.as_str().to_owned())
+            .unwrap_or_default();
+        if ui.selectable_label(selection.is_selected(*child), cname).clicked() {
+            selection.select_single(*child);
+        }
+    }
+
+    ui.add_space(4.0);
+    ui.label("Frames");
+    if ui.button("＋ Add Frame").clicked() {
+        let name = format!("frame_{}", *part_counter);
+        *part_counter += 1;
+        let child = commands
+            .spawn((Name::new(name), Frame, Transform::from_xyz(0.03, 0.0, 0.0)))
+            .insert(ChildOf(entity))
+            .id();
+        commands.entity(entity).add_children(&[child]);
+    }
+    for child in &frames {
+        let cname = names
+            .get(*child)
+            .map(|n| n.as_str().to_owned())
+            .unwrap_or_default();
+        if ui.selectable_label(selection.is_selected(*child), cname).clicked() {
+            selection.select_single(*child);
+        }
+    }
 }
