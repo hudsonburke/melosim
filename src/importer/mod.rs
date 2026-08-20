@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 use mujoco_rs::wrappers::mj_editing::*;
-use mujoco_rs::wrappers::mj_model::{MjModel, MjtJoint, MjtObj, MjtWrap};
+use mujoco_rs::wrappers::mj_model::MjtJoint;
 use nalgebra::Vector3;
 
 use crate::model::{
@@ -82,49 +82,71 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         )?;
     }
 
-    // Muscles: compile the spec and read each tendon's site-wrapped path.
-    match spec.compile() {
-        Ok(compiled) => import_muscles(world, &compiled, &site_map),
-        Err(e) => warn!("MuJoCo compile failed; tendons/muscles not imported: {e}"),
+    // Muscles: read tendon/site data directly from the original XML (no compile
+    // needed) so individual broken tendons don't block the rest.
+    if let Ok(xml) = std::fs::read_to_string(path) {
+        import_muscles_from_xml(world, &xml, &site_map);
     }
     Ok(anchor)
 }
 
-/// Build a `Muscle` entity per spatial tendon, from its ordered site path
-/// (resolved against the imported site entities).
-fn import_muscles(world: &mut World, compiled: &MjModel, site_map: &HashMap<String, Entity>) {
-    for t in 0..compiled.ntendon() as usize {
-        let adr = compiled.tendon_adr()[t].max(0) as usize;
-        let num = compiled.tendon_num()[t].max(0) as usize;
-        let name = compiled
-            .id_to_name(MjtObj::mjOBJ_TENDON, t)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("muscle_{t}"));
-
-        let mut path = Vec::new();
-        for w in adr..adr + num {
-            if w >= compiled.nwrap() as usize {
-                break;
-            }
-            if compiled.wrap_type()[w] == MjtWrap::mjWRAP_SITE {
-                let siteid = compiled.wrap_objid()[w].max(0) as usize;
-                if let Some(sname) = compiled.id_to_name(MjtObj::mjOBJ_SITE, siteid) {
-                    if let Some(e) = site_map.get(sname) {
-                        path.push(*e);
-                    }
-                }
-            }
-        }
+/// Build Muscle entities from the original MJCF file's tendon definitions.
+/// Reads site names directly from the XML — no `compile()` needed, so individual
+/// broken tendons are gracefully skipped (their sites just aren't in `site_map`).
+fn import_muscles_from_xml(
+    world: &mut World,
+    xml: &str,
+    site_map: &HashMap<String, Entity>,
+) {
+    let paths = parse_spatial_tendon_sites(xml);
+    for (tendon_name, site_names) in paths {
+        let path: Vec<Entity> = site_names
+            .iter()
+            .filter_map(|s| site_map.get(s).copied())
+            .collect();
         if path.is_empty() {
-            continue;
+            continue; // All referenced sites missing — skip.
         }
         world.spawn((
-            Name::new(name),
+            Name::new(tendon_name),
             Muscle,
             HillTypeMuscleParams::default(),
             PathEntities::new(path),
         ));
     }
+}
+
+/// Extract spatial tendon → ordered site names from MJCF XML text.
+fn parse_spatial_tendon_sites(xml: &str) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for tendon_block in xml.split("<tendon>").skip(1).take_while(|s| s.contains("</tendon>")) {
+        let tendon_body = tendon_block.split("</tendon>").next().unwrap_or("");
+        for spatial_block in tendon_body.split("<spatial").skip(1) {
+            let spatial_body = spatial_block.split("</spatial>").next().unwrap_or("");
+            let tendon_name = spatial_block
+                .split("name=\"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .unwrap_or("tendon")
+                .to_string();
+            let mut site_names = Vec::new();
+            // Scan for <site ... site="NAME" .../> or <site site="NAME"/> —
+            // the site attribute can appear anywhere on the tag, across lines.
+            for tag in spatial_body.split('<').filter(|t| t.starts_with("site")) {
+                if let Some(site) = tag
+                    .split("site=\"")
+                    .nth(1)
+                    .and_then(|s| s.split('"').next())
+                {
+                    site_names.push(site.to_string());
+                }
+            }
+            if !site_names.is_empty() {
+                out.push((tendon_name, site_names));
+            }
+        }
+    }
+    out
 }
 
 /// MJCF (Z-up) → melosim (Y-up): invert the exporter's `zup`.
