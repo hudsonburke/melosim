@@ -12,10 +12,12 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::ecs::world::World;
 use bevy::prelude::*;
-use mujoco_rs::wrappers::mj_editing::{MjSpec, SpecItem};
+use mujoco_rs::wrappers::mj_editing::{MjSpec, MjtLimited, SpecItem};
 use mujoco_rs::wrappers::mj_model::MjtJoint;
 
-use crate::model::{Body, Coordinate, InertialProperties, Joint, JointCoordinates, Twist};
+use crate::model::{
+    Body, Coordinate, CoordinateProperties, InertialProperties, Joint, JointCoordinates, Twist,
+};
 
 /// Export failure.
 #[derive(Debug)]
@@ -36,6 +38,7 @@ pub fn to_mjcf(world: &mut World, _root: Entity) -> Result<MjSpec, ExportError> 
 struct CoordSpec {
     name: String,
     twist: Twist,
+    props: Option<CoordinateProperties>,
 }
 
 /// A body in the export tree plus the joints that drive it.
@@ -44,7 +47,13 @@ struct BodySpec {
     gpos: Vec3,
     parent_body: Option<Entity>,
     inertial: Option<InertialProperties>,
+    joint_world_pos: Option<Vec3>,
     coords: Vec<CoordSpec>,
+}
+
+/// melosim (Y-up) → MuJoCo (Z-up): rotate +90° about X (maps +Y → +Z).
+fn zup(v: Vec3) -> Vec3 {
+    Vec3::new(v.x, -v.z, v.y)
 }
 
 fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> {
@@ -55,11 +64,16 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
     let mut body_marker = world.query::<&Body>();
     let mut joint_marker = world.query::<&Joint>();
     let mut joint_coords = world.query::<&JointCoordinates>();
-    let mut coord_q =
-        world.query_filtered::<(Entity, Option<&Name>, &Twist), With<Coordinate>>();
+    let mut coord_q = world.query_filtered::<(
+        Entity,
+        Option<&Name>,
+        &Twist,
+        Option<&CoordinateProperties>,
+    ), With<Coordinate>>();
+    let mut gt_q = world.query::<&GlobalTransform>();
 
     let mut coord_map: HashMap<Entity, CoordSpec> = HashMap::new();
-    for (e, name, twist) in coord_q.iter(world) {
+    for (e, name, twist, props) in coord_q.iter(world) {
         coord_map.insert(
             e,
             CoordSpec {
@@ -67,6 +81,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
                     .map(|n| n.as_str().to_owned())
                     .unwrap_or_else(|| format!("coord_{e:?}")),
                 twist: twist.clone(),
+                props: props.cloned(),
             },
         );
     }
@@ -77,6 +92,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
         let mut probe = child_of.get(world, e).ok().map(|c| c.parent());
         let mut parent_body = None;
         let mut coords: Vec<CoordSpec> = Vec::new();
+        let mut joint_world_pos = None;
         while let Some(p) = probe {
             if p != e {
                 if joint_marker.get(world, p).is_ok() {
@@ -87,6 +103,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
                         .into_iter()
                         .filter_map(|c| coord_map.get(&c).cloned())
                         .collect();
+                    joint_world_pos = gt_q.get(world, p).ok().map(|g| g.translation());
                 }
                 if body_marker.get(world, p).is_ok() {
                     parent_body = Some(p);
@@ -102,6 +119,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec) -> Result<(), ExportError> 
                 gpos: gt.translation(),
                 parent_body,
                 inertial: inertial.cloned(),
+                joint_world_pos,
                 coords,
             },
         );
@@ -169,8 +187,13 @@ fn write_body_recursive(
             .with_explicitinertial(true);
     }
 
+    // Joint location relative to the nearest Body ancestor (or the body-local pos).
+    let joint_pos = match (spec.joint_world_pos, parent_world_pos) {
+        (Some(jp), Some(pp)) => zup(jp - pp),
+        _ => pos,
+    };
     for c in &spec.coords {
-        add_joint(&mut *child_mjs, c);
+        add_joint(&mut *child_mjs, c, [joint_pos.x as f64, joint_pos.y as f64, joint_pos.z as f64]);
     }
 
     let gpos = spec.gpos;
@@ -182,8 +205,14 @@ fn write_body_recursive(
 }
 
 /// Emit one `<joint>` per coordinate: hinge if `Twist.angular` dominates,
-/// slide if `Twist.linear` dominates.
-fn add_joint(body_mjs: &mut mujoco_rs::wrappers::mj_editing::MjsBody, c: &CoordSpec) {
+/// slide if `Twist.linear` dominates. Carries limit (`range`/`limited`) and
+/// `damping` from `CoordinateProperties`; `stiffness` isn't a MuJoCo joint
+/// attribute in this crate (it's modeled via actuators/springs instead).
+fn add_joint(
+    body_mjs: &mut mujoco_rs::wrappers::mj_editing::MjsBody,
+    c: &CoordSpec,
+    pos: [f64; 3],
+) {
     let ang = c.twist.angular.norm();
     let lin = c.twist.linear.norm();
     let is_hinge = ang > lin && ang > 1e-6;
@@ -198,13 +227,31 @@ fn add_joint(body_mjs: &mut mujoco_rs::wrappers::mj_editing::MjsBody, c: &CoordS
     // melosim Y-up → MuJoCo Z-up axis.
     let axis = [v.x, -v.z, v.y];
 
-    body_mjs.add_joint().with_name(&c.name).with_type(kind).with_axis(axis);
+    let mut j = body_mjs
+        .add_joint()
+        .with_name(&c.name)
+        .with_type(kind)
+        .with_pos(pos)
+        .with_axis(axis);
+
+    if let Some(p) = &c.props {
+        if p.clamped {
+            j = j.with_range([p.range.0, p.range.1]).with_limited(MjtLimited::mjLIMITED_TRUE);
+        }
+        if p.damping > 0.0 {
+            // mjNPOLY = 2 → damping coefficient array has 3 entries.
+            j = j.with_damping([p.damping, 0.0, 0.0]);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Coordinate, Inertia, InertialProperties, Joint, JointCoordinates, Twist};
+    use crate::model::{
+        Coordinate, CoordinateProperties, Inertia, InertialProperties, Joint, JointCoordinates,
+        Twist,
+    };
 
     /// P1+P2: body tree + a hinge joint export → MuJoCo XML.
     #[test]
@@ -222,11 +269,19 @@ mod tests {
             .spawn((Name::new("anchor"), Body, inertial(), Transform::IDENTITY, GlobalTransform::IDENTITY))
             .id();
 
-        // one coordinate driving a hinge (axis = +Z in the twist/local frame).
+        // one coordinate driving a hinge (axis = +Z in the twist/local frame),
+        // with a limit range + damping.
         let coord = world
             .spawn((
                 Name::new("knee_flex"),
                 Coordinate,
+                CoordinateProperties {
+                    range: (-1.5, 1.5),
+                    clamped: true,
+                    locked: false,
+                    stiffness: 0.0,
+                    damping: 1.0,
+                },
                 Twist {
                     angular: nalgebra::Vector3::new(0.0, 0.0, 1.0),
                     linear: nalgebra::Vector3::new(0.0, 0.0, 0.0),
@@ -265,8 +320,10 @@ mod tests {
         assert!(xml.contains("anchor"), "missing anchor: {xml}");
         assert!(xml.contains("seg1"), "missing seg1: {xml}");
         assert!(xml.contains("<body"), "no <body>: {xml}");
-        // Joint (coordinate name) emitted.
+        // Joint (coordinate name) emitted, with limit range + damping.
         assert!(xml.contains("knee_flex"), "missing joint (knee_flex): {xml}");
         assert!(xml.contains("<joint"), "no <joint>: {xml}");
+        assert!(xml.contains("range"), "missing joint range: {xml}");
+        assert!(xml.contains("damping"), "missing joint damping: {xml}");
     }
 }
