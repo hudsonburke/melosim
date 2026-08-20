@@ -76,6 +76,7 @@ impl Plugin for MelosimEditorPlugin {
                 gizmo::gizmo_mode_keys,
                 gizmo::sync_freecam_to_egui,
                 frame_camera_to_model,
+                mesh_import::import_dropped_mesh,
                 models::spawn_selected_model,
                 models::tag_model_roots,
             ),
