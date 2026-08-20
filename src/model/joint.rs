@@ -26,6 +26,10 @@ pub struct Coordinate;
 pub struct JointCoordinates(Vec<Entity>);
 
 impl JointCoordinates {
+    pub fn new(entities: Vec<Entity>) -> Self {
+        Self(entities)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
         self.0.iter().copied()
     }
