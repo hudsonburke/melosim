@@ -1,3 +1,4 @@
+pub mod mesh_loaders;
 pub mod visualize;
 
 use bevy::prelude::*;
@@ -40,6 +41,10 @@ impl Plugin for RenderPlugin {
         // meshes. Force full propagation every frame.
         app.insert_resource(StaticTransformOptimizations::Disabled)
             .init_resource::<RenderSettings>()
+            // Bevy bundles a glTF loader but not OBJ/STL — add them:
+            //   OBJ → `bevy_obj` (0.19); STL → our custom loader (`bevy_stl` is only at 0.18).
+            .add_plugins(bevy_obj::ObjPlugin)
+            .init_asset_loader::<mesh_loaders::StlLoader>()
             .add_systems(
                 PreUpdate,
                 crate::model::ensure_coordinate_states,

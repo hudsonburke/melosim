@@ -25,6 +25,7 @@ bevy = { version = "0.19.1", default-features = false, features = [
   "bevy_feathers",
 ] }
 nalgebra = "0.35"
+bevy_obj = "0.19"
 bevy-inspector-egui = "0.37"
 rfd = "0.15"
 # Enable bevy_egui's `picking` feature so it suppresses `bevy_picking` events over
