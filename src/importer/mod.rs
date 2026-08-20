@@ -18,12 +18,12 @@ use bevy::asset::AssetPath;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 use mujoco_rs::wrappers::mj_editing::*;
-use mujoco_rs::wrappers::mj_model::MjtJoint;
+use mujoco_rs::wrappers::mj_model::{MjModel, MjtJoint, MjtObj, MjtWrap};
 use nalgebra::Vector3;
 
 use crate::model::{
-    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, Inertia, InertialProperties,
-    Joint, JointCoordinates, Site, Twist,
+    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams, Inertia,
+    InertialProperties, Joint, JointCoordinates, Muscle, PathEntities, Site, Twist,
 };
 
 /// Import failure.
@@ -35,7 +35,7 @@ pub enum ImportError {
 /// Parse the MJCF at `path` and spawn the model into `world`.
 /// Returns the top-level container entity.
 pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError> {
-    let spec = MjSpec::from_xml(path).map_err(|e| ImportError::Load(format!("{e}")))?;
+    let mut spec = MjSpec::from_xml(path).map_err(|e| ImportError::Load(format!("{e}")))?;
     let model_name = path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
@@ -53,10 +53,62 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
     let anchor = world.spawn((Name::new(model_name.clone()), Frame)).id();
 
     let mut counter = 0u64;
+    let mut site_map: HashMap<String, Entity> = HashMap::new();
     for child_ent in spec.world_body().body_iter(false) {
-        spawn_body(world, child_ent, anchor, &model_name, &mesh_src, &mut counter)?;
+        spawn_body(
+            world,
+            child_ent,
+            anchor,
+            &model_name,
+            &mesh_src,
+            &mut counter,
+            &mut site_map,
+        )?;
+    }
+
+    // Muscles: compile the spec and read each tendon's site-wrapped path.
+    match spec.compile() {
+        Ok(compiled) => import_muscles(world, &compiled, &site_map),
+        Err(e) => warn!("MuJoCo compile failed; tendons/muscles not imported: {e}"),
     }
     Ok(anchor)
+}
+
+/// Build a `Muscle` entity per spatial tendon, from its ordered site path
+/// (resolved against the imported site entities).
+fn import_muscles(world: &mut World, compiled: &MjModel, site_map: &HashMap<String, Entity>) {
+    for t in 0..compiled.ntendon() as usize {
+        let adr = compiled.tendon_adr()[t].max(0) as usize;
+        let num = compiled.tendon_num()[t].max(0) as usize;
+        let name = compiled
+            .id_to_name(MjtObj::mjOBJ_TENDON, t)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("muscle_{t}"));
+
+        let mut path = Vec::new();
+        for w in adr..adr + num {
+            if w >= compiled.nwrap() as usize {
+                break;
+            }
+            if compiled.wrap_type()[w] == MjtWrap::mjWRAP_SITE {
+                let siteid = compiled.wrap_objid()[w].max(0) as usize;
+                if let Some(sname) = compiled.id_to_name(MjtObj::mjOBJ_SITE, siteid) {
+                    if let Some(e) = site_map.get(sname) {
+                        path.push(*e);
+                    }
+                }
+            }
+        }
+        if path.is_empty() {
+            continue;
+        }
+        world.spawn((
+            Name::new(name),
+            Muscle,
+            HillTypeMuscleParams::default(),
+            PathEntities::new(path),
+        ));
+    }
 }
 
 /// MJCF (Z-up) → melosim (Y-up): invert the exporter's `zup`.
@@ -83,6 +135,7 @@ fn spawn_body(
     model_name: &str,
     mesh_src: &HashMap<String, PathBuf>,
     counter: &mut u64,
+    site_map: &mut HashMap<String, Entity>,
 ) -> Result<(), ImportError> {
     let name = if mj.name().is_empty() {
         *counter += 1;
@@ -111,7 +164,7 @@ fn spawn_body(
         spawn_joint(world, j, body_ent, counter)?;
     }
 
-    // Sites (points on the body).
+    // Sites (points on the body). Record entities by name for muscle paths.
     for s in mj.site_iter(false) {
         let sname = if s.name().is_empty() {
             *counter += 1;
@@ -119,13 +172,17 @@ fn spawn_body(
         } else {
             s.name().to_string()
         };
-        world
+        let site_ent = world
             .spawn((
-                Name::new(sname),
+                Name::new(sname.clone()),
                 Site,
                 Transform::from_translation(zup_to_yup(to_vec3(*s.pos()))),
             ))
-            .insert(ChildOf(body_ent));
+            .insert(ChildOf(body_ent))
+            .id();
+        if !sname.is_empty() {
+            site_map.insert(sname, site_ent);
+        }
     }
 
     // Mesh geoms → Mesh3d children (visualization). Skipped when the app has
@@ -138,7 +195,7 @@ fn spawn_body(
 
     // Children bodies.
     for child in mj.body_iter(false) {
-        spawn_body(world, child, body_ent, model_name, mesh_src, counter)?;
+        spawn_body(world, child, body_ent, model_name, mesh_src, counter, site_map)?;
     }
     Ok(())
 }
@@ -292,18 +349,28 @@ mod tests {
         p
     }
 
-    /// A minimal 2-body hinge model: parses and spawns bodies + joint.
+    /// A minimal 2-body hinge model: parses and spawns bodies + joint + a
+    /// spatial-tendon muscle (whose path resolves to the two imported sites).
     #[test]
     fn imports_two_body_hinge() {
         let xml = r#"<mujoco model="test2">
           <worldbody>
             <body name="base" pos="0 0 0">
+              <inertial pos="0 0 0" mass="1" diaginertia="0.01 0.01 0.01"/>
               <joint name="hinge" type="hinge" axis="0 0 1" range="-1 1" damping="0.5"/>
+              <site name="s1" pos="0 0 0"/>
               <body name="link" pos="0 0 1">
-                <site name="tip" pos="0 0 0.1"/>
+                <inertial pos="0 0 0" mass="1" diaginertia="0.01 0.01 0.01"/>
+                <site name="s2" pos="0 0 0.1"/>
               </body>
             </body>
           </worldbody>
+          <tendon>
+            <spatial name="biceps">
+              <site site="s1"/>
+              <site site="s2"/>
+            </spatial>
+          </tendon>
         </mujoco>"#;
         let path = tmp_mjcf(xml);
         let mut world = World::new();
@@ -318,8 +385,12 @@ mod tests {
             "expected a joint"
         );
         assert!(
-            world.query_filtered::<Entity, With<Site>>().iter(&world).count() >= 1,
-            "expected a site"
+            world.query_filtered::<Entity, With<Site>>().iter(&world).count() >= 2,
+            "expected two sites"
+        );
+        assert!(
+            world.query_filtered::<Entity, With<Muscle>>().iter(&world).count() >= 1,
+            "expected a muscle from the spatial tendon"
         );
     }
 }
