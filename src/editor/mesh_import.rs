@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use bevy::ecs::message::MessageReader;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
+use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
 use bevy_inspector_egui::bevy_egui::egui;
 use bevy_inspector_egui::bevy_egui::EguiContexts;
 
@@ -31,8 +32,13 @@ fn is_mesh_ext(path: &Path) -> bool {
     )
 }
 
-/// Spawn a new root `Body` with the given mesh as a Z-up→Y-up-rotated child.
-/// `asset_path` is relative to the `assets/` root (e.g. `imported/part.stl`).
+/// Spawn a new root `Body` with the given mesh file as a child.
+///
+/// - **STL / OBJ** load directly as a single `Mesh`.
+/// - **GLB / glTF** are spawned via `SceneRoot` so the *whole scene* is
+///   instantiated — all nodes/primitives. Loading only `#Mesh0/Primitive0`
+///   would drop everything but the first primitive of multi-piece parts
+///   (e.g. a cable guide exported as 81 primitives).
 fn spawn_mesh_body(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -40,39 +46,40 @@ fn spawn_mesh_body(
     asset_path: String,
     name: &str,
 ) {
-    // glTF/GLB files aren't a bare `Mesh` asset — a mesh is addressed by a
-    // `#MeshN/PrimitiveM` label (e.g. glTF "gltf/part.glb#Mesh0/Primitive0").
-    // STL/OBJ load directly as a `Mesh`, no label needed.
-    let mut load_path = asset_path;
-    if !load_path.contains('#') {
-        let ext = Path::new(&load_path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_ascii_lowercase());
-        if matches!(ext.as_deref(), Some("glb") | Some("gltf")) {
-            load_path.push_str("#Mesh0/Primitive0");
-        }
-    }
-
-    let mesh: Handle<Mesh> = asset_server.load(load_path);
-    let material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.8, 0.7, 0.6),
-        ..default()
-    });
-
     let body_id = commands
         .spawn((Name::new(name.to_owned()), Body, InertialProperties::default()))
         .id();
 
-    let mesh_child = commands
-        .spawn((
-            Name::new(format!("{name}_mesh")),
-            Mesh3d(mesh),
-            MeshMaterial3d(material),
-            Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107)),
-        ))
-        .insert(ChildOf(body_id))
-        .id();
+    let ext = Path::new(&asset_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase());
+
+    let mesh_child = if matches!(ext.as_deref(), Some("glb") | Some("gltf")) {
+        // Spawn the whole glTF scene (`#Scene0`) via its WorldAsset — all nodes
+        // and primitives hydrate as children. (Loading `#Mesh0/Primitive0` would
+        // drop every primitive except the first of a multi-piece part.)
+        let scene: Handle<WorldAsset> = asset_server.load(format!("{asset_path}#Scene0"));
+        commands
+            .spawn((Name::new(format!("{name}_mesh")), WorldAssetRoot(scene)))
+            .insert(ChildOf(body_id))
+            .id()
+    } else {
+        let mesh: Handle<Mesh> = asset_server.load(asset_path);
+        let material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.8, 0.7, 0.6),
+            ..default()
+        });
+        commands
+            .spawn((
+                Name::new(format!("{name}_mesh")),
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+            ))
+            .insert(ChildOf(body_id))
+            .id()
+    };
+
     commands.entity(body_id).add_children(&[mesh_child]);
 }
 
