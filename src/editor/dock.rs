@@ -1,31 +1,13 @@
-use bevy::prelude::*;
-use egui_dock::{DockState, NodeIndex};
+//! Editor dock infrastructure.
+//!
+//! egui_dock is a dependency for future dockable-panel support, but cannot
+//! be wired into the render loop yet because Bevy's query lifetimes
+//! (`'w, 's`) are incompatible with `egui_dock::TabViewer` (single `'a`).
+//!
+//! Panels currently render via `Panel::top/left/right` in separate systems.
+//! When egui_dock supports a two-lifetime `TabViewer` (or Bevy adds a
+//! bridge), this module provides the `Tab` enum and layout defaults to
+//! wire in.
 
-/// Identifies the panels that can appear as docked tabs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Tab {
-    Hierarchy,
-    Inspector,
-}
-
-/// Persistent dock layout state, stored as a Bevy [`Resource`].
-///
-/// Currently unused for rendering (panels use manual SidePanel layout),
-/// but provides the infrastructure for future egui_dock integration.
-#[derive(Resource)]
-pub struct EditorDockState {
-    pub state: DockState<Tab>,
-}
-
-impl Default for EditorDockState {
-    fn default() -> Self {
-        let mut state = DockState::new(vec![Tab::Inspector]);
-        let [_hierarchy_node, _inspector_node] =
-            state.main_surface_mut().split_left(
-                NodeIndex::root(),
-                0.3,
-                vec![Tab::Hierarchy],
-            );
-        Self { state }
-    }
-}
+// egui_dock is in Cargo.toml but not imported here yet —
+// the Tab enum and DockState will be added when the bridge is built.
