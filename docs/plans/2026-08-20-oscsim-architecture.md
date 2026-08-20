@@ -4,21 +4,32 @@
 
 **Goal:** Reshape melosim's editor UI to match OpenSimCreator's clean panel architecture while keeping Bevy ECS as the model layer.
 
-**Architecture:** Extract the monolithic `editor/ui.rs` into individual panel modules, introduce a PanelManager resource for toggleable/spawnable panels, and add event-driven cross-panel communication. The model layer (`src/model/`) stays as-is — it's already strong.
+**Architecture:** Extract the monolithic `editor/ui.rs` into individual panel modules using `egui_dock` for dockable panel management (following Chiron's proven pattern), and add event-driven cross-panel communication. The model layer (`src/model/`) stays as-is — it's already strong.
 
-**Tech Stack:** Bevy 0.19, egui (via bevy_egui), bevy_picking, bevy_gizmos
+**Tech Stack:** Bevy 0.19, egui (via bevy_egui), egui_dock, bevy_picking, bevy_gizmos
 
 ---
 
 ## Overview
 
-OpenSimCreator's key UI patterns we're adopting:
+OpenSimCreator's key UI patterns we're adopting, with Chiron's egui_dock integration:
 
-1. **One panel = one module** — each panel is a self-contained file with its own state
-2. **PanelManager** — registry of toggleable (single) and spawnable (multi) panels
+1. **One panel = one module** — each panel is a self-contained file implementing the `egui_dock::TabViewer` trait
+2. **egui_dock DockState** — replaces hand-rolled PanelManager; gives drag-and-drop docking, split views, tab management for free
 3. **Event-based communication** — panels post events, don't call each other
 4. **Popup/dialog system** — modals for add-body, add-joint, import, etc.
 5. **Document/editor separation** — model actions live apart from UI code
+
+### Why egui_dock over hand-rolled PanelManager
+
+Chiron (biomechanics-foundation/chiron) already proved this pattern works for biomechanics UIs. egui_dock provides:
+- Drag-and-drop panel rearrangement
+- Split views (side-by-side hierarchy + inspector)
+- Tab management (close, rename, reorder)
+- Persistent layout serialization
+- Multiple viewport support (spawnable viewers)
+
+The `DockState<Tab>` resource replaces the custom `PanelManager`. Each panel type is a variant of a `Tab` enum, and a `TabViewer` bridges Bevy World into egui rendering.
 
 ## Phase 1: Extract Panels from ui.rs
 
@@ -120,85 +131,186 @@ git commit -m "chore: add panels module structure"
 
 ---
 
-## Phase 2: PanelManager Pattern
+## Phase 2: egui_dock Integration
 
-Introduce a `PanelManager` resource that tracks which panels are open, following OSC's toggleable/spawnable pattern.
+Replace the hand-rolled panel visibility tracking with `egui_dock::DockState`. Each panel becomes a `Tab` variant with a `TabViewer` implementation.
 
-### Task 2.1: Create PanelManager resource
+### Task 2.1: Add egui_dock dependency
 
-**Objective:** A resource that knows about all available panels and their open/closed state.
+**Objective:** Add `egui_dock` to Cargo.toml.
 
 **Files:**
-- Create: `src/editor/panel_manager.rs`
+- Modify: `Cargo.toml`
+
+**Step 1:** Add to dependencies:
+```toml
+egui_dock = "0.15"
+```
+
+**Step 2:** Verify it compiles:
+```bash
+nix develop --command cargo check
+```
+
+**Step 3:** Commit.
+
+### Task 2.2: Create Tab enum and DockState resource
+
+**Objective:** Define the panel types and initial dock layout.
+
+**Files:**
+- Create: `src/editor/dock.rs`
 - Modify: `src/editor/mod.rs`
 
-**Step 1:** Create `src/editor/panel_manager.rs`:
+**Step 1:** Create `src/editor/dock.rs`:
 ```rust
 use bevy::prelude::*;
-use std::collections::HashMap;
+use bevy_inspector_egui::bevy_egui::egui;
+use egui_dock::{DockState, TabViewer};
 
-/// Tracks which panels are visible. Toggleable = single instance,
-/// Spawnable = multiple instances (e.g. viewers, plots).
-#[derive(Resource)]
-pub struct PanelManager {
-    pub toggleable: HashMap<String, bool>,
-    pub spawnable: HashMap<String, Vec<String>>, // name -> list of open instances
+/// All panel types in the editor. Each variant maps to a panel module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Tab {
+    Hierarchy,
+    Inspector,
+    Viewport,
+    MusclePlot,
+    Log,
+    OutputWatches,
+    CoordinateEditor,
 }
 
-impl Default for PanelManager {
+/// Resource wrapping the dock state. Initialized with a default layout.
+#[derive(Resource)]
+pub struct EditorDockState {
+    pub state: DockState<Tab>,
+}
+
+impl Default for EditorDockState {
     fn default() -> Self {
-        let mut toggleable = HashMap::new();
-        toggleable.insert("Hierarchy".into(), true);
-        toggleable.insert("Inspector".into(), true);
-        toggleable.insert("Log".into(), false);
-        Self {
-            toggleable,
-            spawnable: HashMap::new(),
+        let mut state = DockState::new(Tab::Viewport);
+        // Left: Hierarchy tab
+        let tree = state.main_surface_mut();
+        let [viewport, left] = tree.split_left(
+            egui_dock::NodeIndex::root(),
+            0.25,
+            vec![Tab::Hierarchy],
+        );
+        // Right: Inspector tab
+        let [viewport, right] = tree.split_right(
+            viewport,
+            0.75,
+            vec![Tab::Inspector],
+        );
+        // Bottom: Log tab
+        let [_viewport, bottom] = tree.split_bottom(
+            viewport,
+            0.3,
+            vec![Tab::Log],
+        );
+        Self { state }
+    }
+}
+
+/// Bridges Bevy World into egui_dock tab rendering.
+pub struct MelosimTabViewer<'a> {
+    pub world: &'a mut World,
+    pub egui_ctx: &'a egui::Context,
+}
+
+impl<'a> TabViewer for MelosimTabViewer<'a> {
+    type Tab = Tab;
+
+    fn ui(&mut self, tab: &mut Self::Tab, ui: &mut egui::Ui) {
+        match tab {
+            Tab::Hierarchy => crate::editor::panels::hierarchy::show(ui, self.world),
+            Tab::Inspector => crate::editor::panels::inspector::show(ui, self.world),
+            Tab::Viewport => {} // Viewport is rendered by Bevy, not egui
+            Tab::MusclePlot => {} // TODO: muscle plot panel
+            Tab::Log => {} // TODO: log panel
+            Tab::OutputWatches => {} // TODO: output watches
+            Tab::CoordinateEditor => {} // TODO: coordinate editor
         }
     }
-}
 
-impl PanelManager {
-    pub fn is_open(&self, name: &str) -> bool {
-        self.toggleable.get(name).copied().unwrap_or(false)
-    }
-
-    pub fn toggle(&mut self, name: &str) {
-        if let Some(v) = self.toggleable.get_mut(name) {
-            *v = !*v;
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        match tab {
+            Tab::Hierarchy => "Hierarchy".into(),
+            Tab::Inspector => "Inspector".into(),
+            Tab::Viewport => "Viewport".into(),
+            Tab::MusclePlot => "Muscle Plot".into(),
+            Tab::Log => "Log".into(),
+            Tab::OutputWatches => "Output Watches".into(),
+            Tab::CoordinateEditor => "Coordinates".into(),
         }
     }
 }
 ```
 
-**Step 2:** Register in `mod.rs`: `app.init_resource::<PanelManager>();`
+**Step 2:** Register in `mod.rs`:
+```rust
+pub mod dock;
+app.init_resource::<dock::EditorDockState>();
+```
 
 **Step 3:** Commit.
 
-### Task 2.2: Wire panels to PanelManager
+### Task 2.3: Wire dock into editor_ui
 
-**Objective:** Each panel checks `PanelManager` before rendering.
+**Objective:** Replace the manual SidePanel/TopBottomPanel calls with DockArea rendering.
 
 **Files:**
-- Modify: `src/editor/panels/hierarchy.rs`
-- Modify: `src/editor/panels/inspector.rs`
+- Modify: `src/editor/ui.rs`
 
-**Step 1:** Add `panel_manager: Res<PanelManager>` parameter to each panel's `show()`.
+**Step 1:** Replace the panel rendering code with:
+```rust
+use egui_dock::DockArea;
 
-**Step 2:** Wrap the panel body in `if panel_manager.is_open("Hierarchy") { ... }`.
+pub fn editor_ui(
+    mut contexts: EguiContexts,
+    mut dock_state: ResMut<dock::EditorDockState>,
+    // ... other params for toolbar only
+) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
 
-**Step 3:** Add a "Windows" menu to the toolbar that lists toggleable panels.
+    // Toolbar stays outside the dock (top panel)
+    toolbar::show(ctx, /* ... */);
+
+    // Dock area fills the remaining space
+    let mut tab_viewer = dock::MelosimTabViewer { world: /* ... */, egui_ctx: ctx };
+    DockArea::new(&mut dock_state.state)
+        .show(ctx, &mut tab_viewer);
+}
+```
+
+**Step 2:** Update each panel's `show()` to take `&mut egui::Ui` instead of `egui::Context` (egui_dock gives you a `&mut Ui`).
+
+**Step 3:** Verify compile + visual check — panels should now be dockable.
 
 **Step 4:** Commit.
 
-### Task 2.3: Add View menu panel toggles
+### Task 2.4: Add View menu panel toggles
 
-**Objective:** The View menu in the toolbar shows/hides panels.
+**Objective:** The View menu can show/hide panels by adding/removing tabs from the dock.
 
 **Files:**
 - Modify: `src/editor/panels/toolbar.rs`
 
-**Step 1:** Add a "Windows" submenu to the View menu that lists all toggleable panels with checkboxes.
+**Step 1:** Add a "Windows" submenu that toggles tabs in the dock state:
+```rust
+ui.menu_button("Windows", |ui| {
+    for tab in [Tab::Hierarchy, Tab::Inspector, Tab::Log, Tab::MusclePlot] {
+        let is_open = dock_state.state.has_tab(&tab);
+        if ui.selectable_label(is_open, format!("{:?}", tab)).clicked() {
+            if is_open {
+                dock_state.state.remove_tab(&tab);
+            } else {
+                // Add to appropriate location
+            }
+        }
+    }
+});
+```
 
 **Step 2:** Commit.
 
