@@ -106,6 +106,26 @@ Model components (all `crate::model`, hand-authored BSN + editor): `Body`,
 3. Manual: open the exported `.xml` in MuJoCo / `simulate` and confirm it
    articulates like the editor.
 
+### Round-trip with a real MuJoCo model (import → export → compare)
+
+**Fixture:** the MyoArm 26-dof model from [`MyoHub/myo_sim`]
+(https://github.com/MyoHub/myo_sim), `myo_sim/models/arm/…` — the same source
+the editor's demo bone meshes come from. Add its `.xml` as a tracked test
+fixture (reference the repo's STL meshes rather than vendoring them).
+
+**Flow:**
+1. **Import** the MJCF into the melosim `World` — rebuild the importer on the
+   *current* model using `mujoco-rs` MjSpec parse (the old importer is stale;
+   only its MJCF-parsing approach is reused).
+2. **Export** the `World` back via `to_mjcf`.
+3. Load the exported MJCF in MuJoCo and assert structural fidelity against the
+   source: body names/count, joint DOFs + attributes (ranges, damping,
+   stiffness), sites, and tendon/muscle paths.
+
+**Lands when:** exporter P1–P4 are in (bodies, joints, tendons, actuators) *and*
+the importer (MjSpec → current model) is rebuilt — without both, the round-trip
+can't close.
+
 ## Phases
 
 - **P0:** add `mujoco_rs` dep + `mujoco` feature; scaffold `src/exporter/`; flake
