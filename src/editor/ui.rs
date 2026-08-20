@@ -15,6 +15,7 @@ use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::models::{ModelRegistry, SelectedModel};
 use super::selection::Selection;
+use super::PendingMujocoExport;
 use crate::model::{
     Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
     InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
@@ -87,6 +88,8 @@ pub fn editor_ui(
                 ui.checkbox(&mut settings.muscles, "Muscles");
                 ui.checkbox(&mut settings.joint_axes, "Joint Axes");
             });
+            ui.separator();
+
         });
     });
 
@@ -397,11 +400,13 @@ fn hierarchy_node(
     }
 }
 
-/// Tiny top-left control for showing/hiding the tool windows. Separate system
-/// so it doesn't need extra params on `editor_ui` (which is at Bevy's 16 cap).
+/// Tiny top-left control for showing/hiding the tool windows and the export
+/// button. Separate system so it doesn't need extra params on `editor_ui`
+/// (which is at Bevy's 16-param system cap).
 pub fn tool_windows_toggle(
     mut contexts: EguiContexts,
     mut panels: ResMut<super::ToolPanels>,
+    mut pending_export: ResMut<PendingMujocoExport>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Tools")
@@ -411,5 +416,15 @@ pub fn tool_windows_toggle(
         .show(ctx, |ui| {
             ui.checkbox(&mut panels.import_mesh, "Import Mesh tool");
             ui.checkbox(&mut panels.path_editor, "Path Editor tool");
+            ui.separator();
+            if ui.button("Export → MuJoCo (.xml)").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("MuJoCo model", &["xml"])
+                    .set_file_name("export.xml")
+                    .save_file()
+                {
+                    pending_export.0 = Some(path);
+                }
+            }
         });
 }

@@ -30,14 +30,8 @@ fn roundtrip_myo_sim() {
     app.add_plugins(bevy::MinimalPlugins);
     app.add_plugins(bevy::transform::TransformPlugin::default());
 
-    // ── 1. Import ──
-    let root = {
-        let mut world = app.world_mut();
-        let xml_path = std::path::PathBuf::from(&path);
-        let parent = xml_path.parent().unwrap_or(std::path::Path::new("."));
-        std::env::set_current_dir(parent).expect("set_current_dir");
-        import_mjcf(world, &xml_path).expect("import failed")
-    };
+    // ── 1. Import ── (import_mjcf handles CWD switching internally)
+    let root = import_mjcf(app.world_mut(), std::path::Path::new(&path)).expect("import failed");
     app.update();
 
     // Count entities.
@@ -54,10 +48,7 @@ fn roundtrip_myo_sim() {
     eprintln!("import: bodies={bodies_i} joints={joints_i} sites={sites_i} muscles={muscles_i} coords={coords_i}");
 
     // ── 2. Export to MjSpec ──
-    let mut spec = {
-        let mut world = app.world_mut();
-        to_mjcf(world, root).expect("export failed")
-    };
+    let mut spec = to_mjcf(app.world_mut(), root).expect("export failed");
 
     // ── 3. Compile + save ──
     spec.compile().expect("MjSpec compile failed");

@@ -16,6 +16,17 @@ pub struct Frame;
 #[require(Transform, Visibility)]
 pub struct Site;
 
+/// Records the original MJCF mesh asset path and name for mesh geoms imported
+/// from MuJoCo. Used by the exporter to reconstruct `<geom type="mesh">`
+/// elements and copy the STL files to the export directory.
+#[derive(Component, Clone, Debug, Reflect)]
+pub struct MeshSource {
+    /// Resolved filesystem path to the STL file (for copying at export).
+    pub stl_path: std::path::PathBuf,
+    /// Mesh name from the MJCF `<mesh name="..."/>` asset declaration.
+    pub mesh_name: String,
+}
+
 /// Upper-triangle inertia tensor: (Ixx, Iyy, Izz, Ixy, Ixz, Iyz).
 #[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct Inertia(pub [f64; 6]);

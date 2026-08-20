@@ -32,10 +32,29 @@ pub enum ImportError {
 }
 
 /// Parse the MJCF at `path` and spawn the model into `world`.
+///
+/// `MjSpec::from_xml` resolves `<include>` and `meshdir` paths relative to
+/// the **current working directory**, not the model file's directory. This
+/// function temporarily switches CWD to the model's parent so that includes
+/// resolve correctly regardless of where the process was started.
+///
 /// Returns the top-level container entity.
 pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError> {
-    let mut spec = MjSpec::from_xml(path).map_err(|e| ImportError::Load(format!("{e}")))?;
-    let model_name = path
+    // Canonicalize to an absolute path so CWD changes don't break it.
+    let abs_path = path
+        .canonicalize()
+        .map_err(|e| ImportError::Load(format!("cannot resolve path '{}': {e}", path.display())))?;
+    let model_dir = abs_path.parent().unwrap_or(Path::new("")).to_path_buf();
+
+    // MjSpec::from_xml resolves `<include>` and `meshdir` relative to CWD,
+    // not the XML file's directory. Temporarily switch CWD.
+    let saved_cwd = std::env::current_dir().ok();
+    std::env::set_current_dir(&model_dir)
+        .map_err(|e| ImportError::Load(format!("cannot cd to model dir '{}': {e}", model_dir.display())))?;
+
+    let mut spec = MjSpec::from_xml(&abs_path).map_err(|e| ImportError::Load(format!("{e}")))?;
+
+    let model_name = abs_path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "model".into());
@@ -43,7 +62,6 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
     // Mesh geometry sources: name → file string from the spec. MuJoCo resolves
     // `file` relative to `model_dir + meshdir` (or absolute); we replicate that
     // per geom and copy the resolved file into assets/ (see `spawn_geom`).
-    let model_dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
     let meshdir = spec.compiler().meshdir().to_string();
     let mesh_src: HashMap<String, String> = spec
         .mesh_iter()
@@ -82,29 +100,53 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         )?;
     }
 
-    // Muscles: try compile first (fast, complete). If it fails, try to
-    // serialise the spec to XML (resolves includes) and parse tendons from that.
-    // Also update body inertial properties from the compiled model (the spec
-    // has raw XML values; MuJoCo computes mass/inertia during compilation).
+    // Muscles: try compile first for fast array access. If compile does not
+    // succeed, read the raw XML file directly (includes are inlined as text
+    // so we can parse tendon paths from the on-disk file).
     match spec.compile() {
         Ok(compiled) => {
             update_body_inertias_from_compiled(world, &compiled);
+            update_body_rotations_from_compiled(world, &compiled);
             import_muscles_compiled(world, &compiled, &site_map);
         }
-        Err(e) => {
-            // save_xml_string produces the full resolved XML including inlined
-            // <include> blocks, which is what we need for tendon parsing.
-            match spec.save_xml_string(4 << 20) {
-                Ok(xml) => {
-                    import_muscles_from_xml(world, &xml, &site_map);
-                }
-                Err(e2) => {
-                    eprintln!("save_xml_string failed: {e2}");
-                }
-            }
+        Err(_e) => {
+            // Resolve includes inline and parse tendons from the full XML.
+            let resolved = resolve_mjcf_includes(&abs_path);
+            import_muscles_from_xml(world, &resolved, &site_map);
         }
     }
+
+    // Restore original CWD.
+    if let Some(cwd) = saved_cwd {
+        let _ = std::env::set_current_dir(&cwd);
+    }
+
     Ok(anchor)
+}
+
+/// Update body entities' quaternions from the compiled MuJoCo model.
+/// When MJCF uses `euler`/`axisangle`/`zaxis`, the spec's `quat()` returns
+/// identity — the orientation is only resolved to a quaternion during
+/// compilation. This reads the compiled body quaternions and updates the
+/// Transform rotations so the hierarchy (including euler-rotated bodies
+/// like the legacy elbow model) positions children correctly.
+fn update_body_rotations_from_compiled(world: &mut World, compiled: &MjModel) {
+    use mujoco_rs::wrappers::mj_model::MjtObj;
+    let name_to_entity: HashMap<String, Entity> = world
+        .query::<(Entity, &Name)>().iter(world)
+        .map(|(e, n)| (n.as_str().to_owned(), e))
+        .collect();
+    for i in 0..compiled.nbody() as usize {
+        let Some(name) = compiled.id_to_name(MjtObj::mjOBJ_BODY, i) else { continue };
+        let Some(&ent) = name_to_entity.get(name) else { continue };
+        let q = compiled.body_quat()[i]; // [f64; 4] wxyz in MJCF Z-up
+        // Convert MJCF quat (wxyz) → Bevy quat (xyzw). No frame change needed
+        // because the anchor handles Z-up→Y-up globally.
+        let bevy_rot = Quat::from_xyzw(q[1] as f32, q[2] as f32, q[3] as f32, q[0] as f32);
+        if let Some(mut t) = world.get_mut::<Transform>(ent) {
+            t.rotation = bevy_rot;
+        }
+    }
 }
 
 /// Update body entities' inertial properties from the compiled MuJoCo model.
@@ -136,11 +178,7 @@ fn import_muscles_compiled(
 ) {
     use mujoco_rs::wrappers::mj_model::{MjtObj, MjtWrap};
     let ntendon = compiled.ntendon();
-    let nwrap = compiled.nwrap();
-    if site_map.len() < 5 {
-        for name in site_map.keys().take(10) {
-        }
-    }
+    let _nwrap = compiled.nwrap();
     for t in 0..ntendon as usize {
         let adr = compiled.tendon_adr()[t].max(0) as usize;
         let num = compiled.tendon_num()[t].max(0) as usize;
@@ -199,6 +237,55 @@ fn import_muscles_from_xml(
     }
 }
 
+/// Recursively resolve `<include file="..."/>` references in an MJCF file,
+/// merging all content into a single XML string so that text-based parsers
+/// (like tendon extraction) can see the full model definition.
+fn resolve_mjcf_includes(main_path: &Path) -> String {
+    let dir = main_path.parent().unwrap_or(Path::new("."));
+    let mut visited = std::collections::HashSet::new();
+    resolve_includes_recursive(main_path, dir, &mut visited)
+}
+
+fn resolve_includes_recursive(
+    path: &Path,
+    base_dir: &Path,
+    visited: &mut std::collections::HashSet<PathBuf>,
+) -> String {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if !visited.insert(canonical.clone()) {
+        return String::new(); // already included, avoid cycles
+    }
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        eprintln!("importer: could not read include '{}'", path.display());
+        return String::new();
+    };
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw.as_str();
+    while let Some(pos) = rest.find("<include") {
+        // Emit everything before this <include>
+        out.push_str(&rest[..pos]);
+        let tag_start = &rest[pos..];
+        // Find the end of this self-closing or inline tag
+        let tag_end = tag_start.find('>').map(|i| i + 1).unwrap_or(tag_start.len());
+        let tag = &tag_start[..tag_end];
+        // Extract file attribute
+        if let Some(file_path) = tag
+            .split("file=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+        {
+            let include_path = base_dir.join(file_path);
+            let resolved = resolve_includes_recursive(&include_path, base_dir, visited);
+            out.push_str(&resolved);
+        }
+        // Advance past this tag
+        rest = &tag_start[tag_end..];
+    }
+    // Emit remaining content after the last <include>
+    out.push_str(rest);
+    out
+}
+
 /// Extract spatial tendon → ordered site names from MJCF XML text.
 fn parse_spatial_tendon_sites(xml: &str) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
@@ -232,14 +319,11 @@ fn parse_spatial_tendon_sites(xml: &str) -> Vec<(String, Vec<String>)> {
     out
 }
 
-/// MJCF (Z-up) → melosim (Y-up): invert the exporter's `zup`.
-fn zup_to_yup(v: Vec3) -> Vec3 {
-    Vec3::new(v.x, v.z, -v.y)
-}
-
-fn zup_quat_to_yup(q: [f64; 4]) -> Quat {
-    // MuJoCo quat is (w,x,y,z); Bevy is xyzw. Z-up→Y-up = -90° about X on the left.
-    Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2) * to_quat_mjcf(q)
+/// MJCF quaternion → Bevy quaternion.
+/// The anchor handles the Z-up→Y-up frame conversion; body rotations are
+/// just format-converted (MuJoCo wxyz → Bevy xyzw) without frame change.
+fn mjcf_quat_to_bevy(q: [f64; 4]) -> Quat {
+    to_quat_mjcf(q)
 }
 
 fn to_quat_mjcf(q: [f64; 4]) -> Quat {
@@ -290,18 +374,41 @@ fn spawn_body(
         mj.name().to_string()
     };
 
+    let mass = mj.mass();
+    let ipos_raw = *mj.ipos();
+    let fi_raw = *mj.fullinertia();
+    // When the spec only has diaginertia (not fullinertia), fullinertia()
+    // may contain NaN in the first diagonal element. Replace NaN with computed
+    // diagonal inertia proportional to mass (treat body as a small sphere).
+    let inertia = if fi_raw.iter().any(|x| !x.is_finite()) {
+        let diag = if mass > 0.0 { mass.powf(2.0 / 3.0) * 0.001 } else { 0.0001 };
+        Inertia::new(diag, diag, diag, 0.0, 0.0, 0.0)
+    } else {
+        Inertia(fi_raw)
+    };
+    let mass_center = if ipos_raw.iter().any(|x| !x.is_finite()) {
+        Vector3::zeros()
+    } else {
+        Vector3::from(ipos_raw)
+    };
+
     let mut body = world.spawn((
         Name::new(name.clone()),
         Body,
         InertialProperties {
-            mass: mj.mass(),
-            mass_center: Vector3::from(*mj.ipos()),
-            inertia: Inertia(*mj.fullinertia()),
+            mass,
+            mass_center,
+            inertia,
         },
-        // Body transform = translation only (MJCF Z-up positions, raw).
-        // The root's rotation converts the entire model from Z-up to Y-up;
-        // body local positions should NOT be pre-rotated.
-        Transform::from_translation(to_vec3(*mj.pos())),
+        // Body transform: translation + rotation (MJCF Z-up → Bevy Y-up).
+        // The root anchor applies the overall Z-up→Y-up conversion; body-local
+        // rotations are converted independently so GlobalTransform accumulation
+        // works correctly through the hierarchy.
+        Transform {
+            translation: to_vec3(*mj.pos()),
+            rotation: mjcf_quat_to_bevy(*mj.quat()),
+            ..default()
+        },
     ));
     body.insert(ChildOf(parent));
     let body_ent = body.id();
@@ -332,12 +439,9 @@ fn spawn_body(
         }
     }
 
-    // Mesh geoms → Mesh3d children (visualization). Skipped when the app has
-    // no `Assets<Mesh>` (e.g. bare-World unit tests).
-    if world.get_resource::<Assets<Mesh>>().is_some() {
-        for g in mj.geom_iter(false) {
-            spawn_geom(world, &g, body_ent, model_dir, meshdir, mesh_src, mesh_ref, counter);
-        }
+    // Mesh geoms → Mesh3d children (visualization).
+    for g in mj.geom_iter(false) {
+        spawn_geom(world, &g, body_ent, model_dir, meshdir, mesh_src, mesh_ref, counter);
     }
 
     // Children bodies.
@@ -389,31 +493,13 @@ fn spawn_geom(
         return;
     };
 
-    // Load the mesh file DIRECTLY into `Assets<Mesh>` (in-memory), reading the
-    // resolved filesystem path synchronously — no copying into assets/, no
-    // AssetServer/file-watcher (which fails for files added at runtime).
-    // Only STL is supported by a direct parser for now.
-    if src.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() != Some("stl") {
-        warn!("model import: geom '{mesh_name}' is not STL (primitives/other formats deferred); skipping");
-        return;
-    }
-    let mesh = match crate::render::mesh_loaders::mesh_from_stl_file(&src) {
-        Ok(m) => m,
-        Err(e) => {
-            error!("model import: failed to load mesh '{mesh_name}' from {}: {e}", src.display());
-            return;
-        }
-    };
-    let handle: Handle<Mesh> = world.resource_mut::<Assets<Mesh>>().add(mesh);
-    let material: Handle<StandardMaterial> =
-        world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial::default());
-
     let gname = if g.name().is_empty() {
         *counter += 1;
         format!("geom_{}", *counter)
     } else {
         g.name().to_string()
     };
+
     // Compose the geom pose with the mesh's reference frame (refquat orients
     // parallel bones like ulna/radius), then map Z-up -> Y-up.
     let (rp, rq, sc) = mesh_ref
@@ -422,9 +508,40 @@ fn spawn_geom(
         .unwrap_or(([0.0; 3], [1.0, 0.0, 0.0, 0.0], [1.0; 3]));
     let t = mesh_instance_transform(*g.pos(), *g.quat(), rp, rq, sc);
 
-    world
-        .spawn((Name::new(gname), Mesh3d(handle), MeshMaterial3d(material), t))
-        .insert(ChildOf(body_ent));
+    let mesh_source = crate::model::MeshSource {
+        stl_path: src.clone(),
+        mesh_name: mesh_name.to_string(),
+    };
+
+    // Spawn with visual mesh if Assets<Mesh> is available; always store
+    // MeshSource so the exporter can reconstruct the MJCF geom.
+    let has_assets = world.get_resource::<Assets<Mesh>>().is_some();
+    if has_assets && src.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() == Some("stl") {
+        let mesh = match crate::render::mesh_loaders::mesh_from_stl_file(&src) {
+            Ok(m) => m,
+            Err(_e) => {
+                error!("model import: failed to load mesh '{mesh_name}' from {}: {_e}", src.display());
+                return;
+            }
+        };
+        let handle: Handle<Mesh> = world.resource_mut::<Assets<Mesh>>().add(mesh);
+        let material: Handle<StandardMaterial> =
+            world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial::default());
+        world
+            .spawn((
+                Name::new(gname),
+                Mesh3d(handle),
+                MeshMaterial3d(material),
+                t,
+                mesh_source,
+            ))
+            .insert(ChildOf(body_ent));
+    } else {
+        // No assets available — spawn with just MeshSource for roundtrip.
+        world
+            .spawn((Name::new(gname), t, mesh_source))
+            .insert(ChildOf(body_ent));
+    }
 }
 
 fn spawn_joint(

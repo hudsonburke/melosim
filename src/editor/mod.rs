@@ -6,13 +6,17 @@ pub mod selection;
 pub mod ui;
 pub mod viewport;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A `.xml` model the user chose to import; processed by `process_model_imports`.
 /// (Resource, not a `World`-param button system, so the egui pass tuple stays
 /// chainable.)
 #[derive(Default, Resource)]
 pub struct PendingModelImport(pub Option<PathBuf>);
+
+/// A save path the user chose for MuJoCo export; processed by `process_mujoco_export`.
+#[derive(Default, Resource)]
+pub struct PendingMujocoExport(pub Option<PathBuf>);
 
 /// Toggleble helper windows. Both are hidden by default so they don't sit in
 /// the middle of the viewport unless the user opens them from the View menu.
@@ -35,6 +39,55 @@ fn process_model_imports(world: &mut World) {
     {
         let _ = (&path, world);
         warn!("MuJoCo model import requires the `mujoco` feature");
+    }
+}
+
+/// When `PendingMujocoExport` has a path, export the current model to MJCF
+/// and write it to that file.
+fn process_mujoco_export(world: &mut World) {
+    let Some(path) = world.resource_mut::<PendingMujocoExport>().0.take() else {
+        return;
+    };
+    #[cfg(feature = "mujoco")]
+    {
+        // Canonicalize the output path so CWD changes don't break it.
+        let abs_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let parent = abs_path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        let mesh_dir = parent.join("assets");
+        let _ = std::fs::create_dir_all(&mesh_dir);
+
+        // MuJoCo resolves `meshdir` relative to CWD, not the XML's directory.
+        // Temporarily switch CWD so compile() and save_xml() find the assets/.
+        let saved_cwd = std::env::current_dir().ok();
+        let _ = std::env::set_current_dir(&parent);
+
+        let _dummy_root = Entity::PLACEHOLDER;
+        match crate::exporter::to_mjcf_with_meshes(world, Some(&mesh_dir)) {
+            Ok(mut spec) => {
+                let compiled = match spec.compile() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("MuJoCo compile failed: {e}");
+                        if let Some(cwd) = saved_cwd { let _ = std::env::set_current_dir(&cwd); }
+                        return;
+                    }
+                };
+                match spec.save_xml(&abs_path) {
+                    Ok(()) => info!("exported MuJoCo model to {} (meshes in {})", abs_path.display(), mesh_dir.display()),
+                    Err(e) => error!("failed to write MuJoCo XML: {e}"),
+                }
+                std::mem::drop(compiled);
+            }
+            Err(e) => error!("MuJoCo export failed: {e:?}"),
+        }
+
+        // Restore original CWD.
+        if let Some(cwd) = saved_cwd { let _ = std::env::set_current_dir(&cwd); }
+    }
+    #[cfg(not(feature = "mujoco"))]
+    {
+        let _ = &path;
+        warn!("MuJoCo export requires the `mujoco` feature");
     }
 }
 
@@ -73,6 +126,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<models::ModelRegistry>();
         app.init_resource::<path_editor::PathEditor>();
         app.init_resource::<PendingModelImport>();
+        app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
@@ -118,9 +172,10 @@ impl Plugin for MelosimEditorPlugin {
             ),
         );
 
-        // Load a model chosen via the Import panel (needs exclusive `World`
-        // access, so it's a standalone system, not part of the Update tuple).
+        // Systems that need exclusive `World` access run standalone
+        // (not in the Update tuple, which has a 16-param cap).
         app.add_systems(Update, process_model_imports);
+        app.add_systems(Update, process_mujoco_export);
 
         // egui UI runs inside the egui primary context pass (after egui begins
         // the frame) — running it in `Update` panics because egui's fonts /

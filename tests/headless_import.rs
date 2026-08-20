@@ -25,13 +25,7 @@ use melosim::model::Body;
 fn headless_import() {
     let xml_path = if let Ok(path) = std::env::var("TEST_MJCF") {
         eprintln!("headless import: using {path}");
-        let abs = std::path::PathBuf::from(&path)
-            .canonicalize()
-            .expect("canonicalize");
-        // MjSpec resolves `<include>` relative to the CWD.
-        let parent = abs.parent().unwrap_or(std::path::Path::new("."));
-        std::env::set_current_dir(parent).expect("set_current_dir");
-        abs
+        std::path::PathBuf::from(&path)
     } else {
         let dir = std::env::temp_dir().join("melosim_headless");
         std::fs::create_dir_all(&dir).ok();
@@ -74,7 +68,7 @@ fn headless_import() {
     }
 
     // ── Dump every Muscle entity and its PathEntities ──
-    use melosim::model::{Muscle, PathEntities};
+    use melosim::model::PathEntities;
     let muscle_data: Vec<(String, Vec<Entity>)> = {
         let mut mq = world.query::<(&Name, &PathEntities)>();
         mq.iter(world)

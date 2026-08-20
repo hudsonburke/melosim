@@ -1,6 +1,6 @@
-/tests/
-*.osim
 /target/
 /.mujoco/
 *.log
 .x86-pip-ready
+.venv*/
+assets/*
