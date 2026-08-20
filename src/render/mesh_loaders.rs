@@ -34,6 +34,13 @@ impl std::fmt::Display for MeshLoadError {
 }
 impl std::error::Error for MeshLoadError {}
 
+/// Parse an STL file directly into a `Mesh` (synchronous, in-memory — no
+/// `AssetServer` / filesystem watcher involved). Handles binary + ASCII.
+pub fn mesh_from_stl_file(path: &std::path::Path) -> Result<Mesh, MeshLoadError> {
+    let bytes = std::fs::read(path).map_err(MeshLoadError::Io)?;
+    parse_stl(&bytes)
+}
+
 impl AssetLoader for StlLoader {
     type Asset = Mesh;
     type Settings = ();

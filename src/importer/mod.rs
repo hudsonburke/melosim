@@ -14,7 +14,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use bevy::asset::AssetPath;
 use bevy::ecs::world::World;
 use bevy::prelude::*;
 use mujoco_rs::wrappers::mj_editing::*;
@@ -190,8 +189,8 @@ fn spawn_body(
     }
 
     // Mesh geoms → Mesh3d children (visualization). Skipped when the app has
-    // no `AssetServer` (e.g. bare-World unit tests).
-    if world.get_resource::<AssetServer>().is_some() {
+    // no `Assets<Mesh>` (e.g. bare-World unit tests).
+    if world.get_resource::<Assets<Mesh>>().is_some() {
         for g in mj.geom_iter(false) {
             spawn_geom(world, &g, body_ent, model_dir, meshdir, mesh_src, counter);
         }
@@ -244,36 +243,25 @@ fn spawn_geom(
         );
         return;
     };
-    let Some(fn_name) = src.file_name().map(|f| f.to_string_lossy().into_owned()) else {
-        return;
-    };
 
-    // Copy flat into `assets/imported/` (NOT a per-model subdir — Bevy's file
-    // reader doesn't pick up subdirectories created at runtime), then load.
-    let dest_rel = format!("imported/{fn_name}");
-    let dest_abs = Path::new("assets").join(&dest_rel);
-    let _ = std::fs::create_dir_all(dest_abs.parent().unwrap_or(Path::new(".")));
-    if !dest_abs.exists() {
-        if let Err(e) = std::fs::copy(&src, &dest_abs) {
-            error!(
-                "model import: cannot copy mesh {} → {}: {e}",
-                src.display(),
-                dest_abs.display()
-            );
+    // Load the mesh file DIRECTLY into `Assets<Mesh>` (in-memory), reading the
+    // resolved filesystem path synchronously — no copying into assets/, no
+    // AssetServer/file-watcher (which fails for files added at runtime).
+    // Only STL is supported by a direct parser for now.
+    if src.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() != Some("stl") {
+        warn!("model import: geom '{mesh_name}' is not STL (primitives/other formats deferred); skipping");
+        return;
+    }
+    let mesh = match crate::render::mesh_loaders::mesh_from_stl_file(&src) {
+        Ok(m) => m,
+        Err(e) => {
+            error!("model import: failed to load mesh '{mesh_name}' from {}: {e}", src.display());
+            return;
         }
-    }
-    if !dest_abs.exists() {
-        return;
-    }
-
-    let handle: Handle<Mesh> = {
-        let assets = world.resource::<AssetServer>();
-        assets.load(AssetPath::from(PathBuf::from(&dest_rel)))
     };
-    let material: Handle<StandardMaterial> = {
-        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
-        materials.add(StandardMaterial::default())
-    };
+    let handle: Handle<Mesh> = world.resource_mut::<Assets<Mesh>>().add(mesh);
+    let material: Handle<StandardMaterial> =
+        world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial::default());
 
     let gname = if g.name().is_empty() {
         *counter += 1;
