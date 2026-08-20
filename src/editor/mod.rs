@@ -131,7 +131,9 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<PendingModelImport>();
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
-        app.init_resource::<dock::EditorDockState>();
+        // egui_dock is a dependency for future dockable-panel support.
+        // The DockState resource will be registered when the Bevy ↔ egui_dock
+        // lifetime bridge is built (see dock.rs module docs).
         app.init_resource::<HierarchyClick>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
