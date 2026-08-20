@@ -396,3 +396,20 @@ fn hierarchy_node(
         *clicked = Some(entity);
     }
 }
+
+/// Tiny top-left control for showing/hiding the tool windows. Separate system
+/// so it doesn't need extra params on `editor_ui` (which is at Bevy's 16 cap).
+pub fn tool_windows_toggle(
+    mut contexts: EguiContexts,
+    mut panels: ResMut<super::ToolPanels>,
+) {
+    let ctx = contexts.ctx_mut().expect("one primary egui context");
+    egui::Window::new("Tools")
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(4.0, 30.0))
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.checkbox(&mut panels.import_mesh, "Import Mesh tool");
+            ui.checkbox(&mut panels.path_editor, "Path Editor tool");
+        });
+}

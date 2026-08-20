@@ -34,6 +34,7 @@ fn apply(editor: &PathEditor, paths: &mut Query<&mut PathEntities>) {
 #[allow(clippy::too_many_arguments)]
 pub fn path_editor_ui(
     mut contexts: EguiContexts,
+    panels: Res<super::ToolPanels>,
     mut commands: Commands,
     mut editor: ResMut<PathEditor>,
     mut paths: Query<&mut PathEntities>,
@@ -43,6 +44,9 @@ pub fn path_editor_ui(
     selection: Res<Selection>,
     mut counter: Local<u64>,
 ) {
+    if !panels.path_editor {
+        return;
+    }
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Path Editor")
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -150.0))

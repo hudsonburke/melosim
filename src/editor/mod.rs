@@ -14,6 +14,14 @@ use std::path::PathBuf;
 #[derive(Default, Resource)]
 pub struct PendingModelImport(pub Option<PathBuf>);
 
+/// Toggleble helper windows. Both are hidden by default so they don't sit in
+/// the middle of the viewport unless the user opens them from the View menu.
+#[derive(Default, Resource)]
+pub struct ToolPanels {
+    pub import_mesh: bool,
+    pub path_editor: bool,
+}
+
 fn process_model_imports(world: &mut World) {
     let Some(path) = world.resource_mut::<PendingModelImport>().0.take() else {
         return;
@@ -65,6 +73,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<models::ModelRegistry>();
         app.init_resource::<path_editor::PathEditor>();
         app.init_resource::<PendingModelImport>();
+        app.init_resource::<ToolPanels>();
         // Load the default model (MyoArm) at startup; the UI can change this.
         app.insert_resource(models::SelectedModel(Some(0)));
 
@@ -121,6 +130,7 @@ impl Plugin for MelosimEditorPlugin {
                 ui::editor_ui,
                 mesh_import::mesh_import_ui,
                 path_editor::path_editor_ui,
+                ui::tool_windows_toggle,
             )
                 .chain(),
         );

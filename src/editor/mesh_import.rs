@@ -188,11 +188,15 @@ pub fn import_dropped_mesh(
 pub fn mesh_import_ui(
     mut contexts: EguiContexts,
     mut pending: ResMut<super::PendingModelImport>,
+    panels: Res<super::ToolPanels>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut unit: Local<ImportUnit>,
 ) {
+    if !panels.import_mesh {
+        return;
+    }
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Import Mesh")
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -36.0))
