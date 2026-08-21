@@ -3,10 +3,16 @@ use bevy_inspector_egui::bevy_egui::egui;
 
 use crate::editor::selection::Selection;
 use crate::model::{Body, Coordinate, Joint, JointCoordinates, Muscle, Site, Frame};
+
+/// Info about a right-click in the hierarchy, for context menu handling.
+pub struct HierarchyRightClick {
+    pub entity: Entity,
+    pub screen_pos: egui::Pos2,
+}
+
 /// Render the hierarchy tree into the given `Ui`.
 ///
-/// Returns the entity that was clicked (if any), so the caller can update
-/// the selection after the egui pass.
+/// Returns the entity that was clicked (if any) and any right-click info.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
@@ -23,8 +29,9 @@ pub fn show(
         Option<&Frame>,
     )>,
     selection: &Selection,
-) -> Option<Entity> {
+) -> (Option<Entity>, Option<HierarchyRightClick>) {
     let mut clicked: Option<Entity> = None;
+    let mut right_click: Option<HierarchyRightClick> = None;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(4.0);
@@ -55,16 +62,15 @@ pub fn show(
                 model_markers,
                 selection,
                 &mut clicked,
+                &mut right_click,
             );
         }
     });
 
-    clicked
+    (clicked, right_click)
 }
 
 /// Recursively render a model entity as an expandable/selectable tree row.
-/// Children come from Bevy's `ChildOf` hierarchy plus, for joints, the
-/// `JointCoordinates` relationship so generalized coordinates are selectable.
 #[allow(clippy::too_many_arguments)]
 fn hierarchy_node(
     ui: &mut egui::Ui,
@@ -83,6 +89,7 @@ fn hierarchy_node(
     )>,
     selection: &Selection,
     clicked: &mut Option<Entity>,
+    right_click: &mut Option<HierarchyRightClick>,
 ) {
     let name = names
         .get(entity)
@@ -138,6 +145,7 @@ fn hierarchy_node(
                             model_markers,
                             selection,
                             clicked,
+                            right_click,
                         );
                     }
                 }
@@ -153,6 +161,7 @@ fn hierarchy_node(
                             model_markers,
                             selection,
                             clicked,
+                            right_click,
                         );
                     }
                 }
@@ -160,7 +169,24 @@ fn hierarchy_node(
         if response.header_response.clicked() {
             *clicked = Some(entity);
         }
-    } else if ui.selectable_label(is_selected, label).clicked() {
-        *clicked = Some(entity);
+        if response.header_response.secondary_clicked() {
+            *right_click = Some(HierarchyRightClick {
+                entity,
+                screen_pos: response.header_response.interact_pointer_pos()
+                    .unwrap_or(egui::Pos2::ZERO),
+            });
+        }
+    } else {
+        let response = ui.selectable_label(is_selected, label);
+        if response.clicked() {
+            *clicked = Some(entity);
+        }
+        if response.secondary_clicked() {
+            *right_click = Some(HierarchyRightClick {
+                entity,
+                screen_pos: response.interact_pointer_pos()
+                    .unwrap_or(egui::Pos2::ZERO),
+            });
+        }
     }
 }

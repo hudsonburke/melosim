@@ -34,6 +34,13 @@ use crate::render::RenderSettings;
 #[derive(Default, Resource)]
 pub struct HierarchyClick(pub Option<Entity>);
 
+/// Stores right-click info from the hierarchy panel for context menu handling.
+#[derive(Default, Resource)]
+pub struct HierarchyRightClickState {
+    pub entity: Option<Entity>,
+    pub screen_pos: egui::Pos2,
+}
+
 // ── Narrow-scoped panel systems ─────────────────────────────
 
 /// Top toolbar: model name, model menu, view toggles.
@@ -45,6 +52,10 @@ pub fn toolbar_panel(
     mut settings: ResMut<RenderSettings>,
     names: Query<&mut Name>,
     mut active_popup: ResMut<ActivePopup>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut pending_model_import: ResMut<super::PendingModelImport>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
@@ -59,6 +70,10 @@ pub fn toolbar_panel(
                 &mut settings,
                 &names,
                 &mut active_popup,
+                &mut commands,
+                &asset_server,
+                &mut materials,
+                &mut pending_model_import,
             );
         });
 }
@@ -93,15 +108,18 @@ pub fn hierarchy_panel(
     )>,
     selection: Res<Selection>,
     mut click: ResMut<HierarchyClick>,
+    mut right_click: ResMut<HierarchyRightClickState>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     click.0 = None;
+    right_click.entity = None;
+
     #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
     egui::Panel::left("melosim_hierarchy")
         .resizable(true)
         .default_size(260.0)
         .show(ctx, |ui| {
-            click.0 = panels::hierarchy::show(
+            let (clicked, rc) = panels::hierarchy::show(
                 ui,
                 &root_entities,
                 &names,
@@ -110,7 +128,45 @@ pub fn hierarchy_panel(
                 &model_markers,
                 &selection,
             );
+            click.0 = clicked;
+            if let Some(rc) = rc {
+                right_click.entity = Some(rc.entity);
+                right_click.screen_pos = rc.screen_pos;
+            }
         });
+
+    // Show context menu if right-click happened
+    if let Some(_entity) = right_click.entity {
+        let popup_id = egui::Id::new("hierarchy_context_menu");
+        egui::Area::new(popup_id)
+            .fixed_pos(right_click.screen_pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.menu_button("Actions", |ui| {
+                        if ui.button("Add Site").clicked() {
+                            // TODO: spawn site as child of entity
+                            ui.close();
+                        }
+                        if ui.button("Add Frame").clicked() {
+                            // TODO: spawn frame as child of entity
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button("Rename…").clicked() {
+                            // TODO: open rename dialog
+                            ui.close();
+                        }
+                        if ui.button("Delete").clicked() {
+                            // TODO: delete entity
+                            ui.close();
+                        }
+                    });
+                });
+            });
+        // Reset after showing menu
+        right_click.entity = None;
+    }
 }
 
 /// Right inspector panel: component editing for the selected entity.
@@ -191,7 +247,6 @@ pub fn tool_windows_toggle(
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {
-            ui.checkbox(&mut panels.import_mesh, "Import Mesh tool");
             ui.checkbox(&mut panels.path_editor, "Path Editor tool");
             ui.separator();
             if ui.button("Export → MuJoCo (.xml)").clicked() {
