@@ -304,7 +304,8 @@ fn show_import_mesh_unit(
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
 ) -> bool {
-    let Some(path) = pending_mesh.0.take() else {
+    // Only show if there's a pending mesh import
+    let Some(path) = pending_mesh.0.clone() else {
         return true;
     };
 
@@ -337,6 +338,7 @@ fn show_import_mesh_unit(
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button("Import").clicked() {
+                    pending_mesh.0.take();
                     crate::editor::mesh_import::import_file(
                         commands,
                         asset_server,
