@@ -91,6 +91,7 @@ fn spawn_mesh_body(
     name: &str,
     unit: ImportUnit,
 ) {
+    info!("spawn_mesh_body: asset_path={}", asset_path);
     let body_id = commands
         .spawn((Name::new(name.to_owned()), Body, InertialProperties::default()))
         .id();
@@ -129,6 +130,7 @@ fn spawn_mesh_body(
     };
 
     commands.entity(body_id).add_children(&[mesh_child]);
+    info!("spawned mesh entity: body={:?}, mesh_child={:?}", body_id, mesh_child);
 }
 
 /// Copy a mesh file into `assets/imported/` and spawn a new Body for it.
@@ -161,8 +163,8 @@ pub fn import_file(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("part");
+    info!("mesh import: asset_path={}, dest_exists={}", asset_path, dest.exists());
     spawn_mesh_body(commands, asset_server, materials, asset_path, stem, unit);
-    info!("imported mesh: {}", dest.display());
 }
 
 /// Handle files dropped onto the window (uses the format's default unit).
