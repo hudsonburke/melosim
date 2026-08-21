@@ -120,41 +120,14 @@ fn spawn_mesh_body(
             .insert(ChildOf(body_id))
             .id()
     } else {
-        // Parse STL/OBJ directly into Assets<Mesh> — bypasses AssetServer
-        // which can't load files added at runtime.
-        let full_path = std::path::Path::new("assets").join(&asset_path);
-        let mesh_result = match ext.as_deref() {
-            Some("stl") => crate::render::mesh_loaders::mesh_from_stl_file(&full_path)
-                .map_err(|e| format!("{e}")),
-            Some("obj") => {
-                let bytes = match std::fs::read(&full_path) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        error!("mesh import: cannot read {}: {e}", full_path.display());
-                        return;
-                    }
-                };
-                bevy_obj::mesh::load_obj_as_mesh(&bytes, &bevy_obj::ObjSettings::default())
-                    .map_err(|e| format!("{e}"))
-            }
-            _ => {
-                error!("mesh import: unsupported non-glTF extension for {}", asset_path);
-                return;
-            }
-        };
-        let mesh_handle = match mesh_result {
-            Ok(m) => mesh_assets.add(m),
-            Err(e) => {
-                error!("mesh import: failed to parse {}: {e}", asset_path);
-                return;
-            }
-        };
+        // Use asset_server.load() — same approach as b412b0f that worked.
+        let mesh: Handle<Mesh> = asset_server.load(&asset_path);
         let material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.7, 0.6),
             ..default()
         });
         commands
-            .spawn((Name::new(format!("{name}_mesh")), Mesh3d(mesh_handle), MeshMaterial3d(material), transform))
+            .spawn((Name::new(format!("{name}_mesh")), Mesh3d(mesh), MeshMaterial3d(material)))
             .insert(ChildOf(body_id))
             .id()
     };
