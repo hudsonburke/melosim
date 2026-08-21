@@ -114,7 +114,6 @@ fn spawn_mesh_body(
     let mesh_child = if is_gltf {
         // Whole glTF scene (`#Scene0`) via its WorldAsset — all nodes/primitives.
         let scene: Handle<WorldAsset> = asset_server.load(format!("{asset_path}#Scene0"));
-        info!("glTF: loaded scene handle for {asset_path}");
         commands
             .spawn((Name::new(format!("{name}_mesh")), WorldAssetRoot(scene), transform))
             .insert(ChildOf(body_id))
@@ -133,7 +132,6 @@ fn spawn_mesh_body(
     };
 
     commands.entity(body_id).add_children(&[mesh_child]);
-    info!("spawned mesh entity: body={:?}, mesh_child={:?}", body_id, mesh_child);
 }
 
 /// Copy a mesh file into `assets/imported/` and spawn a new Body for it.
@@ -168,7 +166,6 @@ pub fn import_file(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("part");
-    info!("mesh import: asset_path={}, dest_exists={}", asset_path, dest.exists());
     spawn_mesh_body(commands, asset_server, materials, mesh_assets, asset_path, stem, unit);
 }
 
