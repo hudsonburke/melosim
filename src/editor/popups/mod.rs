@@ -113,6 +113,7 @@ pub fn show_popups(
     mut pending_mesh: ResMut<super::PendingMeshImport>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut mesh_assets: ResMut<Assets<Mesh>>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -152,7 +153,7 @@ pub fn show_popups(
             }
         }
         ActivePopup::ImportMeshUnit => {
-            let close = show_import_mesh_unit(ctx, &mut pending_mesh, &mut commands, &asset_server, &mut materials);
+            let close = show_import_mesh_unit(ctx, &mut pending_mesh, &mut commands, &asset_server, &mut materials, &mut mesh_assets);
             if close {
                 *active_popup = ActivePopup::None;
             }
@@ -303,6 +304,7 @@ fn show_import_mesh_unit(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
+    mesh_assets: &mut Assets<Mesh>,
 ) -> bool {
     // Only show if there's a pending mesh import
     let Some(path) = pending_mesh.0.clone() else {
@@ -343,6 +345,7 @@ fn show_import_mesh_unit(
                         commands,
                         asset_server,
                         materials,
+                        mesh_assets,
                         &path,
                         unit,
                     );
