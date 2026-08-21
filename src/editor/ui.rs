@@ -18,6 +18,7 @@ use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::models::{ModelRegistry, SelectedModel};
 use super::panels;
+use super::popups::ActivePopup;
 use super::selection::Selection;
 use super::PendingMujocoExport;
 use crate::model::{
@@ -43,6 +44,7 @@ pub fn toolbar_panel(
     mut selected_model: ResMut<SelectedModel>,
     mut settings: ResMut<RenderSettings>,
     names: Query<&mut Name>,
+    mut active_popup: ResMut<ActivePopup>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
@@ -56,6 +58,7 @@ pub fn toolbar_panel(
                 &mut selected_model,
                 &mut settings,
                 &names,
+                &mut active_popup,
             );
         });
 }
