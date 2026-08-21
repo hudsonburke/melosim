@@ -75,7 +75,7 @@ pub fn editor_ui(
                 for (i, def) in registry.0.iter().enumerate() {
                     if ui.button(def.name).clicked() {
                         selected_model.0 = Some(i);
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
             });
@@ -186,6 +186,16 @@ pub fn editor_ui(
                         .insert(ChildOf(entity))
                         .id();
                     commands.entity(entity).add_children(&[child]);
+                    super::events::stash_context_menu_event(
+                        super::events::EditorEvent::ModelMutation {
+                            kind: super::events::MutationKind::AddChild {
+                                parent: entity,
+                                child,
+                                marker: "Site",
+                            },
+                            entity: child,
+                        },
+                    );
                 }
                 for child in &sites {
                     let cname = names
@@ -207,6 +217,16 @@ pub fn editor_ui(
                         .insert(ChildOf(entity))
                         .id();
                     commands.entity(entity).add_children(&[child]);
+                    super::events::stash_context_menu_event(
+                        super::events::EditorEvent::ModelMutation {
+                            kind: super::events::MutationKind::AddChild {
+                                parent: entity,
+                                child,
+                                marker: "Frame",
+                            },
+                            entity: child,
+                        },
+                    );
                 }
                 for child in &frames {
                     let cname = names
@@ -395,8 +415,49 @@ fn hierarchy_node(
         if response.header_response.clicked() {
             *clicked = Some(entity);
         }
-    } else if ui.selectable_label(is_selected, label).clicked() {
-        *clicked = Some(entity);
+        // Right-click context menu on header
+        response.header_response.context_menu(|ui| {
+            context_menu_items(ui, entity, &response.header_response);
+        });
+    } else {
+        let response = ui.selectable_label(is_selected, label);
+        if response.clicked() {
+            *clicked = Some(entity);
+        }
+        // Right-click context menu on leaf
+        response.context_menu(|ui| {
+            context_menu_items(ui, entity, &response);
+        });
+    }
+}
+
+/// Context menu items shared by hierarchy header and leaf nodes.
+fn context_menu_items(ui: &mut egui::Ui, entity: Entity, response: &egui::Response) {
+    if ui.button("Add Site").clicked() {
+        let pos = response.rect.center();
+        super::events::stash_context_menu_event(super::events::EditorEvent::ContextMenu {
+            entity,
+            screen_pos: [pos.x, pos.y],
+        });
+        // TODO: also emit ModelMutation::AddChild once Add Site is wired
+        ui.close();
+    }
+    if ui.button("Add Frame").clicked() {
+        let pos = response.rect.center();
+        super::events::stash_context_menu_event(super::events::EditorEvent::ContextMenu {
+            entity,
+            screen_pos: [pos.x, pos.y],
+        });
+        ui.close();
+    }
+    ui.separator();
+    if ui.button("Rename…").clicked() {
+        // Future: open inline rename dialog
+        ui.close();
+    }
+    if ui.button("Delete").clicked() {
+        // Future: confirm and despawn
+        ui.close();
     }
 }
 

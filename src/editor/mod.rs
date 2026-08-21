@@ -1,3 +1,4 @@
+pub mod events;
 pub mod gizmo;
 pub mod mesh_import;
 pub mod models;
@@ -131,6 +132,7 @@ impl Plugin for MelosimEditorPlugin {
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
         app.insert_resource(models::SelectedModel(None));
+        app.init_resource::<events::EditorEvents>();
 
         // Register model types for reflection so the inspector can edit them.
         app.register_type::<crate::model::Body>()
@@ -190,6 +192,9 @@ impl Plugin for MelosimEditorPlugin {
             )
                 .chain(),
         );
+
+        // Flush context-menu events stashed during the egui pass into EditorEvents.
+        app.add_systems(Update, events::flush_context_menu_events);
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so
