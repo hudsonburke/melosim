@@ -87,6 +87,7 @@ fn spawn_mesh_body(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
+    mesh_assets: &mut Assets<Mesh>,
     asset_path: String,
     name: &str,
     unit: ImportUnit,
@@ -119,15 +120,41 @@ fn spawn_mesh_body(
             .insert(ChildOf(body_id))
             .id()
     } else {
-        info!("Loading mesh via asset_server: {asset_path}");
-        let mesh: Handle<Mesh> = asset_server.load(asset_path);
-        info!("Got mesh handle: {:?}", mesh);
+        // Parse STL/OBJ directly into Assets<Mesh> — bypasses AssetServer
+        // which can't load files added at runtime.
+        let full_path = std::path::Path::new("assets").join(&asset_path);
+        let mesh_result = match ext.as_deref() {
+            Some("stl") => crate::render::mesh_loaders::mesh_from_stl_file(&full_path)
+                .map_err(|e| format!("{e}")),
+            Some("obj") => {
+                let bytes = match std::fs::read(&full_path) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        error!("mesh import: cannot read {}: {e}", full_path.display());
+                        return;
+                    }
+                };
+                bevy_obj::mesh::load_obj_as_mesh(&bytes, &bevy_obj::ObjSettings::default())
+                    .map_err(|e| format!("{e}"))
+            }
+            _ => {
+                error!("mesh import: unsupported non-glTF extension for {}", asset_path);
+                return;
+            }
+        };
+        let mesh_handle = match mesh_result {
+            Ok(m) => mesh_assets.add(m),
+            Err(e) => {
+                error!("mesh import: failed to parse {}: {e}", asset_path);
+                return;
+            }
+        };
         let material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.7, 0.6),
             ..default()
         });
         commands
-            .spawn((Name::new(format!("{name}_mesh")), Mesh3d(mesh), MeshMaterial3d(material), transform))
+            .spawn((Name::new(format!("{name}_mesh")), Mesh3d(mesh_handle), MeshMaterial3d(material), transform))
             .insert(ChildOf(body_id))
             .id()
     };
@@ -141,6 +168,7 @@ pub fn import_file(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
+    mesh_assets: &mut Assets<Mesh>,
     src: &Path,
     unit: ImportUnit,
 ) {
@@ -168,7 +196,7 @@ pub fn import_file(
         .and_then(|s| s.to_str())
         .unwrap_or("part");
     info!("mesh import: asset_path={}, dest_exists={}", asset_path, dest.exists());
-    spawn_mesh_body(commands, asset_server, materials, asset_path, stem, unit);
+    spawn_mesh_body(commands, asset_server, materials, mesh_assets, asset_path, stem, unit);
 }
 
 /// Handle files dropped onto the window (uses the format's default unit).
@@ -176,6 +204,7 @@ pub fn import_dropped_mesh(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut mesh_assets: ResMut<Assets<Mesh>>,
     mut events: MessageReader<FileDragAndDrop>,
 ) {
     for event in events.read() {
@@ -183,7 +212,7 @@ pub fn import_dropped_mesh(
             continue;
         };
         if is_mesh_ext(path_buf) {
-            import_file(&mut commands, &asset_server, &mut materials, path_buf, default_unit(path_buf));
+            import_file(&mut commands, &asset_server, &mut materials, &mut mesh_assets, path_buf, default_unit(path_buf));
         }
     }
 }
@@ -201,6 +230,7 @@ pub fn mesh_import_ui(
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut unit: Local<ImportUnit>,
+    mut mesh_assets: ResMut<Assets<Mesh>>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Import Mesh")
@@ -225,7 +255,7 @@ pub fn mesh_import_ui(
                     });
                 if ui.button("Browse…").clicked() {
                     if let Some(path) = pick_mesh_file() {
-                        import_file(&mut commands, &asset_server, &mut materials, &path, *unit);
+                        import_file(&mut commands, &asset_server, &mut materials, &mut mesh_assets, &path, *unit);
                     }
                 }
             });
