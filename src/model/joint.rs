@@ -13,6 +13,19 @@ type Iso3 = Isometry3<f64>;
 #[require(Transform, Visibility)]
 pub struct Joint;
 
+/// Records which two frames a joint connects.
+///
+/// When set, the joint's `Transform` represents the relative offset between
+/// the two frames (frame_a → joint → frame_b). The FK solver and exporter
+/// can use this to compute the correct spatial relationship.
+#[derive(Component, Clone, Debug, Reflect)]
+pub struct Connects {
+    /// Frame on the parent body (e.g. the exo part).
+    pub frame_a: Entity,
+    /// Frame on the child body (e.g. the model body).
+    pub frame_b: Entity,
+}
+
 /// Marker for a generalized coordinate entity.
 #[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(CoordinateProperties, InitialConditions)]

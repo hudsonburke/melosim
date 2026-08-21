@@ -99,6 +99,26 @@ pub struct AttachBodyPopup {
     pub exo_body: Option<Entity>,
     /// The model body entity to attach to (user-selected from dropdown).
     pub target_body: Option<Entity>,
+    /// Frame on the exo body to attach from (None = default/body origin).
+    pub exo_frame: Option<Entity>,
+    /// Frame on the target body to attach to (None = default/body origin).
+    pub target_frame: Option<Entity>,
+    /// Joint type: true = Weld (rigid), false = Free (no constraint).
+    pub weld: bool,
+}
+
+impl AttachBodyPopup {
+    pub fn reset(&mut self) {
+        self.exo_body = None;
+        self.target_body = None;
+        self.exo_frame = None;
+        self.target_frame = None;
+        self.weld = true;
+    }
+
+    pub fn joint_type_label(&self) -> &str {
+        if self.weld { "Weld (rigid)" } else { "Free" }
+    }
 }
 
 /// Shared part counter for auto-naming components.
@@ -183,6 +203,8 @@ pub fn show_attach_body_popup(
     mut events: ResMut<EditorEvents>,
     selection: Res<super::selection::Selection>,
     bodies: Query<(Entity, &Name), With<Body>>,
+    frames: Query<(Entity, &Name, &ChildOf), With<crate::model::Frame>>,
+    transforms: Query<&Transform>,
 ) {
     if *active_popup != ActivePopup::AttachBody {
         return;
@@ -191,7 +213,7 @@ pub fn show_attach_body_popup(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    let close = attach_body::show(ctx, &mut popup, &mut commands, &mut events, &selection, &bodies);
+    let close = attach_body::show(ctx, &mut popup, &mut commands, &mut events, &selection, &bodies, &frames, &transforms);
     if close {
         *active_popup = ActivePopup::None;
     }
