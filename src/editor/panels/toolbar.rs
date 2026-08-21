@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 
 use crate::editor::models::{ModelRegistry, SelectedModel};
+use crate::editor::popups::ActivePopup;
 use crate::editor::selection::Selection;
 use crate::render::RenderSettings;
 
@@ -13,6 +14,7 @@ pub fn show(
     selected_model: &mut SelectedModel,
     settings: &mut RenderSettings,
     names: &Query<&mut Name>,
+    active_popup: &mut ActivePopup,
 ) {
     ui.horizontal(|ui| {
         ui.heading("melosim");
@@ -37,6 +39,30 @@ pub fn show(
                     selected_model.0 = Some(i);
                     ui.close();
                 }
+            }
+        });
+        ui.separator();
+        // Create menu for adding new components
+        ui.menu_button("Create", |ui| {
+            if ui.button("Body").clicked() {
+                *active_popup = ActivePopup::AddBody;
+                ui.close();
+            }
+            if ui.button("Joint").clicked() {
+                *active_popup = ActivePopup::AddJoint;
+                ui.close();
+            }
+            if ui.button("Muscle").clicked() {
+                *active_popup = ActivePopup::AddMuscle;
+                ui.close();
+            }
+            if ui.button("Site").clicked() {
+                *active_popup = ActivePopup::AddSite;
+                ui.close();
+            }
+            if ui.button("Frame").clicked() {
+                *active_popup = ActivePopup::AddFrame;
+                ui.close();
             }
         });
         ui.separator();

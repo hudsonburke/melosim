@@ -4,6 +4,7 @@ pub mod mesh_import;
 pub mod models;
 pub mod panels;
 pub mod path_editor;
+pub mod popups;
 pub mod selection;
 pub mod ui;
 pub mod viewport;
@@ -133,6 +134,14 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
         app.init_resource::<HierarchyClick>();
+        // Popup system resources
+        app.init_resource::<popups::ActivePopup>();
+        app.init_resource::<popups::AddBodyPopup>();
+        app.init_resource::<popups::AddJointPopup>();
+        app.init_resource::<popups::AddMusclePopup>();
+        app.init_resource::<popups::AddSitePopup>();
+        app.init_resource::<popups::AddFramePopup>();
+        app.init_resource::<popups::PartCounter>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
         app.insert_resource(models::SelectedModel(None));
@@ -202,6 +211,7 @@ impl Plugin for MelosimEditorPlugin {
                 mesh_import::mesh_import_ui,
                 path_editor::path_editor_ui,
                 ui::tool_windows_toggle,
+                popups::show_popups,
             )
                 .chain(),
         );
