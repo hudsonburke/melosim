@@ -113,12 +113,15 @@ fn spawn_mesh_body(
     let mesh_child = if is_gltf {
         // Whole glTF scene (`#Scene0`) via its WorldAsset — all nodes/primitives.
         let scene: Handle<WorldAsset> = asset_server.load(format!("{asset_path}#Scene0"));
+        info!("glTF: loaded scene handle for {asset_path}");
         commands
             .spawn((Name::new(format!("{name}_mesh")), WorldAssetRoot(scene), transform))
             .insert(ChildOf(body_id))
             .id()
     } else {
+        info!("Loading mesh via asset_server: {asset_path}");
         let mesh: Handle<Mesh> = asset_server.load(asset_path);
+        info!("Got mesh handle: {:?}", mesh);
         let material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.7, 0.6),
             ..default()
