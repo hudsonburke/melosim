@@ -5,6 +5,7 @@ use crate::editor::mesh_import;
 use crate::editor::models::{ModelRegistry, SelectedModel};
 use crate::editor::popups::ActivePopup;
 use crate::editor::selection::Selection;
+use crate::editor::PendingMujocoExport;
 use crate::render::RenderSettings;
 
 /// Render the top toolbar content into the given `Ui`.
@@ -20,6 +21,7 @@ pub fn show(
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
     pending_model_import: &mut crate::editor::PendingModelImport,
+    pending_export: &mut PendingMujocoExport,
 ) {
     ui.horizontal(|ui| {
         ui.heading("melosim");
@@ -68,6 +70,20 @@ pub fn show(
                     .pick_file()
                 {
                     pending_model_import.0 = Some(path);
+                }
+                ui.close();
+            }
+        });
+        ui.separator();
+        // Export menu
+        ui.menu_button("Export", |ui| {
+            if ui.button("MuJoCo (.xml)…").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("MuJoCo model", &["xml"])
+                    .set_file_name("export.xml")
+                    .save_file()
+                {
+                    pending_export.0 = Some(path);
                 }
                 ui.close();
             }

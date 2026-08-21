@@ -21,13 +21,6 @@ pub struct PendingModelImport(pub Option<PathBuf>);
 #[derive(Default, Resource)]
 pub struct PendingMujocoExport(pub Option<PathBuf>);
 
-/// Toggleble helper windows. Both are hidden by default so they don't sit in
-/// the middle of the viewport unless the user opens them from the View menu.
-#[derive(Default, Resource)]
-pub struct ToolPanels {
-    pub path_editor: bool,
-}
-
 fn process_model_imports(world: &mut World) {
     let Some(path) = world.resource_mut::<PendingModelImport>().0.take() else {
         return;
@@ -131,7 +124,6 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<path_editor::PathEditor>();
         app.init_resource::<PendingModelImport>();
         app.init_resource::<PendingMujocoExport>();
-        app.init_resource::<ToolPanels>();
         app.init_resource::<HierarchyClick>();
         app.init_resource::<ui::HierarchyRightClickState>();
         // Popup system resources
@@ -210,7 +202,6 @@ impl Plugin for MelosimEditorPlugin {
                 ui::apply_hierarchy_selection,
                 mesh_import::mesh_import_ui,
                 path_editor::path_editor_ui,
-                ui::tool_windows_toggle,
                 popups::show_popups,
             )
                 .chain(),

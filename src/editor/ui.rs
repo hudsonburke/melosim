@@ -20,7 +20,6 @@ use super::models::{ModelRegistry, SelectedModel};
 use super::panels;
 use super::popups::ActivePopup;
 use super::selection::Selection;
-use super::PendingMujocoExport;
 use crate::model::{
     Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
     InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
@@ -56,6 +55,7 @@ pub fn toolbar_panel(
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut pending_model_import: ResMut<super::PendingModelImport>,
+    mut pending_export: ResMut<super::PendingMujocoExport>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
@@ -74,6 +74,7 @@ pub fn toolbar_panel(
                 &asset_server,
                 &mut materials,
                 &mut pending_model_import,
+                &mut pending_export,
             );
         });
 }
@@ -233,30 +234,3 @@ pub fn apply_hierarchy_selection(
     }
 }
 
-/// Tiny top-left control for showing/hiding the tool windows and the export
-/// button. Separate system so it doesn't need extra params on `editor_ui`
-/// (which is at Bevy's 16-param system cap).
-pub fn tool_windows_toggle(
-    mut contexts: EguiContexts,
-    mut panels: ResMut<super::ToolPanels>,
-    mut pending_export: ResMut<PendingMujocoExport>,
-) {
-    let ctx = contexts.ctx_mut().expect("one primary egui context");
-    egui::Window::new("Tools")
-        .anchor(egui::Align2::LEFT_TOP, egui::vec2(4.0, 30.0))
-        .collapsible(false)
-        .resizable(false)
-        .show(ctx, |ui| {
-            ui.checkbox(&mut panels.path_editor, "Path Editor tool");
-            ui.separator();
-            if ui.button("Export → MuJoCo (.xml)").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("MuJoCo model", &["xml"])
-                    .set_file_name("export.xml")
-                    .save_file()
-                {
-                    pending_export.0 = Some(path);
-                }
-            }
-        });
-}
