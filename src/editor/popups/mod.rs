@@ -7,7 +7,7 @@
 pub mod add_body;
 pub mod add_joint;
 pub mod add_muscle;
-pub mod attach_body;
+pub mod connect_frames;
 
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
@@ -26,7 +26,7 @@ pub enum ActivePopup {
     AddSite,
     AddFrame,
     ImportMeshUnit,
-    AttachBody,
+    ConnectFrames,
 }
 
 /// State for the "Add Body" dialog.
@@ -92,32 +92,51 @@ pub struct AddFramePopup {
     pub name: String,
 }
 
-/// State for the "Attach Body" dialog.
+/// State for the "Connect Frames" dialog.
 #[derive(Resource, Default)]
-pub struct AttachBodyPopup {
-    /// The exo body entity that will be attached (the selected body).
-    pub exo_body: Option<Entity>,
-    /// The model body entity to attach to (user-selected from dropdown).
-    pub target_body: Option<Entity>,
-    /// Frame on the exo body to attach from (None = default/body origin).
-    pub exo_frame: Option<Entity>,
-    /// Frame on the target body to attach to (None = default/body origin).
-    pub target_frame: Option<Entity>,
+pub struct ConnectFramesPopup {
+    /// Parent body entity (the body being attached TO).
+    pub parent_body: Option<Entity>,
+    /// Child body entity (the body being attached).
+    pub child_body: Option<Entity>,
+    /// Frame on the parent body (None = body origin).
+    pub parent_frame: Option<Entity>,
+    /// Frame on the child body (None = body origin).
+    pub child_frame: Option<Entity>,
     /// Joint type: true = Weld (rigid), false = Free (no constraint).
     pub weld: bool,
+    /// Which frame slot is waiting for viewport selection.
+    pub waiting_for: Option<FrameSlot>,
 }
 
-impl AttachBodyPopup {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameSlot {
+    Parent,
+    Child,
+}
+
+impl ConnectFramesPopup {
     pub fn reset(&mut self) {
-        self.exo_body = None;
-        self.target_body = None;
-        self.exo_frame = None;
-        self.target_frame = None;
+        self.parent_body = None;
+        self.child_body = None;
+        self.parent_frame = None;
+        self.child_frame = None;
         self.weld = true;
+        self.waiting_for = None;
     }
 
     pub fn joint_type_label(&self) -> &str {
         if self.weld { "Weld (rigid)" } else { "Free" }
+    }
+
+    /// Assign the selected frame to the active slot (from viewport click).
+    pub fn assign_frame(&mut self, frame: Entity) {
+        match self.waiting_for {
+            Some(FrameSlot::Parent) => self.parent_frame = Some(frame),
+            Some(FrameSlot::Child) => self.child_frame = Some(frame),
+            None => {}
+        }
+        self.waiting_for = None;
     }
 }
 
@@ -189,16 +208,16 @@ pub fn show_popups(
                 *active_popup = ActivePopup::None;
             }
         }
-        // AttachBody is handled by its own system (show_attach_body_popup)
-        ActivePopup::AttachBody => {}
+        // ConnectFrames is handled by its own system (show_connect_frames_popup)
+        ActivePopup::ConnectFrames => {}
     }
 }
 
-/// System that shows the "Attach Body" popup window (separate to avoid 16-param limit).
-pub fn show_attach_body_popup(
+/// System that shows the "Connect Frames" popup window (separate to avoid 16-param limit).
+pub fn show_connect_frames_popup(
     mut contexts: bevy_inspector_egui::bevy_egui::EguiContexts,
     mut active_popup: ResMut<ActivePopup>,
-    mut popup: ResMut<AttachBodyPopup>,
+    mut popup: ResMut<ConnectFramesPopup>,
     mut commands: Commands,
     mut events: ResMut<EditorEvents>,
     selection: Res<super::selection::Selection>,
@@ -206,14 +225,14 @@ pub fn show_attach_body_popup(
     frames: Query<(Entity, &Name, &ChildOf), With<crate::model::Frame>>,
     transforms: Query<&Transform>,
 ) {
-    if *active_popup != ActivePopup::AttachBody {
+    if *active_popup != ActivePopup::ConnectFrames {
         return;
     }
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    let close = attach_body::show(ctx, &mut popup, &mut commands, &mut events, &selection, &bodies, &frames, &transforms);
+    let close = connect_frames::show(ctx, &mut popup, &mut commands, &mut events, &selection, &bodies, &frames, &transforms);
     if close {
         *active_popup = ActivePopup::None;
     }

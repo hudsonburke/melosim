@@ -1,4 +1,4 @@
-//! "Attach Body" popup dialog.
+//! "Connect Frames" popup dialog.
 //!
 //! Rigidly attaches an exo part (Body A) to a model body (Body B) by creating
 //! a Joint between two frames — one on each body.
@@ -12,19 +12,19 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 
-use super::AttachBodyPopup;
+use super::ConnectFramesPopup;
 use crate::editor::events::{EditorEvent, EditorEvents, MutationKind};
 use crate::editor::selection::Selection;
 use crate::model::{
     Body, Connects, Coordinate, CoordinateOf, Frame, Joint, JointCoordinates, Twist,
 };
 
-/// Show the "Attach Body" popup window.
+/// Show the "Connect Frames" popup window.
 ///
 /// Returns `true` if the popup should be closed.
 pub fn show(
     ctx: &egui::Context,
-    popup: &mut AttachBodyPopup,
+    popup: &mut ConnectFramesPopup,
     commands: &mut Commands,
     events: &mut EditorEvents,
     selection: &Selection,
@@ -36,12 +36,12 @@ pub fn show(
 
     // Capture the selected body when the popup opens
     let selected = selection.primary();
-    if popup.exo_body.is_none() {
-        popup.exo_body = selected;
+    if popup.child_body.is_none() {
+        popup.child_body = selected;
     }
 
-    let exo_body = popup.exo_body;
-    let exo_name = exo_body
+    let child_body = popup.child_body;
+    let exo_name = child_body
         .and_then(|e| bodies.get(e).ok())
         .map(|(_, n)| n.as_str().to_owned())
         .unwrap_or_else(|| "(none)".to_string());
@@ -49,12 +49,12 @@ pub fn show(
     // Collect all body entities except the exo body
     let other_bodies: Vec<(Entity, String)> = bodies
         .iter()
-        .filter(|(e, _)| Some(*e) != exo_body)
+        .filter(|(e, _)| Some(*e) != child_body)
         .map(|(e, n)| (e, n.as_str().to_owned()))
         .collect();
 
-    // Collect frames belonging to the exo body (for frame A picker)
-    let exo_frames: Vec<(Entity, String)> = exo_body
+    // Collect frames belonging to the child body
+    let child_frames: Vec<(Entity, String)> = child_body
         .map(|body_e| {
             frames
                 .iter()
@@ -64,9 +64,9 @@ pub fn show(
         })
         .unwrap_or_default();
 
-    // Collect frames belonging to the target body (for frame B picker)
-    let target_frames: Vec<(Entity, String)> = popup
-        .target_body
+    // Collect frames belonging to the parent body
+    let parent_frames: Vec<(Entity, String)> = popup
+        .parent_body
         .map(|body_e| {
             frames
                 .iter()
@@ -76,26 +76,26 @@ pub fn show(
         })
         .unwrap_or_default();
 
-    egui::Window::new("Attach Body")
+    egui::Window::new("Connect Frames")
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {
-            ui.label("Attach an exo part to a model body via a joint.");
+            ui.label("Create a joint between two frames.");
 
             ui.add_space(4.0);
 
             // ── Exo body (body A) ──
             ui.horizontal(|ui| {
-                ui.label("Exo Body:");
+                ui.label("Child Body:");
                 ui.strong(&exo_name);
             });
 
             // Frame A picker (frames on the exo body)
-            if !exo_frames.is_empty() {
+            if !child_frames.is_empty() {
                 ui.horizontal(|ui| {
                     ui.label("  Frame A:");
                     let selected_label = popup
-                        .exo_frame
+                        .child_frame
                         .and_then(|e| frames.get(e).ok())
                         .map(|(_, n, _)| n.as_str().to_owned())
                         .unwrap_or_else(|| "None (body origin)".to_string());
@@ -104,15 +104,15 @@ pub fn show(
                         .selected_text(&selected_label)
                         .show_ui(ui, |ui| {
                             if ui
-                                .selectable_label(popup.exo_frame.is_none(), "None (body origin)")
+                                .selectable_label(popup.child_frame.is_none(), "None (body origin)")
                                 .clicked()
                             {
-                                popup.exo_frame = None;
+                                popup.child_frame = None;
                             }
-                            for (entity, name) in &exo_frames {
-                                let is_selected = popup.exo_frame == Some(*entity);
+                            for (entity, name) in &child_frames {
+                                let is_selected = popup.child_frame == Some(*entity);
                                 if ui.selectable_label(is_selected, name).clicked() {
-                                    popup.exo_frame = Some(*entity);
+                                    popup.child_frame = Some(*entity);
                                 }
                             }
                         });
@@ -121,34 +121,34 @@ pub fn show(
 
             // ── Target body (body B) ──
             ui.horizontal(|ui| {
-                ui.label("Attach to:");
+                ui.label("Parent Body:");
                 let selected_label = popup
-                    .target_body
+                    .parent_body
                     .and_then(|e| bodies.get(e).ok())
                     .map(|(_, n)| n.as_str().to_owned())
                     .unwrap_or_else(|| "Select...".to_string());
 
-                egui::ComboBox::from_id_salt("attach_body_target")
+                egui::ComboBox::from_id_salt("connect_frames_target")
                     .selected_text(&selected_label)
                     .show_ui(ui, |ui| {
                         for (entity, name) in &other_bodies {
                             let label = format!("{}", name);
-                            let is_selected = popup.target_body == Some(*entity);
+                            let is_selected = popup.parent_body == Some(*entity);
                             if ui.selectable_label(is_selected, &label).clicked() {
-                                popup.target_body = Some(*entity);
+                                popup.parent_body = Some(*entity);
                                 // Reset frame B when target changes
-                                popup.target_frame = None;
+                                popup.parent_frame = None;
                             }
                         }
                     });
             });
 
             // Frame B picker (frames on the target body)
-            if !target_frames.is_empty() {
+            if !parent_frames.is_empty() {
                 ui.horizontal(|ui| {
                     ui.label("  Frame B:");
                     let selected_label = popup
-                        .target_frame
+                        .parent_frame
                         .and_then(|e| frames.get(e).ok())
                         .map(|(_, n, _)| n.as_str().to_owned())
                         .unwrap_or_else(|| "None (body origin)".to_string());
@@ -158,17 +158,17 @@ pub fn show(
                         .show_ui(ui, |ui| {
                             if ui
                                 .selectable_label(
-                                    popup.target_frame.is_none(),
+                                    popup.parent_frame.is_none(),
                                     "None (body origin)",
                                 )
                                 .clicked()
                             {
-                                popup.target_frame = None;
+                                popup.parent_frame = None;
                             }
-                            for (entity, name) in &target_frames {
-                                let is_selected = popup.target_frame == Some(*entity);
+                            for (entity, name) in &parent_frames {
+                                let is_selected = popup.parent_frame == Some(*entity);
                                 if ui.selectable_label(is_selected, name).clicked() {
-                                    popup.target_frame = Some(*entity);
+                                    popup.parent_frame = Some(*entity);
                                 }
                             }
                         });
@@ -189,7 +189,7 @@ pub fn show(
             });
 
             // ── Preview ──
-            if let Some(target) = popup.target_body {
+            if let Some(target) = popup.parent_body {
                 let target_name = bodies
                     .get(target)
                     .map(|(_, n)| n.as_str().to_owned())
@@ -197,12 +197,12 @@ pub fn show(
 
                 let joint_label = popup.joint_type_label();
                 let frame_a_label = popup
-                    .exo_frame
+                    .child_frame
                     .and_then(|e| frames.get(e).ok())
                     .map(|(_, n, _)| format!("[{}]", n.as_str()))
                     .unwrap_or_else(|| "(origin)".to_string());
                 let frame_b_label = popup
-                    .target_frame
+                    .parent_frame
                     .and_then(|e| frames.get(e).ok())
                     .map(|(_, n, _)| format!("[{}]", n.as_str()))
                     .unwrap_or_else(|| "(origin)".to_string());
@@ -221,13 +221,13 @@ pub fn show(
                     close = true;
                 }
 
-                let can_attach = exo_body.is_some() && popup.target_body.is_some();
+                let can_attach = child_body.is_some() && popup.parent_body.is_some();
                 ui.add_enabled_ui(can_attach, |ui| {
                     if ui.button("Attach").clicked() {
-                        let exo = exo_body.unwrap();
-                        let target = popup.target_body.unwrap();
-                        let exo_frame = popup.exo_frame;
-                        let target_frame = popup.target_frame;
+                        let exo = child_body.unwrap();
+                        let target = popup.parent_body.unwrap();
+                        let child_frame = popup.child_frame;
+                        let parent_frame = popup.parent_frame;
                         let is_weld = popup.weld;
 
                         // Create a Joint as a child of the target body
@@ -265,7 +265,7 @@ pub fn show(
 
                         // Compute joint transform: relative offset between frames
                         let joint_transform =
-                            compute_joint_transform(exo_frame, target_frame, transforms);
+                            compute_joint_transform(child_frame, parent_frame, transforms);
 
                         // Create the joint entity as child of target body
                         let mut joint_cmds = commands.spawn((
@@ -284,7 +284,7 @@ pub fn show(
                         commands.entity(target).add_children(&[joint]);
 
                         // Attach Connects component if both frames are selected
-                        if let (Some(fa), Some(fb)) = (exo_frame, target_frame) {
+                        if let (Some(fa), Some(fb)) = (child_frame, parent_frame) {
                             commands
                                 .entity(joint)
                                 .insert(Connects { frame_a: fa, frame_b: fb });
@@ -342,8 +342,8 @@ fn compute_joint_transform(
     transforms: &Query<&Transform>,
 ) -> Transform {
     // If frame B is selected, place the joint at frame B's local position.
-    // The joint lives as a child of target_body, so its local Transform
-    // positions it relative to target_body's origin.
+    // The joint lives as a child of parent_body, so its local Transform
+    // positions it relative to parent_body's origin.
     //
     // When both frames are selected, the joint is still placed at frame B's
     // position — frame A's position is accounted for by the body hierarchy

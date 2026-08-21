@@ -104,8 +104,8 @@ pub fn show(
                 ui.close();
             }
             ui.separator();
-            if ui.button("Attach Body…").clicked() {
-                *active_popup = ActivePopup::AttachBody;
+            if ui.button("Connect Frames…").clicked() {
+                *active_popup = ActivePopup::ConnectFrames;
                 ui.close();
             }
         });
