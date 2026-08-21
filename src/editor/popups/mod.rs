@@ -232,7 +232,7 @@ pub fn show_connect_frames_popup(
         Ok(ctx) => ctx,
         Err(_) => return,
     };
-    let close = connect_frames::show(ctx, &mut popup, &mut commands, &mut events, &selection, &bodies, &frames, &transforms);
+    let close = connect_frames::show(ctx, &mut popup, &mut commands, &mut events, &selection, &frames, &bodies);
     if close {
         *active_popup = ActivePopup::None;
     }
