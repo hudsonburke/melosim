@@ -50,7 +50,7 @@ impl ImportUnit {
             ImportUnit::Ft => 0.3048,
         }
     }
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             ImportUnit::Mm => "mm",
             ImportUnit::Cm => "cm",

@@ -24,6 +24,7 @@ pub enum ActivePopup {
     AddMuscle,
     AddSite,
     AddFrame,
+    ImportMeshUnit,
 }
 
 /// State for the "Add Body" dialog.
@@ -109,6 +110,9 @@ pub fn show_popups(
     mut events: ResMut<EditorEvents>,
     bodies: Query<(Entity, &Name), With<Body>>,
     selection: Res<super::selection::Selection>,
+    mut pending_mesh: ResMut<super::PendingMeshImport>,
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
@@ -143,6 +147,12 @@ pub fn show_popups(
         }
         ActivePopup::AddFrame => {
             let close = add_frame_popup(ctx, &mut add_frame, &mut counter, &mut commands, &mut events, &selection);
+            if close {
+                *active_popup = ActivePopup::None;
+            }
+        }
+        ActivePopup::ImportMeshUnit => {
+            let close = show_import_mesh_unit(ctx, &mut pending_mesh, &mut commands, &asset_server, &mut materials);
             if close {
                 *active_popup = ActivePopup::None;
             }
@@ -279,6 +289,64 @@ fn add_frame_popup(
                     }
 
                     popup.name.clear();
+                    close = true;
+                }
+            });
+        });
+    close
+}
+
+/// Show the "Import Mesh Unit" popup — asks user to specify units before importing.
+fn show_import_mesh_unit(
+    ctx: &egui::Context,
+    pending_mesh: &mut super::PendingMeshImport,
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    materials: &mut Assets<StandardMaterial>,
+) -> bool {
+    let Some(path) = pending_mesh.0.take() else {
+        return true;
+    };
+
+    let mut close = false;
+    let mut unit = crate::editor::mesh_import::ImportUnit::Mm;
+
+    egui::Window::new("Import Mesh")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.label(format!("File: {}", path.file_name().unwrap_or_default().to_string_lossy()));
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Unit:");
+                egui::ComboBox::from_id_salt("import_mesh_unit")
+                    .selected_text(unit.label())
+                    .show_ui(ui, |ui| {
+                        for u in [
+                            crate::editor::mesh_import::ImportUnit::Mm,
+                            crate::editor::mesh_import::ImportUnit::Cm,
+                            crate::editor::mesh_import::ImportUnit::M,
+                            crate::editor::mesh_import::ImportUnit::In,
+                            crate::editor::mesh_import::ImportUnit::Ft,
+                        ] {
+                            ui.selectable_value(&mut unit, u, u.label());
+                        }
+                    });
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Import").clicked() {
+                    crate::editor::mesh_import::import_file(
+                        commands,
+                        asset_server,
+                        materials,
+                        &path,
+                        unit,
+                    );
+                    close = true;
+                }
+                if ui.button("Cancel").clicked() {
                     close = true;
                 }
             });

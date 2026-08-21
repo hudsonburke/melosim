@@ -17,10 +17,8 @@ pub fn show(
     settings: &mut RenderSettings,
     names: &Query<&mut Name>,
     active_popup: &mut ActivePopup,
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    materials: &mut Assets<StandardMaterial>,
     pending_model_import: &mut crate::editor::PendingModelImport,
+    pending_mesh_import: &mut crate::editor::PendingMeshImport,
     pending_export: &mut PendingMujocoExport,
 ) {
     ui.horizontal(|ui| {
@@ -53,14 +51,8 @@ pub fn show(
         ui.menu_button("Import", |ui| {
             if ui.button("Mesh (STL/OBJ/gltf)…").clicked() {
                 if let Some(path) = mesh_import::pick_mesh_file() {
-                    let unit = mesh_import::default_unit(&path);
-                    mesh_import::import_file(
-                        commands,
-                        asset_server,
-                        materials,
-                        &path,
-                        unit,
-                    );
+                    pending_mesh_import.0 = Some(path);
+                    *active_popup = ActivePopup::ImportMeshUnit;
                 }
                 ui.close();
             }

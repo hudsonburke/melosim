@@ -51,10 +51,8 @@ pub fn toolbar_panel(
     mut settings: ResMut<RenderSettings>,
     names: Query<&mut Name>,
     mut active_popup: ResMut<ActivePopup>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut pending_model_import: ResMut<super::PendingModelImport>,
+    mut pending_mesh_import: ResMut<super::PendingMeshImport>,
     mut pending_export: ResMut<super::PendingMujocoExport>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
@@ -70,10 +68,8 @@ pub fn toolbar_panel(
                 &mut settings,
                 &names,
                 &mut active_popup,
-                &mut commands,
-                &asset_server,
-                &mut materials,
                 &mut pending_model_import,
+                &mut pending_mesh_import,
                 &mut pending_export,
             );
         });

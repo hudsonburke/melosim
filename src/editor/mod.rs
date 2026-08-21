@@ -3,7 +3,6 @@ pub mod gizmo;
 pub mod mesh_import;
 pub mod models;
 pub mod panels;
-pub mod path_editor;
 pub mod popups;
 pub mod selection;
 pub mod ui;
@@ -16,6 +15,10 @@ use std::path::PathBuf;
 /// chainable.)
 #[derive(Default, Resource)]
 pub struct PendingModelImport(pub Option<PathBuf>);
+
+/// A mesh file the user chose to import; pending unit selection.
+#[derive(Default, Resource)]
+pub struct PendingMeshImport(pub Option<PathBuf>);
 
 /// A save path the user chose for MuJoCo export; processed by `process_mujoco_export`.
 #[derive(Default, Resource)]
@@ -121,8 +124,8 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<Selection>();
         app.init_resource::<events::EditorEvents>();
         app.init_resource::<models::ModelRegistry>();
-        app.init_resource::<path_editor::PathEditor>();
         app.init_resource::<PendingModelImport>();
+        app.init_resource::<PendingMeshImport>();
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<HierarchyClick>();
         app.init_resource::<ui::HierarchyRightClickState>();
@@ -200,8 +203,6 @@ impl Plugin for MelosimEditorPlugin {
                 ui::hierarchy_panel,
                 ui::inspector_panel,
                 ui::apply_hierarchy_selection,
-                mesh_import::mesh_import_ui,
-                path_editor::path_editor_ui,
                 popups::show_popups,
             )
                 .chain(),
