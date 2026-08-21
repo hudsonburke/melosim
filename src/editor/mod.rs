@@ -1,4 +1,3 @@
-pub mod dock;
 pub mod gizmo;
 pub mod mesh_import;
 pub mod models;
@@ -131,9 +130,6 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<PendingModelImport>();
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
-        // egui_dock is a dependency for dockable-panel support.
-        // EditorDockState holds DockState<Tab> for future DockArea wiring.
-        app.init_resource::<dock::EditorDockState>();
         app.init_resource::<HierarchyClick>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
