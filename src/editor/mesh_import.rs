@@ -163,6 +163,7 @@ pub fn import_file(
         .unwrap_or("part");
     spawn_mesh_body(commands, asset_server, materials, asset_path, stem, unit);
     info!("imported mesh: {}", dest.display());
+    info!("mesh import: asset_path={}, dest_exists={}", asset_path, std::path::Path::new("assets").join(&asset_path).exists());
 }
 
 /// Handle files dropped onto the window (uses the format's default unit).
