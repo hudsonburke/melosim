@@ -7,6 +7,7 @@
 pub mod add_body;
 pub mod add_joint;
 pub mod add_muscle;
+pub mod attach_body;
 
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
@@ -25,6 +26,7 @@ pub enum ActivePopup {
     AddSite,
     AddFrame,
     ImportMeshUnit,
+    AttachBody,
 }
 
 /// State for the "Add Body" dialog.
@@ -88,6 +90,15 @@ pub struct AddSitePopup {
 #[derive(Resource, Default)]
 pub struct AddFramePopup {
     pub name: String,
+}
+
+/// State for the "Attach Body" dialog.
+#[derive(Resource, Default)]
+pub struct AttachBodyPopup {
+    /// The exo body entity that will be attached (the selected body).
+    pub exo_body: Option<Entity>,
+    /// The model body entity to attach to (user-selected from dropdown).
+    pub target_body: Option<Entity>,
 }
 
 /// Shared part counter for auto-naming components.
@@ -158,6 +169,31 @@ pub fn show_popups(
                 *active_popup = ActivePopup::None;
             }
         }
+        // AttachBody is handled by its own system (show_attach_body_popup)
+        ActivePopup::AttachBody => {}
+    }
+}
+
+/// System that shows the "Attach Body" popup window (separate to avoid 16-param limit).
+pub fn show_attach_body_popup(
+    mut contexts: bevy_inspector_egui::bevy_egui::EguiContexts,
+    mut active_popup: ResMut<ActivePopup>,
+    mut popup: ResMut<AttachBodyPopup>,
+    mut commands: Commands,
+    mut events: ResMut<EditorEvents>,
+    selection: Res<super::selection::Selection>,
+    bodies: Query<(Entity, &Name), With<Body>>,
+) {
+    if *active_popup != ActivePopup::AttachBody {
+        return;
+    }
+    let ctx = match contexts.ctx_mut() {
+        Ok(ctx) => ctx,
+        Err(_) => return,
+    };
+    let close = attach_body::show(ctx, &mut popup, &mut commands, &mut events, &selection, &bodies);
+    if close {
+        *active_popup = ActivePopup::None;
     }
 }
 

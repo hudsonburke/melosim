@@ -136,6 +136,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<popups::AddMusclePopup>();
         app.init_resource::<popups::AddSitePopup>();
         app.init_resource::<popups::AddFramePopup>();
+        app.init_resource::<popups::AttachBodyPopup>();
         app.init_resource::<popups::PartCounter>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
@@ -204,6 +205,7 @@ impl Plugin for MelosimEditorPlugin {
                 ui::inspector_panel,
                 ui::apply_hierarchy_selection,
                 popups::show_popups,
+                popups::show_attach_body_popup,
             )
                 .chain(),
         );

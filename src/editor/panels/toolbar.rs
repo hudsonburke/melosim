@@ -103,6 +103,11 @@ pub fn show(
                 *active_popup = ActivePopup::AddFrame;
                 ui.close();
             }
+            ui.separator();
+            if ui.button("Attach Body…").clicked() {
+                *active_popup = ActivePopup::AttachBody;
+                ui.close();
+            }
         });
         ui.separator();
         ui.menu_button("View", |ui| {
