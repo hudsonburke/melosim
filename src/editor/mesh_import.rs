@@ -153,12 +153,13 @@ pub fn import_file(
         error!("mesh import: cannot create {}: {e}", dest_dir.display());
         return;
     }
-    let dest = dest_dir.join(file_name);
+    let safe_name = file_name.replace(' ', "_");
+    let dest = dest_dir.join(&safe_name);
     if let Err(e) = std::fs::copy(src, &dest) {
         error!("mesh import: cannot copy {} → {}: {e}", src.display(), dest.display());
         return;
     }
-    let asset_path = format!("imported/{}", file_name);
+    let asset_path = format!("imported/{}", safe_name);
     let stem = Path::new(file_name)
         .file_stem()
         .and_then(|s| s.to_str())
