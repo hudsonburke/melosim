@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 
+use crate::editor::mesh_import;
 use crate::editor::models::{ModelRegistry, SelectedModel};
 use crate::editor::popups::ActivePopup;
 use crate::editor::selection::Selection;
@@ -15,6 +16,10 @@ pub fn show(
     settings: &mut RenderSettings,
     names: &Query<&mut Name>,
     active_popup: &mut ActivePopup,
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    materials: &mut Assets<StandardMaterial>,
+    pending_model_import: &mut crate::editor::PendingModelImport,
 ) {
     ui.horizontal(|ui| {
         ui.heading("melosim");
@@ -39,6 +44,32 @@ pub fn show(
                     selected_model.0 = Some(i);
                     ui.close();
                 }
+            }
+        });
+        ui.separator();
+        // Import menu: mesh files and MuJoCo models
+        ui.menu_button("Import", |ui| {
+            if ui.button("Mesh (STL/OBJ/gltf)…").clicked() {
+                if let Some(path) = mesh_import::pick_mesh_file() {
+                    let unit = mesh_import::default_unit(&path);
+                    mesh_import::import_file(
+                        commands,
+                        asset_server,
+                        materials,
+                        &path,
+                        unit,
+                    );
+                }
+                ui.close();
+            }
+            if ui.button("Model (.xml)…").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("MuJoCo model", &["xml"])
+                    .pick_file()
+                {
+                    pending_model_import.0 = Some(path);
+                }
+                ui.close();
             }
         });
         ui.separator();

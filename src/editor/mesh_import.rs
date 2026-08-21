@@ -72,7 +72,7 @@ fn is_mesh_ext(path: &Path) -> bool {
 }
 
 /// glTF is meters / Y-up; CAD mesh formats are assumed mm and Z-up.
-fn default_unit(path: &Path) -> ImportUnit {
+pub fn default_unit(path: &Path) -> ImportUnit {
     let ext = path.extension().and_then(|e| e.to_str());
     if matches!(ext, Some("glb") | Some("gltf")) {
         ImportUnit::M
@@ -132,7 +132,7 @@ fn spawn_mesh_body(
 }
 
 /// Copy a mesh file into `assets/imported/` and spawn a new Body for it.
-fn import_file(
+pub fn import_file(
     commands: &mut Commands,
     asset_server: &AssetServer,
     materials: &mut Assets<StandardMaterial>,
@@ -185,18 +185,17 @@ pub fn import_dropped_mesh(
 /// Small panel to import a mesh via the native file picker. Lets you choose the
 /// source unit (STL/OBJ are assumed mm and Z-up; glTF is meters/Y-up).
 /// Runs in the egui pass (separate system so `editor_ui` stays under 16 params).
+///
+/// **Note:** Import now also available via the toolbar Import menu. This panel
+/// is retained for standalone access but is no longer toggled via Tools window.
 pub fn mesh_import_ui(
     mut contexts: EguiContexts,
     mut pending: ResMut<super::PendingModelImport>,
-    panels: Res<super::ToolPanels>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut unit: Local<ImportUnit>,
 ) {
-    if !panels.import_mesh {
-        return;
-    }
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     egui::Window::new("Import Mesh")
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -36.0))
@@ -237,7 +236,7 @@ pub fn mesh_import_ui(
 }
 
 /// Open the native file dialog filtered to mesh formats.
-fn pick_mesh_file() -> Option<PathBuf> {
+pub fn pick_mesh_file() -> Option<PathBuf> {
     rfd::FileDialog::new()
         .add_filter("Meshes", &["stl", "glb", "gltf", "obj"])
         .pick_file()

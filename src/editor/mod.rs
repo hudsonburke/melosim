@@ -25,7 +25,6 @@ pub struct PendingMujocoExport(pub Option<PathBuf>);
 /// the middle of the viewport unless the user opens them from the View menu.
 #[derive(Default, Resource)]
 pub struct ToolPanels {
-    pub import_mesh: bool,
     pub path_editor: bool,
 }
 
@@ -134,6 +133,7 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<PendingMujocoExport>();
         app.init_resource::<ToolPanels>();
         app.init_resource::<HierarchyClick>();
+        app.init_resource::<ui::HierarchyRightClickState>();
         // Popup system resources
         app.init_resource::<popups::ActivePopup>();
         app.init_resource::<popups::AddBodyPopup>();
@@ -218,6 +218,8 @@ impl Plugin for MelosimEditorPlugin {
 
         // Flush context-menu events stashed during the egui pass into EditorEvents.
         app.add_systems(Update, events::flush_context_menu_events);
+
+        // Process hierarchy context-menu actions (Add Site, Add Frame, etc.)
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so
