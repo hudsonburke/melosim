@@ -3,7 +3,6 @@ use bevy_inspector_egui::bevy_egui::egui;
 
 use crate::editor::selection::Selection;
 use crate::model::{Body, Coordinate, Joint, JointCoordinates, Muscle, Site, Frame};
-
 /// Render the hierarchy tree into the given `Ui`.
 ///
 /// Returns the entity that was clicked (if any), so the caller can update
