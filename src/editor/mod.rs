@@ -1,3 +1,4 @@
+pub mod events;
 pub mod gizmo;
 pub mod mesh_import;
 pub mod models;
@@ -125,6 +126,7 @@ impl Plugin for MelosimEditorPlugin {
 
         // Resources
         app.init_resource::<Selection>();
+        app.init_resource::<events::EditorEvents>();
         app.init_resource::<models::ModelRegistry>();
         app.init_resource::<path_editor::PathEditor>();
         app.init_resource::<PendingModelImport>();
@@ -203,6 +205,9 @@ impl Plugin for MelosimEditorPlugin {
             )
                 .chain(),
         );
+
+        // Flush context-menu events stashed during the egui pass into EditorEvents.
+        app.add_systems(Update, events::flush_context_menu_events);
 
         // 3D selection via bevy_picking. bevy_egui's `picking` feature
         // suppresses these events over egui windows (capture_pointer_input), so
