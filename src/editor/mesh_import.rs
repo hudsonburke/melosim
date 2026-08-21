@@ -21,7 +21,7 @@ use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
 use bevy_inspector_egui::bevy_egui::egui;
 use bevy_inspector_egui::bevy_egui::EguiContexts;
 
-use crate::model::{Body, InertialProperties};
+use crate::model::{Body, InertialProperties, MeshSource};
 
 /// Z-up (CAD/MuJoCo) → Y-up (glTF) rotation, matching the myoarm mesh nodes.
 fn zup_to_yup() -> Quat {
@@ -114,8 +114,21 @@ fn spawn_mesh_body(
     let mesh_child = if is_gltf {
         // Whole glTF scene (`#Scene0`) via its WorldAsset — all nodes/primitives.
         let scene: Handle<WorldAsset> = asset_server.load(format!("{asset_path}#Scene0"));
+        let mesh_name = Path::new(&asset_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("mesh")
+            .to_string();
         commands
-            .spawn((Name::new(format!("{name}_mesh")), WorldAssetRoot(scene), transform))
+            .spawn((
+                Name::new(format!("{name}_mesh")),
+                WorldAssetRoot(scene),
+                transform,
+                MeshSource {
+                    stl_path: std::path::PathBuf::from(format!("assets/{asset_path}")),
+                    mesh_name,
+                },
+            ))
             .insert(ChildOf(body_id))
             .id()
     } else {
@@ -125,8 +138,21 @@ fn spawn_mesh_body(
             base_color: Color::srgb(0.8, 0.7, 0.6),
             ..default()
         });
+        let mesh_name = Path::new(&asset_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("mesh")
+            .to_string();
         commands
-            .spawn((Name::new(format!("{name}_mesh")), Mesh3d(mesh), MeshMaterial3d(material)))
+            .spawn((
+                Name::new(format!("{name}_mesh")),
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                MeshSource {
+                    stl_path: std::path::PathBuf::from(format!("assets/{asset_path}")),
+                    mesh_name,
+                },
+            ))
             .insert(ChildOf(body_id))
             .id()
     };
