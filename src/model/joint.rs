@@ -10,21 +10,8 @@ type Iso3 = Isometry3<f64>;
 
 /// Marker for a joint entity.
 #[derive(Component, Clone, Debug, Default, Reflect)]
-#[require(Transform, Visibility)]
+#[require(Transform)]
 pub struct Joint;
-
-/// Records which two frames a joint connects.
-///
-/// When set, the joint's `Transform` represents the relative offset between
-/// the two frames (frame_a → joint → frame_b). The FK solver and exporter
-/// can use this to compute the correct spatial relationship.
-#[derive(Component, Clone, Debug, Reflect)]
-pub struct Connects {
-    /// Frame on the parent body (e.g. the exo part).
-    pub frame_a: Entity,
-    /// Frame on the child body (e.g. the model body).
-    pub frame_b: Entity,
-}
 
 /// Marker for a generalized coordinate entity.
 #[derive(Component, Clone, Debug, Default, Reflect)]
@@ -135,6 +122,16 @@ pub enum CouplingKind {
 // ── Twist → SE(3) via exponential map ─────────────────
 
 impl Twist {
+    /// Pure rotation around an axis.
+    pub fn rotation(axis: Vec3) -> Self {
+        Self { angular: axis, linear: Vec3::zeros() }
+    }
+
+    /// Pure translation along an axis.
+    pub fn translation(axis: Vec3) -> Self {
+        Self { angular: Vec3::zeros(), linear: axis }
+    }
+
     pub fn exp(&self, theta: f64) -> Iso3 {
         if theta.abs() < 1e-12 {
             return Iso3::identity();

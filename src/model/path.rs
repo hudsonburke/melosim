@@ -32,17 +32,7 @@ impl PathEntities {
 /// Bevy's own `ChildOf`), not authored in scene notation.
 #[derive(Component, Clone, Debug, FromTemplate, Reflect)]
 #[relationship(relationship_target = PathEntities)]
-pub struct PathElement(pub Entity);
-
-// ── Wrapping surface marker ──
-
-/// Marker for wrapping surface entities.
-#[derive(Component, Clone, Debug, Default, Reflect)]
-pub struct WrappingSurface;
-
-/// Radius of a wrapping surface.
-#[derive(Component, Clone, Debug, Reflect)]
-pub struct WrapRadius(pub f32);
+pub struct PathElement(Entity);
 
 // ── Path evaluation ──
 
