@@ -10,7 +10,7 @@ type Iso3 = Isometry3<f64>;
 
 /// Marker for a joint entity.
 #[derive(Component, Clone, Debug, Default, Reflect)]
-#[require(Transform)]
+#[require(Transform, JointCoordinates)]
 pub struct Joint;
 
 /// Marker for a generalized coordinate entity.
@@ -21,7 +21,7 @@ pub struct Coordinate;
 // ── Joint → Coordinates relationship ──
 
 /// Ordered list of coordinate entities owned by this joint.
-#[derive(Component, Clone, Debug, Reflect)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[relationship_target(relationship = CoordinateOf)]
 pub struct JointCoordinates(Vec<Entity>);
 
@@ -212,5 +212,78 @@ pub fn sync_kinematics(
 ) {
     for (coords, mut transform) in &mut joints {
         *transform = to_bevy_transform(&evaluate_joint(coords.iter(), &twists, &states));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Body, Frame};
+
+    #[test]
+    fn joint_motion_preserves_fixed_parent_frame_offset() {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            bevy::transform::TransformPlugin,
+        ));
+        app.add_systems(
+            PostUpdate,
+            sync_kinematics.before(bevy::transform::TransformSystems::Propagate),
+        );
+
+        let root = app.world_mut().spawn((Body, Transform::IDENTITY)).id();
+        let frame = app
+            .world_mut()
+            .spawn((
+                Frame,
+                Transform::from_xyz(1.0, 0.0, 0.0),
+                ChildOf(root),
+            ))
+            .id();
+        let coordinate = app
+            .world_mut()
+            .spawn((
+                Coordinate,
+                CoordinateProperties::default(),
+                InitialConditions::default(),
+                CoordinateState::default(),
+                Twist::rotation(Vector3::z()),
+            ))
+            .id();
+        let joint = app
+            .world_mut()
+            .spawn((
+                Joint,
+                JointCoordinates::new(vec![coordinate]),
+                Transform::IDENTITY,
+                ChildOf(frame),
+            ))
+            .id();
+        let child = app
+            .world_mut()
+            .spawn((Body, Transform::IDENTITY, ChildOf(joint)))
+            .id();
+
+        app.update();
+        let initial = app.world().get::<GlobalTransform>(child).unwrap();
+        assert!((initial.translation().x - 1.0).abs() < 1e-6);
+        assert!(initial.translation().y.abs() < 1e-6);
+
+        app.world_mut()
+            .get_mut::<CoordinateState>(coordinate)
+            .unwrap()
+            .value = 0.5;
+        app.update();
+
+        let articulated = app.world().get::<GlobalTransform>(child).unwrap();
+        assert!((articulated.translation().x - 1.0).abs() < 1e-6);
+        assert!(articulated.translation().y.abs() < 1e-6);
+        assert!(
+            articulated
+                .rotation()
+                .angle_between(bevy::math::Quat::from_rotation_z(0.5))
+                < 1e-5
+        );
     }
 }

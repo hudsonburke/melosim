@@ -14,25 +14,6 @@ const COLORS: [Color; 3] = [
 
 // ── Gizmo systems ────────────────────────────────────
 
-/// Draw each `Body`: RGB coordinate axes + a small origin sphere.
-pub fn draw_bodies(
-    mut gizmos: Gizmos,
-    settings: Res<RenderSettings>,
-    bodies: Query<&GlobalTransform, With<crate::model::Body>>,
-) {
-    if !settings.bodies {
-        return;
-    }
-    for gt in &bodies {
-        let pos = gt.translation();
-        let rot = gt.rotation();
-        for (axis, color) in AXES.iter().zip(COLORS.iter()) {
-            gizmos.line(pos, pos + rot * *axis * 0.02, *color);
-        }
-        gizmos.sphere(Isometry3d::from_translation(pos), 0.005, Color::srgb(1.0, 1.0, 0.0));
-    }
-}
-
 /// Draw each `Frame` as a small local RGB axis triplet (its own coordinate
 /// system), so attachment frames are visible and aimable.
 pub fn draw_frames(
@@ -70,43 +51,6 @@ pub fn draw_sites(
     }
 }
 
-/// Toggle the real model meshes (bones) via `Visibility` when `settings.meshes`
-/// changes. Only meshes sitting under a model `Body` are affected — gizmo /
-/// editor meshes are left alone.
-pub fn sync_mesh_visibility(
-    settings: Res<RenderSettings>,
-    bodies: Query<(), With<crate::model::Body>>,
-    child_of: Query<&ChildOf>,
-    mut meshes: Query<(&ChildOf, &mut Visibility), With<Mesh3d>>,
-) {
-    if !settings.is_changed() {
-        return;
-    }
-    let target = if settings.meshes {
-        Visibility::Visible
-    } else {
-        Visibility::Hidden
-    };
-    for (mesh_child_of, mut vis) in &mut meshes {
-        // Walk up to the nearest ancestor with `Body`; if found, it's a model bone.
-        let mut parent = mesh_child_of.parent();
-        let mut under_body = false;
-        for _ in 0..32 {
-            if bodies.get(parent).is_ok() {
-                under_body = true;
-                break;
-            }
-            match child_of.get(parent) {
-                Ok(p) => parent = p.parent(),
-                Err(_) => break,
-            }
-        }
-        if under_body {
-            *vis = target;
-        }
-    }
-}
-
 /// Draw muscle paths as line segments between path entities.
 pub fn draw_muscle_paths(
     mut gizmos: Gizmos,
@@ -127,44 +71,6 @@ pub fn draw_muscle_paths(
             for pair in points.windows(2) {
                 gizmos.line(pair[0], pair[1], Color::srgb(0.9, 0.2, 0.2));
             }
-        }
-    }
-}
-
-/// Draw joint axes as short lines showing rotation/translation directions.
-pub fn draw_joint_axes(
-    mut gizmos: Gizmos,
-    settings: Res<RenderSettings>,
-    axes: Query<(&crate::model::Twist, &ChildOf)>,
-    transforms: Query<&GlobalTransform>,
-) {
-    if !settings.joint_axes {
-        return;
-    }
-    for (twist, child_of) in &axes {
-        let Ok(joint_gt) = transforms.get(child_of.0) else {
-            continue;
-        };
-        let pos = joint_gt.translation();
-
-        // Rotation axis (blue)
-        if twist.angular.norm() > 1e-6 {
-            let dir = twist.angular.normalize() * 0.05;
-            gizmos.line(
-                pos,
-                pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32),
-                Color::srgb(0.2, 0.4, 0.9),
-            );
-        }
-
-        // Translation axis (green)
-        if twist.linear.norm() > 1e-6 {
-            let dir = twist.linear.normalize() * 0.05;
-            gizmos.line(
-                pos,
-                pos + Vec3::new(dir.x as f32, dir.y as f32, dir.z as f32),
-                Color::srgb(0.2, 0.9, 0.4),
-            );
         }
     }
 }

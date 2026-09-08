@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use super::PathEntities;
+
 /// A muscle entity.
 #[derive(Component, Clone, Debug, Default, Reflect)]
 #[require(PathEntities)]

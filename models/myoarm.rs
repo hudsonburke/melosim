@@ -6,9 +6,9 @@
 //! loadable `.bsn` asset files, this becomes plain data and the editor will scan
 //! the directory at runtime instead of including modules at compile time.
 //!
-//! Mesh coordinate convention (MuJoCo): the GLB files are direct exports of the
-//! MuJoCo STL meshes (vertices in the MuJoCo body frame, Z-up); each mesh node
-//! carries the Z-up → Y-up rotation.
+//! Mesh assets use GLTF/GLB, the editor's canonical visual format. Imported
+//! scenes should already be in the canonical meters, right-handed, Y-up
+//! convention and are loaded through Bevy's AssetServer.
 
 use bevy::prelude::*;
 
@@ -19,7 +19,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
         // Clavicle
         (
             #clavicle Body
-            InertialProperties{
+            InertialProperties {
                 mass: 0.156, 
                 mass_center: Vector3::new(-0.011, 0.006, 0.054), 
                 inertia: Inertia::diag(0.001, 0.001, 0.001)
@@ -34,9 +34,13 @@ pub fn myoarm_skeleton() -> impl SceneList {
             ]
         ),
         (
-            #sternoclavicular Joint
+            #sternoclavicular_frame Frame
             ChildOf(#clavicle)
             Transform::from_xyz(-0.01433, 0.1355, -0.02007)
+        ),
+        (
+            #sternoclavicular Joint
+            ChildOf(#sternoclavicular_frame)
             JointCoordinates [
                 (
                     #sternoclavicular_r2 Coordinate
@@ -55,7 +59,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
         (
             #scapula Body
             ChildOf(#sternoclavicular)
-            InertialProperties{
+            InertialProperties {
                 mass: 0.704,
                 mass_center: Vector3::new(-0.055, -0.035, -0.044), 
                 inertia: Inertia::diag(0.002, 0.001, 0.001)
@@ -70,9 +74,13 @@ pub fn myoarm_skeleton() -> impl SceneList {
             ]
         ),
         (
-            #acromioclavicular Joint
+            #acromioclavicular_frame Frame
             ChildOf(#scapula)
-            Transform::from_xyz(-0.00955, 0.009, 0.034),
+            Transform::from_xyz(-0.00955, 0.009, 0.034)
+        ),
+        (
+            #acromioclavicular Joint
+            ChildOf(#acromioclavicular_frame)
             JointCoordinates [
                 (
                     #acromioclavicular_r1 Coordinate
@@ -96,7 +104,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
         (
             #humerus Body
             ChildOf(#acromioclavicular)
-            InertialProperties{
+            InertialProperties {
                 mass: 1.998, 
                 mass_center: Vector3::new(0.018, -0.140, -0.013),
                 inertia: Inertia::diag(0.013, 0.012, 0.002)
@@ -111,9 +119,13 @@ pub fn myoarm_skeleton() -> impl SceneList {
             ]
         ),
         (
+            #shoulder_frame Frame
+            ChildOf(#humerus)
+            Transform::from_xyz(0.0061, -0.0123, 0.2904)
+        ),
+        (
             #shoulder Joint
-            ChildOf(#shoulder)
-            Transform::from_xyz(0.0061, -0.0123, 0.2904),
+            ChildOf(#shoulder_frame)
             JointCoordinates [
                 (
                     #shoulder_elv Coordinate
@@ -132,7 +144,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
         (
             #ulna Body
             ChildOf(#shoulder)
-            InertialProperties{
+            InertialProperties {
                 mass: 0.118,
                 mass_center: Vector3::new(0.002, -0.133, 0.008), 
                 inertia: Inertia::diag(0.0005, 0.0005, 0.00003)
@@ -161,7 +173,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
         // Radius
         (
             #pro_sup Joint
-            ChildOf(#pro_sup_offset)
+            ChildOf(#ulna)
             JointCoordinates [
                 (
                     #pro_sup_rot Coordinate
@@ -173,7 +185,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
         (
             #radius Body
             ChildOf(#pro_sup)
-            InertialProperties{
+            InertialProperties {
                 mass: 0.234,
                 mass_center: Vector3::new(0.034, -0.182, 0.016),
                 inertia: Inertia::diag(0.001, 0.001, 0.001)
