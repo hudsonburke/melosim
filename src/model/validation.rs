@@ -3,7 +3,9 @@ use std::fmt;
 
 use bevy::prelude::*;
 
-use super::{Body, Coordinate, CoordinateOf, Frame, Joint, JointCoordinates};
+use super::{
+    Body, Coordinate, CoordinateOf, CouplingKind, DrivenBy, Frame, Joint, JointCoordinates,
+};
 
 /// A structural problem in the model's body/frame/joint tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +26,7 @@ pub enum KinematicError {
     MissingEntity(Entity),
     ParentMustBeBodyOrFrame(Entity),
     NotAJoint(Entity),
+    NotACoordinate(Entity),
     ChildMustBeBodyOrFrame(Entity),
     AlreadyHasParent(Entity),
     WouldCreateCycle,
@@ -37,6 +40,7 @@ impl fmt::Display for KinematicError {
                 write!(f, "joint parent {entity} is not a Body or Frame")
             }
             Self::NotAJoint(entity) => write!(f, "entity {entity} is not a Joint"),
+            Self::NotACoordinate(entity) => write!(f, "entity {entity} is not a Coordinate"),
             Self::ChildMustBeBodyOrFrame(entity) => {
                 write!(f, "joint child {entity} is not a Body or Frame")
             }
@@ -44,6 +48,30 @@ impl fmt::Display for KinematicError {
             Self::WouldCreateCycle => write!(f, "kinematic connection would create a cycle"),
         }
     }
+}
+
+/// Validate the endpoint entities for a new joint connection before any
+/// entities are spawned or reparented.
+pub fn validate_joint_endpoints(
+    world: &World,
+    parent: Entity,
+    child: Entity,
+) -> Result<(), KinematicError> {
+    for entity in [parent, child] {
+        if world.get_entity(entity).is_err() {
+            return Err(KinematicError::MissingEntity(entity));
+        }
+    }
+    if world.get::<Body>(parent).is_none() && world.get::<Frame>(parent).is_none() {
+        return Err(KinematicError::ParentMustBeBodyOrFrame(parent));
+    }
+    if world.get::<Body>(child).is_none() && world.get::<Frame>(child).is_none() {
+        return Err(KinematicError::ChildMustBeBodyOrFrame(child));
+    }
+    if parent == child || world.get::<ChildOf>(child).is_some() || has_ancestor(world, parent, child) {
+        return Err(KinematicError::WouldCreateCycle);
+    }
+    Ok(())
 }
 
 /// Attach an existing joint between an existing parent and child node.
@@ -63,27 +91,12 @@ pub fn attach_joint(
             return Err(KinematicError::MissingEntity(entity));
         }
     }
-
-    if world.get::<Body>(parent).is_none() && world.get::<Frame>(parent).is_none() {
-        return Err(KinematicError::ParentMustBeBodyOrFrame(parent));
-    }
     if world.get::<Joint>(joint).is_none() {
         return Err(KinematicError::NotAJoint(joint));
     }
-    if world.get::<Body>(child).is_none() && world.get::<Frame>(child).is_none() {
-        return Err(KinematicError::ChildMustBeBodyOrFrame(child));
-    }
-    if parent == joint || parent == child || joint == child {
-        return Err(KinematicError::WouldCreateCycle);
-    }
+    validate_joint_endpoints(world, parent, child)?;
     if world.get::<ChildOf>(joint).is_some() {
         return Err(KinematicError::AlreadyHasParent(joint));
-    }
-    if world.get::<ChildOf>(child).is_some() {
-        return Err(KinematicError::AlreadyHasParent(child));
-    }
-    if has_ancestor(world, parent, child) {
-        return Err(KinematicError::WouldCreateCycle);
     }
 
     world.entity_mut(joint).insert(ChildOf(parent));
@@ -154,10 +167,39 @@ pub fn validate_kinematic_hierarchy(world: &mut World) -> Vec<KinematicIssue> {
                 )),
                 Some(_) => {}
             }
+
+            if let Some(driven_by) = world.get::<DrivenBy>(coordinate) {
+                if world.get::<Coordinate>(driven_by.source).is_none() {
+                    issues.push(issue(
+                        coordinate,
+                        format!("DrivenBy target {} is not a Coordinate", driven_by.source),
+                    ));
+                }
+                if has_coupling_cycle(world, coordinate) {
+                    issues.push(issue(coordinate, "coordinate coupling contains a cycle"));
+                }
+                if let CouplingKind::Gear { ratio } = &driven_by.coupling {
+                    if !ratio.is_finite() {
+                        issues.push(issue(coordinate, "gear ratio is not finite"));
+                    }
+                }
+            }
         }
     }
 
     issues
+}
+
+fn has_coupling_cycle(world: &World, start: Entity) -> bool {
+    let mut current = start;
+    let mut visited = HashSet::new();
+    while let Some(driven_by) = world.get::<DrivenBy>(current) {
+        if !visited.insert(current) {
+            return true;
+        }
+        current = driven_by.source;
+    }
+    false
 }
 
 fn issue(entity: Entity, message: impl Into<String>) -> KinematicIssue {

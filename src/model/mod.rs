@@ -1,3 +1,4 @@
+mod builder;
 mod frame;
 mod function;
 mod joint;
@@ -6,6 +7,7 @@ mod path;
 mod validation;
 mod inertial;
 
+pub use builder::*;
 pub use frame::*;
 pub use function::*;
 pub use joint::*;
