@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 
+use crate::editor::popups::ActivePopup;
 use crate::editor::selection::Selection;
 use crate::model::{
-    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
-    InitialConditions, InertialProperties, Joint, Muscle, Site, Twist,
+    Body, CableParameters, Coordinate, CoordinateProperties, CoordinateState, Frame,
+    HillTypeMuscleParams, InitialConditions, InertialProperties, Joint, Muscle, PathEntities, Site,
+    Twist,
 };
 
 // ── Sub-panel functions ─────────────────────────────────────
@@ -36,6 +38,20 @@ pub fn show_name(ui: &mut egui::Ui, selection: &Selection, names: &mut Query<&mu
     }
 
     Some(entity)
+}
+
+/// Editable local transform inspector for frames and sites.
+pub fn show_transform(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut Transform>) {
+    let Ok(mut transform) = q.get_mut(entity) else { return };
+
+    ui.separator();
+    ui.label(egui::RichText::new("Local transform").strong());
+    ui.label("Translation (m)");
+    ui.horizontal(|ui| {
+        ui.add(egui::DragValue::new(&mut transform.translation.x).speed(0.001).suffix("x"));
+        ui.add(egui::DragValue::new(&mut transform.translation.y).speed(0.001).suffix("y"));
+        ui.add(egui::DragValue::new(&mut transform.translation.z).speed(0.001).suffix("z"));
+    });
 }
 
 /// Editable inspector for a Body's `InertialProperties`.
@@ -204,6 +220,40 @@ pub fn show_coordinate(
     );
 }
 
+/// Editable inspector for a routed cable and its ordered path.
+pub fn show_cable(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    selection: &Selection,
+    active_popup: &mut ActivePopup,
+    parameters: &mut Query<&mut CableParameters>,
+    paths: &Query<&PathEntities>,
+    names: &Query<&mut Name>,
+) {
+    let Ok(mut params) = parameters.get_mut(entity) else { return };
+    let Ok(path) = paths.get(entity) else { return };
+
+    ui.separator();
+    ui.label(egui::RichText::new("Cable").strong());
+    ui.add(egui::DragValue::new(&mut params.rest_length).speed(0.001).suffix("rest length (m)"));
+    ui.add(egui::DragValue::new(&mut params.stiffness).speed(10.0).suffix("stiffness"));
+    ui.add(egui::DragValue::new(&mut params.damping).speed(0.1).suffix("damping"));
+    ui.add(egui::DragValue::new(&mut params.max_tension).speed(10.0).suffix("max tension (N)"));
+    ui.add(egui::DragValue::new(&mut params.actuator_force).speed(10.0).suffix("actuator force (N)"));
+
+    ui.label(format!("Path sites ({})", path.len()));
+    for (index, site) in path.iter().enumerate() {
+        let name = names
+            .get(site)
+            .map(|name| name.as_str().to_owned())
+            .unwrap_or_else(|_| format!("{:?}", site));
+        ui.label(format!("{}. {name}", index + 1));
+    }
+    if ui.button("＋ Add Path Site").clicked() && selection.primary() == Some(entity) {
+        *active_popup = ActivePopup::AddPathSite;
+    }
+}
+
 /// Editable inspector for `HillTypeMuscleParams`.
 pub fn show_muscle(ui: &mut egui::Ui, entity: Entity, q: &mut Query<&mut HillTypeMuscleParams>) {
     let Ok(mut m) = q.get_mut(entity) else { return };
@@ -256,6 +306,7 @@ pub fn show_children(
         Option<&Coordinate>,
         Option<&Site>,
         Option<&Muscle>,
+        Option<&crate::model::Cable>,
         Option<&Frame>,
     )>,
     commands: &mut Commands,
@@ -269,8 +320,8 @@ pub fn show_children(
     if let Ok(children) = children_query.get(entity) {
         for child in children.iter() {
             match model_markers.get(child) {
-                Ok((_, _, _, Some(_), _, _)) => sites.push(child),
-                Ok((_, _, _, _, _, Some(_))) => frames.push(child),
+                Ok((_, _, _, Some(_), _, _, _)) => sites.push(child),
+                Ok((_, _, _, _, _, _, Some(_))) => frames.push(child),
                 _ => {}
             }
         }

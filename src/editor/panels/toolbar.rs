@@ -18,8 +18,9 @@ pub fn show(
     names: &Query<&mut Name>,
     active_popup: &mut ActivePopup,
     pending_model_import: &mut crate::editor::PendingModelImport,
-    pending_mesh_import: &mut crate::editor::PendingMeshImport,
     pending_export: &mut PendingMujocoExport,
+    commands: &mut Commands,
+    asset_server: &AssetServer,
 ) {
     ui.horizontal(|ui| {
         ui.heading("melosim");
@@ -49,16 +50,15 @@ pub fn show(
         ui.separator();
         // Import menu: mesh files and MuJoCo models
         ui.menu_button("Import", |ui| {
-            if ui.button("Mesh (STL/OBJ/gltf)…").clicked() {
+            if ui.button("Mesh (GLTF/GLB)…").clicked() {
                 if let Some(path) = mesh_import::pick_mesh_file() {
-                    pending_mesh_import.0 = Some(path);
-                    *active_popup = ActivePopup::ImportMeshUnit;
+                    mesh_import::import_file(commands, asset_server, &path);
                 }
                 ui.close();
             }
-            if ui.button("Model (.xml)…").clicked() {
+            if ui.button("Model (.xml/.osim)…").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("MuJoCo model", &["xml"])
+                    .add_filter("Biomechanical models", &["xml", "osim"])
                     .pick_file()
                 {
                     pending_model_import.0 = Some(path);
@@ -87,6 +87,10 @@ pub fn show(
                 *active_popup = ActivePopup::AddBody;
                 ui.close();
             }
+            if ui.button("Cable").clicked() {
+                *active_popup = ActivePopup::AddCable;
+                ui.close();
+            }
             if ui.button("Joint").clicked() {
                 *active_popup = ActivePopup::AddJoint;
                 ui.close();
@@ -103,20 +107,13 @@ pub fn show(
                 *active_popup = ActivePopup::AddFrame;
                 ui.close();
             }
-            ui.separator();
-            if ui.button("Connect Frames…").clicked() {
-                *active_popup = ActivePopup::ConnectFrames;
-                ui.close();
-            }
+
         });
         ui.separator();
         ui.menu_button("View", |ui| {
-            ui.checkbox(&mut settings.meshes, "Meshes");
-            ui.checkbox(&mut settings.bodies, "Bodies");
             ui.checkbox(&mut settings.frames, "Frames");
             ui.checkbox(&mut settings.sites, "Sites");
             ui.checkbox(&mut settings.muscles, "Muscles");
-            ui.checkbox(&mut settings.joint_axes, "Joint Axes");
         });
         ui.separator();
     });

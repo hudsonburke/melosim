@@ -32,7 +32,7 @@ impl PathEntities {
 /// Bevy's own `ChildOf`), not authored in scene notation.
 #[derive(Component, Clone, Debug, FromTemplate, Reflect)]
 #[relationship(relationship_target = PathEntities)]
-pub struct PathElement(Entity);
+pub struct PathElement(pub Entity);
 
 // ── Path evaluation ──
 

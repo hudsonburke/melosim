@@ -11,7 +11,7 @@ use bevy_inspector_egui::bevy_egui::EguiContexts;
 
 use super::selection::Selection;
 
-use crate::model::{Body, Frame, Joint, Muscle, Site};
+use crate::model::{Body, Cable, Frame, Joint, Muscle, Site};
 
 /// Direction the camera sits at, relative to the model center (before scaling).
 const FRAME_DIR: Vec3 = Vec3::new(-1.0, 0.6, 1.2);
@@ -77,6 +77,7 @@ pub fn select_on_click(
     sites: Query<Entity, With<Site>>,
     frames: Query<Entity, With<Frame>>,
     muscles: Query<Entity, With<Muscle>>,
+    cables: Query<Entity, With<Cable>>,
 ) {
     let mut current = trigger.original_event_target();
     loop {
@@ -85,6 +86,7 @@ pub fn select_on_click(
             || sites.get(current).is_ok()
             || frames.get(current).is_ok()
             || muscles.get(current).is_ok()
+            || cables.get(current).is_ok()
         {
             selection.select_single(current);
             return;

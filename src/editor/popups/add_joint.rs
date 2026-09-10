@@ -1,12 +1,9 @@
 //! "Add Joint" popup dialog.
 
-use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 
-use super::{AddJointPopup, JointType, PartCounter};
-use crate::editor::events::{EditorEvent, EditorEvents, MutationKind};
+use super::{AddJointPopup, AddJointRequest, JointType, PartCounter, PendingModelActions};
 use crate::editor::selection::Selection;
-use crate::model::{Coordinate, CoordinateProperties, CoordinateOf, Joint, JointCoordinates, Twist};
 
 /// Show the "Add Joint" popup window.
 ///
@@ -15,8 +12,7 @@ pub fn show(
     ctx: &egui::Context,
     popup: &mut AddJointPopup,
     counter: &mut PartCounter,
-    commands: &mut Commands,
-    events: &mut EditorEvents,
+    pending_actions: &mut PendingModelActions,
     selection: &Selection,
 ) -> bool {
     let mut close = false;
@@ -68,53 +64,10 @@ pub fn show(
                         counter.0 += 1;
 
                         if let Some(parent) = parent {
-                            // Create a coordinate entity for the joint
-                            let coord = commands
-                                .spawn((
-                                    Name::new(format!("{}_coord", name)),
-                                    Coordinate::default(),
-                                    CoordinateProperties::default(),
-                                ))
-                                .id();
-
-                            // Create the joint entity
-                            let joint = commands
-                                .spawn((
-                                    Name::new(name),
-                                    Joint,
-                                    JointCoordinates::new(vec![coord]),
-                                    Transform::default(),
-                                ))
-                                .insert(ChildOf(parent))
-                                .id();
-
-                            // Link coordinate to joint
-                            commands.entity(coord).insert(CoordinateOf(joint));
-
-                            // Link coordinate to parent body
-                            commands.entity(parent).add_children(&[joint]);
-
-                            // Set up twist based on joint type
-                            let twist = match joint_type {
-                                JointType::Weld => Twist::default(),
-                                JointType::Hinge => Twist {
-                                    angular: nalgebra::Vector3::new(0.0, 0.0, 1.0),
-                                    linear: nalgebra::Vector3::zeros(),
-                                },
-                                JointType::Ball => Twist {
-                                    angular: nalgebra::Vector3::new(1.0, 0.0, 0.0),
-                                    linear: nalgebra::Vector3::zeros(),
-                                },
-                            };
-                            commands.entity(coord).insert(twist);
-
-                            events.push(EditorEvent::ModelMutation {
-                                kind: MutationKind::AddChild {
-                                    parent,
-                                    child: joint,
-                                    marker: "Joint",
-                                },
-                                entity: joint,
+                            pending_actions.add_joints.push(AddJointRequest {
+                                parent,
+                                name,
+                                joint_type,
                             });
                         }
 

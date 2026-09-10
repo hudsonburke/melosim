@@ -1,23 +1,14 @@
-//! MuJoCo MJCF → melosim model (built anew for the *current* model).
-//!
-//! `mujoco-rs`'s `MjSpec` parses the XML (includes, defaults, classes); we walk
-//! the spec and spawn current-model entities so an imported model visualizes in
-//! the editor: `Body` (+ `InertialProperties`), `Site`, `Joint` →
-//! `Coordinate` (+ `Twist`, `CoordinateProperties`, `CoordinateState`), and
-//! GLTF mesh **geom**s as `WorldAssetRoot` children loaded through Bevy's
-//! built-in `AssetServer`. Other mesh formats are reported and skipped; mesh
-//! conversion belongs outside the ECS importer.
-//!
-//! Bodies are parented to their MJCF parent body directly (static pose);
-//! joints attach to the body they drive. Geometry requires the app's asset
-//! resources — in a bare `World` (unit tests) geoms are skipped gracefully.
+//! MuJoCo MJCF import with native compiled mesh rendering and source provenance.
+//! Mesh geometry is retained even in headless worlds; render assets are optional.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use bevy::ecs::world::World;
 use bevy::prelude::*;
-use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
+use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology};
+use std::sync::Arc;
+use crate::model::{MeshGeometry, MeshSource};
 use mujoco_rs::wrappers::mj_editing::*;
 use mujoco_rs::wrappers::mj_model::{MjModel, MjtJoint};
 use nalgebra::Vector3;
@@ -25,7 +16,7 @@ use nalgebra::Vector3;
 use super::ImportError;
 
 use crate::model::{
-    CoordinateProperties, Frame, HillTypeMuscleParams, Inertia, InitialConditions,
+    Body, CoordinateProperties, Frame, HillTypeMuscleParams, Inertia, InitialConditions,
     validate_kinematic_hierarchy, CoordinateSpec, InertialProperties, ModelBuilder, Muscle,
     PathEntities, Twist,
 };
@@ -48,6 +39,7 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
     // MjSpec::from_xml resolves `<include>` and `meshdir` relative to CWD,
     // not the XML file's directory. Temporarily switch CWD.
     let saved_cwd = std::env::current_dir().ok();
+    let _cwd_guard = RestoreCwd(saved_cwd.clone());
     std::env::set_current_dir(&model_dir)
         .map_err(|e| ImportError::Load(format!("cannot cd to model dir '{}': {e}", model_dir.display())))?;
 
@@ -58,23 +50,18 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "model".into());
 
-    // Mesh geometry sources: name → file string from the spec. MuJoCo resolves
-    // `file` relative to `model_dir + meshdir` (or absolute); we replicate that
-    // per geom and copy the resolved file into assets/ (see `spawn_geom`).
+    // Retain the authored asset directory for original-file provenance.
     let meshdir = spec.compiler().meshdir().to_string();
-    let mesh_src: HashMap<String, String> = spec
-        .mesh_iter()
-        .map(|m| (m.name().to_string(), m.file().to_string()))
-        .collect();
-    let mesh_ref: HashMap<String, ([f64; 3], [f64; 4], [f64; 3])> = spec
-        .mesh_iter()
-        .map(|m| (m.name().to_string(), (*m.refpos(), *m.refquat(), *m.scale())))
-        .collect();
-
-    // Top-level container (Frame) so imported bodies group under it.
-    // The Z-up→Y-up rotation lives here (on the root), NOT on every body —
-    // bodies use translation-only transforms so GlobalTransform propagation
-    // multiplies parent-child translations correctly without spurious rotations.
+    // Give unnamed bodies stable identities before compilation.
+    let used: std::collections::HashSet<String> = spec.body_iter().map(|b| b.name().to_owned()).collect();
+    for (i, body) in spec.body_iter_mut().enumerate() {
+        if body.name().is_empty() {
+            let mut name = format!("melosim_body_{i}");
+            while used.contains(&name) { name.push('_'); }
+            body.set_name(&name).map_err(|e| ImportError::Load(e.to_string()))?;
+        }
+    }
+    // Convert the world basis once; all body and geom poses remain local.
     let anchor = world
         .spawn((
             Name::new(model_name.clone()),
@@ -92,27 +79,35 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
                 &mut builder,
                 child_ent,
                 anchor,
-                &model_dir,
-                &meshdir,
-                &mesh_src,
-                &mesh_ref,
                 &mut counter,
                 &mut site_map,
             )?;
         }
     }
 
-    // Muscles: try compile first for fast array access. If compile does not
-    // succeed, read the raw XML file directly (includes are inlined as text
-    // so we can parse tendon paths from the on-disk file).
+    // Compile the complete model when possible. Some real-world MyoSim files
+    // contain tendon references that MjSpec rejects even though the body/mesh
+    // portion is valid. In that case, compile a geometry-only copy so MuJoCo's
+    // mesh canonicalization is still available, and use the text fallback for
+    // tendon paths.
     match spec.compile() {
         Ok(compiled) => {
             update_body_inertias_from_compiled(world, &compiled);
             update_body_rotations_from_compiled(world, &compiled);
+            import_compiled_meshes(world, &compiled, &spec, &model_dir, &meshdir, anchor);
             import_muscles_compiled(world, &compiled, &site_map);
         }
-        Err(_e) => {
-            // Resolve includes inline and parse tendons from the full XML.
+        Err(error) => {
+            warn!("model import: full MuJoCo compile failed; using geometry-only compile: {error}");
+            match compile_geometry_only(&abs_path) {
+                Ok(compiled) => {
+                    update_body_rotations_from_compiled(world, &compiled);
+                    import_compiled_meshes(world, &compiled, &spec, &model_dir, &meshdir, anchor);
+                }
+                Err(error) => {
+                    warn!("geometry-only MuJoCo compile failed: {error}");
+                }
+            }
             let resolved = resolve_mjcf_includes(&abs_path);
             import_muscles_from_xml(world, &resolved, &site_map);
         }
@@ -130,36 +125,148 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
     Ok(anchor)
 }
 
-/// Update body entities' quaternions from the compiled MuJoCo model.
-/// When MJCF uses `euler`/`axisangle`/`zaxis`, the spec's `quat()` returns
-/// identity — the orientation is only resolved to a quaternion during
-/// compilation. This reads the compiled body quaternions and updates the
-/// Transform rotations so the hierarchy (including euler-rotated bodies
-/// like the legacy elbow model) positions children correctly.
+/// Update fixed body/joint-frame rotations from the compiled MuJoCo model.
+///
+/// Jointed bodies in the live hierarchy are represented as:
+/// `body_parent → <body>_joint_frame → Joint → Body`. The compiled body
+/// quaternion therefore belongs on the fixed joint frame, not on the child
+/// body, whose local transform already contains the inverse joint anchor.
 fn update_body_rotations_from_compiled(world: &mut World, compiled: &MjModel) {
     use mujoco_rs::wrappers::mj_model::MjtObj;
-    let name_to_entity: HashMap<String, Entity> = world
-        .query::<(Entity, &Name)>().iter(world)
-        .map(|(e, n)| (n.as_str().to_owned(), e))
+    let bodies: HashMap<String, Entity> = world
+        .query_filtered::<(Entity, &Name), With<Body>>()
+        .iter(world)
+        .map(|(entity, name)| (name.as_str().to_owned(), entity))
         .collect();
-    for i in 0..compiled.nbody() as usize {
-        let Some(name) = compiled.id_to_name(MjtObj::mjOBJ_BODY, i) else { continue };
-        let Some(&ent) = name_to_entity.get(name) else { continue };
-        let q = compiled.body_quat()[i]; // [f64; 4] wxyz in MJCF Z-up
-        // Convert MJCF quat (wxyz) → Bevy quat (xyzw). No frame change needed
-        // because the anchor handles Z-up→Y-up globally.
+    let joint_frames: HashMap<String, Entity> = world
+        .query_filtered::<(Entity, &Name), With<Frame>>()
+        .iter(world)
+        .filter_map(|(entity, name)| {
+            name.as_str()
+                .strip_suffix("_joint_frame")
+                .map(|body_name| (body_name.to_owned(), entity))
+        })
+        .collect();
+
+    for body_id in 0..compiled.nbody() as usize {
+        let Some(name) = compiled.id_to_name(MjtObj::mjOBJ_BODY, body_id) else { continue };
+        let q = compiled.body_quat()[body_id]; // [w, x, y, z] in MJCF
         let bevy_rot = Quat::from_xyzw(q[1] as f32, q[2] as f32, q[3] as f32, q[0] as f32);
-        if let Some(mut t) = world.get_mut::<Transform>(ent) {
-            t.rotation = bevy_rot;
+        let target = joint_frames.get(name).copied().or_else(|| bodies.get(name).copied());
+        if let Some(target) = target {
+            if let Some(mut transform) = world.get_mut::<Transform>(target) {
+                transform.rotation = bevy_rot;
+            }
         }
     }
 }
 
-/// Update body entities' inertial properties from the compiled MuJoCo model.
+/// Restore process CWD on error as well as success.
+struct RestoreCwd(Option<PathBuf>);
+impl Drop for RestoreCwd {
+    fn drop(&mut self) { if let Some(path) = &self.0 { let _ = std::env::set_current_dir(path); } }
+}
+
+fn compiled_mesh_transform(pos: [f64; 3], quat: [f64; 4]) -> Transform {
+    Transform::from_translation(to_vec3(pos)).with_rotation(to_quat_mjcf(quat))
+}
+
+/// Render compiled vertices with compiled geom poses. Source assets never pass
+/// through a second converter or a guessed axis correction.
+fn import_compiled_meshes(
+    world: &mut World, model: &MjModel, spec: &MjSpec,
+    model_dir: &Path, meshdir: &str, root: Entity,
+) {
+    use mujoco_rs::wrappers::mj_model::{MjtObj, MjtGeom};
+    let mut bodies = HashMap::new();
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world.get::<Body>(entity).is_some() {
+            if let Some(name) = world.get::<Name>(entity) { bodies.insert(name.as_str().to_owned(), entity); }
+        }
+        if let Some(children) = world.get::<Children>(entity) { stack.extend(children.iter()); }
+    }
+    let mut sources = HashMap::new();
+    let mut render_meshes = HashMap::new();
+    for id in 0..model.nmesh() as usize {
+        let name = model.id_to_name(MjtObj::mjOBJ_MESH, id).unwrap_or("");
+        let authored = spec.mesh_iter().find(|mesh| mesh.name() == name);
+        let file = authored.and_then(|mesh| {
+            if mesh.file().is_empty() { None } else { resolve_mesh(model_dir, meshdir, mesh.file()) }
+        });
+        let va = model.mesh_vertadr()[id] as usize;
+        let fa = model.mesh_faceadr()[id] as usize;
+        let vertices = model.mesh_vert()[va..va + model.mesh_vertnum()[id] as usize].to_vec();
+        let faces = model.mesh_face()[fa..fa + model.mesh_facenum()[id] as usize].to_vec();
+        let source = Arc::new(MeshSource {
+            file,
+            scale: authored.map(|m| *m.scale()).unwrap_or([1.0; 3]),
+            refpos: authored.map(|m| *m.refpos()).unwrap_or([0.0; 3]),
+            refquat: authored.map(|m| *m.refquat()).unwrap_or([1.0, 0.0, 0.0, 0.0]),
+            vertices, faces,
+            compiled_frame: compiled_mesh_transform(model.mesh_pos()[id], model.mesh_quat()[id]),
+        });
+        if world.contains_resource::<Assets<Mesh>>() {
+            // MuJoCo uses separate position and normal indices. Expand corners
+            // to preserve hard edges and source normals without welding.
+            let na = model.mesh_normaladr()[id] as usize;
+            let mut positions = Vec::new();
+            let mut normals = Vec::new();
+            for (f, face) in source.faces.iter().enumerate() {
+                for corner in 0..3 {
+                    positions.push(source.vertices[face[corner] as usize]);
+                    let n = model.mesh_facenormal()[fa + f][corner];
+                    normals.push(model.mesh_normal()[na + n as usize]);
+                }
+            }
+            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+            render_meshes.insert(id, world.resource_mut::<Assets<Mesh>>().add(mesh));
+        }
+        sources.insert(id, source);
+    }
+    for id in 0..model.ngeom() as usize {
+        if model.geom_type()[id] != MjtGeom::mjGEOM_MESH { continue; }
+        let body_id = model.geom_bodyid()[id] as usize;
+        let parent = if body_id == 0 { root } else {
+            let Some(name) = model.id_to_name(MjtObj::mjOBJ_BODY, body_id) else { continue };
+            let Some(&entity) = bodies.get(name) else { continue };
+            entity
+        };
+        let mesh_id = model.geom_dataid()[id] as usize;
+        let mut rgba = model.geom_rgba()[id];
+        let material_id = model.geom_matid()[id];
+        if material_id >= 0 && rgba == [0.5, 0.5, 0.5, 1.0] {
+            rgba = model.mat_rgba()[material_id as usize];
+        }
+        let name = model.id_to_name(MjtObj::mjOBJ_GEOM, id)
+            .map(str::to_owned).unwrap_or_else(|| format!("melosim_geom_{id}"));
+        let geometry = MeshGeometry {
+            source: sources[&mesh_id].clone(), rgba,
+            contype: model.geom_contype()[id], conaffinity: model.geom_conaffinity()[id],
+            condim: model.geom_condim()[id], friction: model.geom_friction()[id],
+            margin: model.geom_margin()[id], gap: model.geom_gap()[id], group: model.geom_group()[id],
+        };
+        let entity = world.spawn((Name::new(name), geometry, ChildOf(parent),
+            compiled_mesh_transform(model.geom_pos()[id], model.geom_quat()[id]))).id();
+        if let Some(mesh) = render_meshes.get(&mesh_id) {
+            if world.contains_resource::<Assets<StandardMaterial>>() {
+                let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
+                    base_color: Color::srgba(rgba[0], rgba[1], rgba[2], rgba[3]),
+                    alpha_mode: if rgba[3] < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+                    ..default()
+                });
+                world.entity_mut(entity).insert((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
+            }
+        }
+    }
+}
+
 fn update_body_inertias_from_compiled(world: &mut World, compiled: &MjModel) {
     use mujoco_rs::wrappers::mj_model::MjtObj;
     let name_to_entity: HashMap<String, Entity> = world
-        .query::<(Entity, &Name)>().iter(world)
+        .query_filtered::<(Entity, &Name), With<Body>>().iter(world)
         .map(|(e, n)| (n.as_str().to_owned(), e))
         .collect();
     for i in 0..compiled.nbody() as usize {
@@ -171,7 +278,14 @@ fn update_body_inertias_from_compiled(world: &mut World, compiled: &MjModel) {
         if let Some(mut ip) = world.get_mut::<InertialProperties>(ent) {
             ip.mass = mass;
             ip.mass_center = Vector3::new(ipos[0], ipos[1], ipos[2]);
-            ip.inertia = Inertia([din[0], din[1], din[2], 0.0, 0.0, 0.0]);
+            let q = compiled.body_iquat()[i];
+            let rotation = nalgebra::UnitQuaternion::new_normalize(
+                nalgebra::Quaternion::new(q[0], q[1], q[2], q[3]),
+            ).to_rotation_matrix();
+            let tensor = rotation.matrix() * nalgebra::Matrix3::from_diagonal(&Vector3::from(din))
+                * rotation.matrix().transpose();
+            ip.inertia = Inertia::new(tensor[(0, 0)], tensor[(1, 1)], tensor[(2, 2)],
+                tensor[(0, 1)], tensor[(0, 2)], tensor[(1, 2)]);
         }
     }
 }
@@ -241,6 +355,54 @@ fn import_muscles_from_xml(
             PathEntities::new(path),
         ));
     }
+}
+
+fn strip_non_geometry_includes(xml: &str) -> String {
+    let mut output = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(start) = rest.find("<include") {
+        output.push_str(&rest[..start]);
+        let tag_end = rest[start..].find('>').map(|index| start + index + 1);
+        let Some(tag_end) = tag_end else {
+            output.push_str(&rest[start..]);
+            return output;
+        };
+        let tag = &rest[start..tag_end];
+        let ignored = tag.contains("tendon") || tag.contains("muscle") || tag.contains("actuator");
+        if !ignored {
+            output.push_str(tag);
+        }
+        rest = &rest[tag_end..];
+    }
+    output.push_str(rest);
+    output
+}
+
+/// Compile a copy with tendon/actuator sections removed. This preserves
+/// MuJoCo's compiled mesh transforms even when an unrelated tendon reference
+/// prevents the complete model from compiling.
+fn compile_geometry_only(path: &Path) -> Result<MjModel, String> {
+    let raw = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut xml = strip_non_geometry_includes(&raw);
+    for section in ["tendon", "actuator"] {
+        let open = format!("<{section}");
+        let close = format!("</{section}>");
+        while let Some(start) = xml.find(&open) {
+            let Some(end) = xml[start..].find(&close) else { break };
+            let end = start + end + close.len();
+            xml.replace_range(start..end, "");
+        }
+    }
+
+    let directory = path.parent().unwrap_or(Path::new("."));
+    let temporary = directory.join(format!(".melosim_geometry_{}.xml", std::process::id()));
+    std::fs::write(&temporary, xml).map_err(|error| error.to_string())?;
+    let result = MjSpec::from_xml(&temporary)
+        .map_err(|error| error.to_string())?
+        .compile()
+        .map_err(|error| error.to_string());
+    let _ = std::fs::remove_file(&temporary);
+    result
 }
 
 /// Recursively resolve `<include file="..."/>` references in an MJCF file,
@@ -340,36 +502,10 @@ fn to_vec3(a: [f64; 3]) -> Vec3 {
     Vec3::new(a[0] as f32, a[1] as f32, a[2] as f32)
 }
 
-/// Instanced pose of a mesh geom in its body frame, composing the geom's own
-/// `pos`/`quat` with the mesh's reference frame (`refpos`/`refquat`/`scale`).
-/// Stays in the MJCF Z-up frame — the root rotation converts the entire model.
-fn mesh_instance_transform(
-    geom_pos: [f64; 3],
-    geom_quat: [f64; 4],
-    refpos: [f64; 3],
-    refquat: [f64; 4],
-    scale: [f64; 3],
-) -> Transform {
-    let g_pos = to_vec3(geom_pos);
-    let g_q = to_quat_mjcf(geom_quat);
-    // Compose in the MJCF body frame (still Z-up — root converts later).
-    let rot_mjcf = g_q * to_quat_mjcf(refquat);
-    let pos_mjcf = g_pos + g_q.mul_vec3(to_vec3(refpos));
-    Transform {
-        translation: pos_mjcf,
-        rotation: rot_mjcf,
-        scale: to_vec3(scale),
-    }
-}
-
 fn spawn_body(
     builder: &mut ModelBuilder,
     mj: &MjsBody,
     parent: Entity,
-    model_dir: &Path,
-    meshdir: &str,
-    mesh_src: &HashMap<String, String>,
-    mesh_ref: &HashMap<String, ([f64; 3], [f64; 4], [f64; 3])>,
     counter: &mut u64,
     site_map: &mut HashMap<String, Entity>,
 ) -> Result<(), ImportError> {
@@ -478,14 +614,9 @@ fn spawn_body(
         }
     }
 
-    // Mesh geoms → Mesh3d children (visualization).
-    for g in mj.geom_iter(false) {
-        spawn_geom(builder.world_mut(), &g, body_ent, model_dir, meshdir, mesh_src, mesh_ref, counter);
-    }
-
     // Children bodies.
     for child in mj.body_iter(false) {
-        spawn_body(builder, child, body_ent, model_dir, meshdir, mesh_src, mesh_ref, counter, site_map)?;
+        spawn_body(builder, child, body_ent, counter, site_map)?;
     }
     Ok(())
 }
@@ -504,91 +635,6 @@ fn resolve_mesh(model_dir: &Path, meshdir: &str, file: &str) -> Option<PathBuf> 
         }
     }
     None
-}
-
-fn spawn_geom(
-    world: &mut World,
-    g: &MjsGeom,
-    body_ent: Entity,
-    model_dir: &Path,
-    meshdir: &str,
-    mesh_src: &HashMap<String, String>,
-    mesh_ref: &HashMap<String, ([f64; 3], [f64; 4], [f64; 3])>,
-    counter: &mut u64,
-) {
-    // Only mesh geoms for now (primitives come later).
-    let mesh_name = g.meshname();
-    if mesh_name.is_empty() {
-        return;
-    }
-    let Some(file) = mesh_src.get(mesh_name) else {
-        warn!("model import: geom references unknown mesh '{mesh_name}'");
-        return;
-    };
-    let Some(src) = resolve_mesh(model_dir, meshdir, file) else {
-        error!(
-            "model import: mesh '{mesh_name}' file '{file}' not found (model dir {model_dir:?}, meshdir '{meshdir}')"
-        );
-        return;
-    };
-
-    let gname = if g.name().is_empty() {
-        *counter += 1;
-        format!("geom_{}", *counter)
-    } else {
-        g.name().to_string()
-    };
-
-    // Compose the geom pose with the mesh's reference frame (refquat orients
-    // parallel bones like ulna/radius), then map Z-up -> Y-up.
-    let (rp, rq, sc) = mesh_ref
-        .get(mesh_name)
-        .copied()
-        .unwrap_or(([0.0; 3], [1.0, 0.0, 0.0, 0.0], [1.0; 3]));
-    let t = mesh_instance_transform(*g.pos(), *g.quat(), rp, rq, sc);
-
-    let extension = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-    if !matches!(extension.as_deref(), Some("glb") | Some("gltf")) {
-        warn!(
-            "model import: skipping non-GLTF mesh '{}' (convert it to GLTF before import)",
-            src.display()
-        );
-        return;
-    }
-
-    let Some(asset_server) = world.get_resource::<AssetServer>().cloned() else {
-        warn!("model import: AssetServer unavailable; skipping GLTF geom '{gname}'");
-        return;
-    };
-
-    let Some(file_name) = src.file_name().and_then(|f| f.to_str()) else {
-        warn!("model import: GLTF geom '{mesh_name}' has no usable file name");
-        return;
-    };
-    let safe_name = file_name.replace(' ', "_");
-    let asset_dir = Path::new("assets").join("imported");
-    if let Err(e) = std::fs::create_dir_all(&asset_dir) {
-        warn!("model import: cannot create {}: {e}", asset_dir.display());
-        return;
-    }
-    let destination = asset_dir.join(&safe_name);
-    if let Err(e) = std::fs::copy(&src, &destination) {
-        warn!(
-            "model import: cannot copy GLTF {} → {}: {e}",
-            src.display(),
-            destination.display()
-        );
-        return;
-    }
-
-    let asset_path = format!("imported/{safe_name}");
-    let scene: Handle<WorldAsset> = asset_server.load(format!("{asset_path}#Scene0"));
-    world
-        .spawn((Name::new(gname), WorldAssetRoot(scene), t))
-        .insert(ChildOf(body_ent));
 }
 
 fn joint_name(joints: &[&MjsJoint], body_name: &str, counter: &mut u64) -> String {
@@ -626,8 +672,9 @@ fn joint_coordinate_specs(joints: &[&MjsJoint], _counter: &mut u64) -> Vec<Coord
 }
 
 fn append_joint_coordinate_specs(mj: &MjsJoint, base: &str, specs: &mut Vec<CoordinateSpec>) {
-    let limited = matches!(mj.limited(), MjtLimited::mjLIMITED_TRUE);
     let range = *mj.range();
+    let limited = matches!(mj.limited(), MjtLimited::mjLIMITED_TRUE)
+        || (matches!(mj.limited(), MjtLimited::mjLIMITED_AUTO) && range[0] < range[1]);
     let properties = || CoordinateProperties {
         range: if limited { (range[0], range[1]) } else { (-f64::MAX, f64::MAX) },
         clamped: limited,
