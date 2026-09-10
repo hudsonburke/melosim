@@ -1,14 +1,3 @@
-# Machine-local environment.
-# - MUJOCO_DOWNLOAD_DIR: mujoco-rs auto-download reuses the project-local copy.
-# - PYO3_PYTHON / PYTHONPATH: `.venv-sys` (system python 3.12) provides the
-#   `opensim` module for the `opensim` feature. It must be a SYSTEM-python
-#   venv — a nix-python venv's libpython can't embed into a system-glibc
-#   binary (glibc symbol mismatch), and its native deps resolve via system
-#   library paths with no LD_LIBRARY_PATH hacks.
-[env]
-MUJOCO_DOWNLOAD_DIR = { value = ".mujoco", relative = true }
-PYO3_PYTHON = { value = ".venv-sys/bin/python", relative = true }
-PYTHONPATH = { value = ".venv-sys/lib/python3.12/site-packages", relative = true }
-
-[target.'cfg(all())']
-runner = "scripts/run-with-env.sh"
+# Environment is managed by devenv.nix. Run `devenv shell` (or use direnv).
+# If not using devenv, set MUJOCO_DOWNLOAD_DIR, PYO3_PYTHON, PYTHONPATH,
+# and LD_LIBRARY_PATH manually.

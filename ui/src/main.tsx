@@ -187,7 +187,7 @@ function App() {
     <div className="app-shell">
       <header>
         <div className="brand">
-          <span className="brand-mark">m</span>
+          <span className="brand-mark">μ</span>
           <strong>melosim</strong>
           <span className="badge">WORKSPACE</span>
         </div>
