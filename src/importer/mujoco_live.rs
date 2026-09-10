@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use bevy::ecs::world::World;
 use bevy::prelude::*;
-use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology};
+
 use std::sync::Arc;
 use crate::model::{MeshGeometry, MeshSource};
 use mujoco_rs::wrappers::mj_editing::*;
@@ -187,7 +187,7 @@ fn import_compiled_meshes(
         if let Some(children) = world.get::<Children>(entity) { stack.extend(children.iter()); }
     }
     let mut sources = HashMap::new();
-    let mut render_meshes = HashMap::new();
+
     for id in 0..model.nmesh() as usize {
         let name = model.id_to_name(MjtObj::mjOBJ_MESH, id).unwrap_or("");
         let authored = spec.mesh_iter().find(|mesh| mesh.name() == name);
@@ -206,24 +206,7 @@ fn import_compiled_meshes(
             vertices, faces,
             compiled_frame: compiled_mesh_transform(model.mesh_pos()[id], model.mesh_quat()[id]),
         });
-        if world.contains_resource::<Assets<Mesh>>() {
-            // MuJoCo uses separate position and normal indices. Expand corners
-            // to preserve hard edges and source normals without welding.
-            let na = model.mesh_normaladr()[id] as usize;
-            let mut positions = Vec::new();
-            let mut normals = Vec::new();
-            for (f, face) in source.faces.iter().enumerate() {
-                for corner in 0..3 {
-                    positions.push(source.vertices[face[corner] as usize]);
-                    let n = model.mesh_facenormal()[fa + f][corner];
-                    normals.push(model.mesh_normal()[na + n as usize]);
-                }
-            }
-            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-            render_meshes.insert(id, world.resource_mut::<Assets<Mesh>>().add(mesh));
-        }
+
         sources.insert(id, source);
     }
     for id in 0..model.ngeom() as usize {
@@ -248,18 +231,9 @@ fn import_compiled_meshes(
             condim: model.geom_condim()[id], friction: model.geom_friction()[id],
             margin: model.geom_margin()[id], gap: model.geom_gap()[id], group: model.geom_group()[id],
         };
-        let entity = world.spawn((Name::new(name), geometry, ChildOf(parent),
-            compiled_mesh_transform(model.geom_pos()[id], model.geom_quat()[id]))).id();
-        if let Some(mesh) = render_meshes.get(&mesh_id) {
-            if world.contains_resource::<Assets<StandardMaterial>>() {
-                let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
-                    base_color: Color::srgba(rgba[0], rgba[1], rgba[2], rgba[3]),
-                    alpha_mode: if rgba[3] < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
-                    ..default()
-                });
-                world.entity_mut(entity).insert((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
-            }
-        }
+        world.spawn((Name::new(name), geometry, ChildOf(parent),
+            compiled_mesh_transform(model.geom_pos()[id], model.geom_quat()[id])));
+
     }
 }
 
