@@ -3,7 +3,7 @@ use bevy::prelude::*;
 // ── Muscle/Cable path definition ──
 
 /// Ordered list of path entities for a muscle or cable.
-#[derive(Component, Clone, Debug, Reflect)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 #[relationship_target(relationship = PathElement)]
 pub struct PathEntities(Vec<Entity>);
 
@@ -34,16 +34,6 @@ impl PathEntities {
 #[relationship(relationship_target = PathEntities)]
 pub struct PathElement(pub Entity);
 
-// ── Wrapping surface marker ──
-
-/// Marker for wrapping surface entities.
-#[derive(Component, Clone, Debug, Default, Reflect)]
-pub struct WrappingSurface;
-
-/// Radius of a wrapping surface.
-#[derive(Component, Clone, Debug, Reflect)]
-pub struct WrapRadius(pub f32);
-
 // ── Path evaluation ──
 
 /// A point along an evaluated path.
@@ -57,27 +47,17 @@ pub struct PathPoint {
 pub fn evaluate_path(
     path_entities: &PathEntities,
     transforms: &Query<&GlobalTransform>,
-    surfaces: Query<&WrappingSurface>,
 ) -> Option<Vec<PathPoint>> {
-    let mut path = Vec::new();
-
-    for e in path_entities.iter() {
-        if surfaces.get(e).is_ok() {
-            let pos = transforms.get(e).ok()?;
-            path.push(PathPoint {
-                entity: e,
-                position: pos.translation(),
-            });
-        } else {
-            let pos = transforms.get(e).ok()?;
-            path.push(PathPoint {
-                entity: e,
-                position: pos.translation(),
-            });
-        }
-    }
-
-    Some(path)
+    path_entities
+        .iter()
+        .map(|entity| {
+            let transform = transforms.get(entity).ok()?;
+            Some(PathPoint {
+                entity,
+                position: transform.translation(),
+            })
+        })
+        .collect()
 }
 
 /// Compute the total length of a path.

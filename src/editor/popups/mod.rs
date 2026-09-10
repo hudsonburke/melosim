@@ -5,8 +5,10 @@
 //! Popups emit `EditorEvent::ModelMutation` events when confirmed.
 
 pub mod add_body;
+pub mod add_cable;
 pub mod add_joint;
 pub mod add_muscle;
+pub mod add_path_site;
 
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
@@ -20,17 +22,36 @@ pub enum ActivePopup {
     #[default]
     None,
     AddBody,
+    AddCable,
     AddJoint,
     AddMuscle,
+    AddPathSite,
     AddSite,
     AddFrame,
-    ImportMeshUnit,
 }
 
 /// State for the "Add Body" dialog.
 #[derive(Resource, Default)]
 pub struct AddBodyPopup {
     pub name: String,
+}
+
+/// State for the "Add Cable" dialog.
+#[derive(Resource)]
+pub struct AddCablePopup {
+    pub name: String,
+    pub max_tension: f64,
+    pub actuator_force: f64,
+}
+
+impl Default for AddCablePopup {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            max_tension: 1000.0,
+            actuator_force: 100.0,
+        }
+    }
 }
 
 /// State for the "Add Joint" dialog.
@@ -78,6 +99,24 @@ impl Default for AddMusclePopup {
     }
 }
 
+/// State for the "Add Cable Path Site" dialog.
+#[derive(Resource)]
+pub struct AddPathSitePopup {
+    pub name: String,
+    pub parent: Option<Entity>,
+    pub snap_to_parent: bool,
+}
+
+impl Default for AddPathSitePopup {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            parent: None,
+            snap_to_parent: true,
+        }
+    }
+}
+
 /// State for the "Add Site" dialog.
 #[derive(Resource, Default)]
 pub struct AddSitePopup {
@@ -94,6 +133,20 @@ pub struct AddFramePopup {
 #[derive(Resource, Default)]
 pub struct PartCounter(pub u64);
 
+/// Structural model requests emitted by popup UI and applied by an exclusive
+/// world system after the egui pass.
+#[derive(Resource, Default)]
+pub struct PendingModelActions {
+    pub add_joints: Vec<AddJointRequest>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AddJointRequest {
+    pub parent: Entity,
+    pub name: String,
+    pub joint_type: JointType,
+}
+
 /// System that shows the active popup window.
 ///
 /// This runs in `EguiPrimaryContextPass` after the panels.
@@ -101,24 +154,37 @@ pub fn show_popups(
     mut contexts: bevy_inspector_egui::bevy_egui::EguiContexts,
     mut active_popup: ResMut<ActivePopup>,
     mut add_body: ResMut<AddBodyPopup>,
+    mut add_cable: ResMut<AddCablePopup>,
     mut add_joint: ResMut<AddJointPopup>,
     mut add_muscle: ResMut<AddMusclePopup>,
+    mut add_path_site: ResMut<AddPathSitePopup>,
     mut add_site: ResMut<AddSitePopup>,
     mut add_frame: ResMut<AddFramePopup>,
     mut counter: ResMut<PartCounter>,
     mut commands: Commands,
     mut events: ResMut<EditorEvents>,
-    bodies: Query<(Entity, &Name), With<Body>>,
+    parents: Query<(
+        Entity,
+        &Name,
+        Option<&Body>,
+        Option<&Frame>,
+    ), Or<(With<Body>, With<Frame>)>>,
+    cables: Query<(), With<crate::model::Cable>>,
     selection: Res<super::selection::Selection>,
-    mut pending_mesh: ResMut<super::PendingMeshImport>,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut mesh_assets: ResMut<Assets<Mesh>>,
+    mut pending_actions: ResMut<PendingModelActions>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,
         Err(_) => return,
     };
+    let parent_items: Vec<(Entity, String)> = parents
+        .iter()
+        .map(|(entity, name, _, _)| (entity, name.as_str().to_owned()))
+        .collect();
+    let body_items: Vec<(Entity, String)> = parents
+        .iter()
+        .filter_map(|(entity, name, body, _)| body.map(|_| (entity, name.as_str().to_owned())))
+        .collect();
 
     match &*active_popup {
         ActivePopup::None => return,
@@ -128,14 +194,35 @@ pub fn show_popups(
                 *active_popup = ActivePopup::None;
             }
         }
+        ActivePopup::AddCable => {
+            let close = add_cable::show(ctx, &mut add_cable, &mut counter, &mut commands, &mut events);
+            if close {
+                *active_popup = ActivePopup::None;
+            }
+        }
         ActivePopup::AddJoint => {
-            let close = add_joint::show(ctx, &mut add_joint, &mut counter, &mut commands, &mut events, &selection);
+            let close = add_joint::show(ctx, &mut add_joint, &mut counter, &mut pending_actions, &selection);
             if close {
                 *active_popup = ActivePopup::None;
             }
         }
         ActivePopup::AddMuscle => {
-            let close = add_muscle::show(ctx, &mut add_muscle, &mut counter, &mut commands, &mut events, &bodies);
+            let close = add_muscle::show(ctx, &mut add_muscle, &mut counter, &mut commands, &mut events, &body_items);
+            if close {
+                *active_popup = ActivePopup::None;
+            }
+        }
+        ActivePopup::AddPathSite => {
+            let close = add_path_site::show(
+                ctx,
+                &mut add_path_site,
+                &mut counter,
+                &mut commands,
+                &mut events,
+                &selection,
+                &parent_items,
+                &cables,
+            );
             if close {
                 *active_popup = ActivePopup::None;
             }
@@ -148,12 +235,6 @@ pub fn show_popups(
         }
         ActivePopup::AddFrame => {
             let close = add_frame_popup(ctx, &mut add_frame, &mut counter, &mut commands, &mut events, &selection);
-            if close {
-                *active_popup = ActivePopup::None;
-            }
-        }
-        ActivePopup::ImportMeshUnit => {
-            let close = show_import_mesh_unit(ctx, &mut pending_mesh, &mut commands, &asset_server, &mut materials, &mut mesh_assets);
             if close {
                 *active_popup = ActivePopup::None;
             }
@@ -290,68 +371,6 @@ fn add_frame_popup(
                     }
 
                     popup.name.clear();
-                    close = true;
-                }
-            });
-        });
-    close
-}
-
-/// Show the "Import Mesh Unit" popup — asks user to specify units before importing.
-fn show_import_mesh_unit(
-    ctx: &egui::Context,
-    pending_mesh: &mut super::PendingMeshImport,
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    materials: &mut Assets<StandardMaterial>,
-    mesh_assets: &mut Assets<Mesh>,
-) -> bool {
-    // Only show if there's a pending mesh import
-    let Some(path) = pending_mesh.0.clone() else {
-        return true;
-    };
-
-    let mut close = false;
-    let mut unit = crate::editor::mesh_import::ImportUnit::Mm;
-
-    egui::Window::new("Import Mesh")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-        .show(ctx, |ui| {
-            ui.label(format!("File: {}", path.file_name().unwrap_or_default().to_string_lossy()));
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("Unit:");
-                egui::ComboBox::from_id_salt("import_mesh_unit")
-                    .selected_text(unit.label())
-                    .show_ui(ui, |ui| {
-                        for u in [
-                            crate::editor::mesh_import::ImportUnit::Mm,
-                            crate::editor::mesh_import::ImportUnit::Cm,
-                            crate::editor::mesh_import::ImportUnit::M,
-                            crate::editor::mesh_import::ImportUnit::In,
-                            crate::editor::mesh_import::ImportUnit::Ft,
-                        ] {
-                            ui.selectable_value(&mut unit, u, u.label());
-                        }
-                    });
-            });
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Import").clicked() {
-                    pending_mesh.0.take();
-                    crate::editor::mesh_import::import_file(
-                        commands,
-                        asset_server,
-                        materials,
-                        mesh_assets,
-                        &path,
-                        unit,
-                    );
-                    close = true;
-                }
-                if ui.button("Cancel").clicked() {
                     close = true;
                 }
             });

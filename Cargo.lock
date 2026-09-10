@@ -1386,18 +1386,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
 
 [[package]]
-name = "bevy_obj"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "894c100f4b3f147d67fab910e176e8c5453593abdfb894a94eb0c93661996dfa"
-dependencies = [
- "bevy",
- "serde",
- "thiserror 2.0.20",
- "wobj",
-]
-
-[[package]]
 name = "bevy_pbr"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3895,7 +3883,6 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_egui",
- "bevy_obj",
  "egui_dock",
  "mujoco-rs",
  "nalgebra",
@@ -7071,17 +7058,6 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
-]
-
-[[package]]
-name = "wobj"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0502c0794b9b6c0c6b1b868c67b2186149f8ca72d256b424180d750c1dc2bae8"
-dependencies = [
- "ahash",
- "indexmap",
- "winnow",
 ]
 
 [[package]]

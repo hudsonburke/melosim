@@ -5,7 +5,7 @@ use bevy_inspector_egui::bevy_egui::egui;
 
 use super::{AddMusclePopup, PartCounter};
 use crate::editor::events::{EditorEvent, EditorEvents, MutationKind};
-use crate::model::{Body, HillTypeMuscleParams, Muscle};
+use crate::model::{HillTypeMuscleParams, Muscle};
 
 /// Show the "Add Muscle" popup window.
 ///
@@ -16,7 +16,7 @@ pub fn show(
     counter: &mut PartCounter,
     commands: &mut Commands,
     events: &mut EditorEvents,
-    bodies: &Query<(Entity, &Name), With<Body>>,
+    bodies: &[(Entity, String)],
 ) -> bool {
     let mut close = false;
 
@@ -37,11 +37,6 @@ pub fn show(
             // Parent body selector
             ui.horizontal(|ui| {
                 ui.label("Parent Body:");
-                let body_names: Vec<(Entity, String)> = bodies
-                    .iter()
-                    .map(|(e, n)| (e, n.as_str().to_owned()))
-                    .collect();
-
                 let selected_label = if popup.parent_body.is_empty() {
                     "Select...".to_string()
                 } else {
@@ -51,7 +46,7 @@ pub fn show(
                 egui::ComboBox::from_id_salt("muscle_parent_selector")
                     .selected_text(&selected_label)
                     .show_ui(ui, |ui| {
-                        for (entity, name) in &body_names {
+                        for (entity, name) in bodies {
                             let label = format!("{} ({:?})", name, entity);
                             if ui.selectable_label(popup.parent_body == *name, &label).clicked() {
                                 popup.parent_body = name.clone();
@@ -85,7 +80,10 @@ pub fn show(
                     counter.0 += 1;
 
                     // Find parent body entity
-                    let parent_entity = bodies.iter().find(|(_, n)| n.as_str() == popup.parent_body).map(|(e, _)| e);
+                    let parent_entity = bodies
+                        .iter()
+                        .find(|(_, name)| name == &popup.parent_body)
+                        .map(|(entity, _)| *entity);
 
                     let entity = commands
                         .spawn((

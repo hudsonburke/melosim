@@ -16,27 +16,141 @@ use std::path::PathBuf;
 #[derive(Default, Resource)]
 pub struct PendingModelImport(pub Option<PathBuf>);
 
-/// A mesh file the user chose to import; pending unit selection.
-#[derive(Default, Resource)]
-pub struct PendingMeshImport(pub Option<PathBuf>);
-
 /// A save path the user chose for MuJoCo export; processed by `process_mujoco_export`.
 #[derive(Default, Resource)]
 pub struct PendingMujocoExport(pub Option<PathBuf>);
+
+#[derive(Default, Resource, Debug)]
+pub struct KinematicValidationState {
+    pub issues: Vec<crate::model::KinematicIssue>,
+}
+
+fn process_pending_model_actions(world: &mut World) {
+    let requests = std::mem::take(
+        &mut world
+            .resource_mut::<popups::PendingModelActions>()
+            .add_joints,
+    );
+
+    for request in requests {
+        if world.get::<crate::model::Body>(request.parent).is_none()
+            && world.get::<crate::model::Frame>(request.parent).is_none()
+        {
+            warn!("cannot add joint '{}': selected parent is not a Body or Frame", request.name);
+            continue;
+        }
+
+        let axes = match request.joint_type {
+            popups::JointType::Weld => Vec::new(),
+            popups::JointType::Hinge => vec![("", crate::model::Twist::rotation(crate::model::Vector3::z()))],
+            popups::JointType::Ball => vec![
+                ("_x", crate::model::Twist::rotation(crate::model::Vector3::x())),
+                ("_y", crate::model::Twist::rotation(crate::model::Vector3::y())),
+                ("_z", crate::model::Twist::rotation(crate::model::Vector3::z())),
+            ],
+        };
+
+        let coordinates: Vec<Entity> = axes
+            .into_iter()
+            .map(|(suffix, twist)| {
+                world
+                    .spawn((
+                        Name::new(format!("{}{}_coord", request.name, suffix)),
+                        crate::model::Coordinate,
+                        crate::model::CoordinateProperties::default(),
+                        crate::model::InitialConditions::default(),
+                        twist,
+                    ))
+                    .id()
+            })
+            .collect();
+
+        let joint = world
+            .spawn((
+                Name::new(request.name.clone()),
+                crate::model::Joint,
+                Transform::IDENTITY,
+            ))
+            .id();
+        for &coordinate in &coordinates {
+            world
+                .entity_mut(coordinate)
+                .insert(crate::model::CoordinateOf(joint));
+        }
+
+        let child_frame = world
+            .spawn((
+                Name::new(format!("{}_child_frame", request.name)),
+                crate::model::Frame,
+                Transform::IDENTITY,
+            ))
+            .id();
+
+        match crate::model::attach_joint(world, request.parent, joint, child_frame) {
+            Ok(()) => world.resource_mut::<events::EditorEvents>().push(
+                events::EditorEvent::ModelMutation {
+                    kind: events::MutationKind::AddChild {
+                        parent: request.parent,
+                        child: joint,
+                        marker: "Joint",
+                    },
+                    entity: joint,
+                },
+            ),
+            Err(error) => {
+                error!("cannot add joint '{}': {error}", request.name);
+                world.entity_mut(child_frame).despawn();
+                world.entity_mut(joint).despawn();
+                for coordinate in coordinates {
+                    if world.get_entity(coordinate).is_ok() {
+                        world.entity_mut(coordinate).despawn();
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn validate_editor_model(world: &mut World) {
+    let issues = crate::model::validate_kinematic_hierarchy(world);
+    world.resource_mut::<KinematicValidationState>().issues = issues;
+}
 
 fn process_model_imports(world: &mut World) {
     let Some(path) = world.resource_mut::<PendingModelImport>().0.take() else {
         return;
     };
-    #[cfg(feature = "mujoco")]
-    match crate::importer::import_mjcf(world, &path) {
-        Ok(_) => info!("imported model: {}", path.display()),
-        Err(e) => error!("model import failed: {e:?}"),
-    }
-    #[cfg(not(feature = "mujoco"))]
-    {
-        let _ = (&path, world);
-        warn!("MuJoCo model import requires the `mujoco` feature");
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase());
+
+    match extension.as_deref() {
+        Some("xml") => {
+            #[cfg(feature = "mujoco")]
+            match crate::importer::import_mjcf(world, &path) {
+                Ok(_) => info!("imported MuJoCo model: {}", path.display()),
+                Err(e) => error!("MuJoCo model import failed: {e:?}"),
+            }
+            #[cfg(not(feature = "mujoco"))]
+            {
+                let _ = world;
+                warn!("MuJoCo model import requires the `mujoco` feature");
+            }
+        }
+        Some("osim") => {
+            #[cfg(feature = "opensim")]
+            match crate::importer::import_osim(world, &path) {
+                Ok(_) => info!("imported OpenSim model: {}", path.display()),
+                Err(e) => error!("OpenSim model import failed: {e:?}"),
+            }
+            #[cfg(not(feature = "opensim"))]
+            {
+                let _ = world;
+                warn!("OpenSim model import requires the `opensim` feature");
+            }
+        }
+        _ => warn!("unsupported model extension: {}", path.display()),
     }
 }
 
@@ -48,39 +162,10 @@ fn process_mujoco_export(world: &mut World) {
     };
     #[cfg(feature = "mujoco")]
     {
-        // Canonicalize the output path so CWD changes don't break it.
-        let abs_path = path.canonicalize().unwrap_or_else(|_| path.clone());
-        let parent = abs_path.parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
-        let mesh_dir = parent.join("assets");
-        let _ = std::fs::create_dir_all(&mesh_dir);
-
-        // MuJoCo resolves `meshdir` relative to CWD, not the XML's directory.
-        // Temporarily switch CWD so compile() and save_xml() find the assets/.
-        let saved_cwd = std::env::current_dir().ok();
-        let _ = std::env::set_current_dir(&parent);
-
-        let _dummy_root = Entity::PLACEHOLDER;
-        match crate::exporter::to_mjcf_with_meshes(world, Some(&mesh_dir)) {
-            Ok(mut spec) => {
-                let compiled = match spec.compile() {
-                    Ok(m) => m,
-                    Err(e) => {
-                        error!("MuJoCo compile failed: {e}");
-                        if let Some(cwd) = saved_cwd { let _ = std::env::set_current_dir(&cwd); }
-                        return;
-                    }
-                };
-                match spec.save_xml(&abs_path) {
-                    Ok(()) => info!("exported MuJoCo model to {} (meshes in {})", abs_path.display(), mesh_dir.display()),
-                    Err(e) => error!("failed to write MuJoCo XML: {e}"),
-                }
-                std::mem::drop(compiled);
-            }
+        match crate::exporter::save_mjcf(world, Entity::PLACEHOLDER, &path) {
+            Ok(()) => info!("exported MuJoCo model and mesh assets to {}", path.display()),
             Err(e) => error!("MuJoCo export failed: {e:?}"),
         }
-
-        // Restore original CWD.
-        if let Some(cwd) = saved_cwd { let _ = std::env::set_current_dir(&cwd); }
     }
     #[cfg(not(feature = "mujoco"))]
     {
@@ -125,18 +210,21 @@ impl Plugin for MelosimEditorPlugin {
         app.init_resource::<events::EditorEvents>();
         app.init_resource::<models::ModelRegistry>();
         app.init_resource::<PendingModelImport>();
-        app.init_resource::<PendingMeshImport>();
         app.init_resource::<PendingMujocoExport>();
+        app.init_resource::<KinematicValidationState>();
         app.init_resource::<HierarchyClick>();
         app.init_resource::<ui::HierarchyRightClickState>();
         // Popup system resources
         app.init_resource::<popups::ActivePopup>();
         app.init_resource::<popups::AddBodyPopup>();
+        app.init_resource::<popups::AddCablePopup>();
         app.init_resource::<popups::AddJointPopup>();
         app.init_resource::<popups::AddMusclePopup>();
+        app.init_resource::<popups::AddPathSitePopup>();
         app.init_resource::<popups::AddSitePopup>();
         app.init_resource::<popups::AddFramePopup>();
         app.init_resource::<popups::PartCounter>();
+        app.init_resource::<popups::PendingModelActions>();
         // Start with NO model loaded; the user picks one from the Model menu or
         // imports a MuJoCo model (so importing doesn't stack on top of MyoArm).
         app.insert_resource(models::SelectedModel(None));
@@ -153,16 +241,16 @@ impl Plugin for MelosimEditorPlugin {
             .register_type::<crate::model::InitialConditions>()
             .register_type::<crate::model::CoordinateState>()
             .register_type::<crate::model::Twist>()
-            .register_type::<crate::model::Coupling>()
+            .register_type::<crate::model::DrivenBy>()
+            .register_type::<crate::model::DrivenCoordinates>()
             .register_type::<crate::model::CouplingKind>()
             .register_type::<crate::model::Muscle>()
+            .register_type::<crate::model::Cable>()
+            .register_type::<crate::model::CableParameters>()
             .register_type::<crate::model::HillTypeMuscleParams>()
             .register_type::<crate::model::Millard2012Params>()
-            .register_type::<crate::model::MuscleState>()
             .register_type::<crate::model::PathEntities>()
             .register_type::<crate::model::PathElement>()
-            .register_type::<crate::model::WrappingSurface>()
-            .register_type::<crate::model::WrapRadius>()
             .register_type::<crate::model::Function>();
 
         // Systems
@@ -183,8 +271,10 @@ impl Plugin for MelosimEditorPlugin {
 
         // Systems that need exclusive `World` access run standalone
         // (not in the Update tuple, which has a 16-param cap).
+        app.add_systems(Update, process_pending_model_actions);
         app.add_systems(Update, process_model_imports);
         app.add_systems(Update, process_mujoco_export);
+        app.add_systems(PostUpdate, validate_editor_model);
 
         // egui UI runs inside the egui primary context pass (after egui begins
         // the frame) — running it in `Update` panics because egui's fonts /

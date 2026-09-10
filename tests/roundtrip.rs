@@ -23,7 +23,7 @@ fn count<T: Component>(world: &mut World) -> usize {
 
 #[test]
 fn roundtrip_myo_sim() {
-    let path = std::env::var("TEST_MJCF").expect("set TEST_MJCF to a myo_sim .xml file");
+    let path = std::env::var("TEST_MJCF").unwrap_or_else(|_| format!("{}/assets/myo_sim/myo_sim/models/arm/myoarm_r.xml", env!("CARGO_MANIFEST_DIR")));
     eprintln!("roundtrip: importing {path}");
 
     let mut app = App::new();
@@ -66,6 +66,9 @@ fn roundtrip_myo_sim() {
     let bodies_o = recompiled.nbody() as usize;
     let joints_o = recompiled.njnt() as usize;
     let sites_o = recompiled.nsite() as usize;
+    assert_eq!(bodies_o, bodies_i + 1, "body count including world");
+    assert_eq!(joints_o, coords_i, "every scalar coordinate must survive export");
+    assert_eq!(sites_o, sites_i, "every site must survive export");
 
     eprintln!("reimport: bodies={bodies_o} joints={joints_o} sites={sites_o}");
     eprintln!("original: bodies={bodies_i} joints={joints_i} sites={sites_i}");

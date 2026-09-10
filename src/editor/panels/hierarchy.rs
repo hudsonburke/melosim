@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::egui;
 
 use crate::editor::selection::Selection;
-use crate::model::{Body, Coordinate, Joint, JointCoordinates, Muscle, Site, Frame};
+use crate::model::{Body, Cable, Coordinate, Frame, Joint, JointCoordinates, Muscle, Site};
 
 /// Info about a right-click in the hierarchy, for context menu handling.
 pub struct HierarchyRightClick {
@@ -16,7 +16,7 @@ pub struct HierarchyRightClick {
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
-    root_entities: &Query<Entity, (Without<ChildOf>, Or<(With<Body>, With<Frame>, With<Joint>, With<Muscle>, With<Site>, With<Coordinate>)>)>,
+    root_entities: &Query<Entity, (Without<ChildOf>, Or<(With<Body>, With<Frame>, With<Joint>, With<Muscle>, With<Cable>, With<Site>, With<Coordinate>)>)>,
     names: &Query<&mut Name>,
     children_query: &Query<&Children>,
     joint_coords: &Query<&JointCoordinates>,
@@ -26,6 +26,7 @@ pub fn show(
         Option<&Coordinate>,
         Option<&Site>,
         Option<&Muscle>,
+        Option<&Cable>,
         Option<&Frame>,
     )>,
     selection: &Selection,
@@ -85,6 +86,7 @@ fn hierarchy_node(
         Option<&Coordinate>,
         Option<&Site>,
         Option<&Muscle>,
+        Option<&Cable>,
         Option<&Frame>,
     )>,
     selection: &Selection,
@@ -97,12 +99,13 @@ fn hierarchy_node(
         .unwrap_or_else(|_| format!("{:?}", entity));
 
     let badge = match model_markers.get(entity) {
-        Ok((Some(_), _, _, _, _, _)) => "B",
-        Ok((_, Some(_), _, _, _, _)) => "J",
-        Ok((_, _, Some(_), _, _, _)) => "C",
-        Ok((_, _, _, Some(_), _, _)) => "S",
-        Ok((_, _, _, _, Some(_), _)) => "M",
-        Ok((_, _, _, _, _, Some(_))) => "F",
+        Ok((Some(_), _, _, _, _, _, _)) => "B",
+        Ok((_, Some(_), _, _, _, _, _)) => "J",
+        Ok((_, _, Some(_), _, _, _, _)) => "C",
+        Ok((_, _, _, Some(_), _, _, _)) => "S",
+        Ok((_, _, _, _, Some(_), _, _)) => "M",
+        Ok((_, _, _, _, _, Some(_), _)) => "K",
+        Ok((_, _, _, _, _, _, Some(_))) => "F",
         _ => "",
     };
 

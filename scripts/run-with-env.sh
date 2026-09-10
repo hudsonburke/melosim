@@ -18,6 +18,7 @@ if command -v rustc >/dev/null 2>&1; then
   RUST_SYSROOT_LIB="$(rustc --print sysroot 2>/dev/null)/lib/rustlib/x86_64-unknown-linux-gnu/lib"
 fi
 
-export LD_LIBRARY_PATH="${REPO_ROOT}/target/debug/deps:${RUST_SYSROOT_LIB}:${REPO_ROOT}/.mujoco/mujoco-3.9.0/lib:/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PYTHONPATH="${REPO_ROOT}/.venv-sys/lib/python3.12/site-packages:/opt/opensim-gui/sdk/Python${PYTHONPATH:+:$PYTHONPATH}"
+export LD_LIBRARY_PATH="${REPO_ROOT}/target/debug/deps:${RUST_SYSROOT_LIB}:${REPO_ROOT}/.mujoco/mujoco-3.9.0/lib:/opt/opensim-gui/sdk/lib:/opt/opensim-gui/sdk/Simbody/lib:/opt/opensim-gui/bin:/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 exec "$@"

@@ -6,47 +6,52 @@
 //! loadable `.bsn` asset files, this becomes plain data and the editor will scan
 //! the directory at runtime instead of including modules at compile time.
 //!
-//! Mesh coordinate convention (MuJoCo): the GLB files are direct exports of the
-//! MuJoCo STL meshes (vertices in the MuJoCo body frame, Z-up); each mesh node
-//! carries the Z-up → Y-up rotation.
+//! Mesh assets use GLTF/GLB, the editor's canonical visual format. Imported
+//! scenes should already be in the canonical meters, right-handed, Y-up
+//! convention and are loaded through Bevy's AssetServer.
 
 use bevy::prelude::*;
 
 use crate::model::*;
 
-/// Build the MyoArm skeleton (bodies, meshes, joints, coordinates, muscle
-/// paths) as a BSN scene list.
 pub fn myoarm_skeleton() -> impl SceneList {
     bsn_list![
         // Clavicle
         (
             #clavicle Body
             InertialProperties {
-                mass: 0.156,
-                mass_center: nalgebra::Vector3::new(-0.011, 0.006, 0.054),
-                inertia: Inertia::new(0.001, 0.001, 0.001, 0.0, 0.0, 0.0),
+                mass: 0.156, 
+                mass_center: Vector3::new(-0.011, 0.006, 0.054), 
+                inertia: Inertia::diag(0.001, 0.001, 0.001)
             }
             Children [
-                (#clavicle_mesh
+                (
+                    #clavicle_mesh
                     Mesh3d("gltf/clavicle.glb#Mesh0/Primitive0")
-                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
-                        Color::srgb(0.8, 0.7, 0.6),
-                    )))
-                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
-                (#PECM1_P3 Site Transform::from_xyz(0.026, 0.057, -0.004)),
-                (#sternoclavicular_offset Frame Transform::from_xyz(-0.01433, 0.1355, -0.02007)),
+                    MeshMaterial3d<StandardMaterial>(asset_value(Color::WHITE))
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))
+                ),
             ]
         ),
         (
+            #sternoclavicular_frame Frame
+            ChildOf(#clavicle)
+            Transform::from_xyz(-0.01433, 0.1355, -0.02007)
+        ),
+        (
             #sternoclavicular Joint
-            ChildOf(#sternoclavicular_offset)
+            ChildOf(#sternoclavicular_frame)
             JointCoordinates [
-                (#sternoclavicular_r2 Coordinate
+                (
+                    #sternoclavicular_r2 Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(0.015, 0.989, -0.145)}),
-                (#sternoclavicular_r3 Coordinate
+                    Twist::rotation(Vector3::new(0.015, 0.989, -0.145))
+                ),
+                (
+                    #sternoclavicular_r3 Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(-0.994, 0.0, -0.105)}),
+                    Twist::rotation(Vector3::new(-0.994, 0.0, -0.105))
+                ),
             ]
         ),
 
@@ -56,33 +61,42 @@ pub fn myoarm_skeleton() -> impl SceneList {
             ChildOf(#sternoclavicular)
             InertialProperties {
                 mass: 0.704,
-                mass_center: nalgebra::Vector3::new(-0.055, -0.035, -0.044),
-                inertia: Inertia::new(0.002, 0.001, 0.001, 0.0, 0.0, 0.0),
+                mass_center: Vector3::new(-0.055, -0.035, -0.044), 
+                inertia: Inertia::diag(0.002, 0.001, 0.001)
             }
             Children [
-                (#scapula_mesh
+                (
+                    #scapula_mesh
                     Mesh3d("gltf/scapula.glb#Mesh0/Primitive0")
-                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
-                        Color::srgb(0.8, 0.7, 0.6),
-                    )))
-                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
-                (#DELT2_P3 Site Transform::from_xyz(0.00005, 0.022, -0.003)),
-                (#acromioclavicular_offset Frame Transform::from_xyz(-0.00955, 0.009, 0.034)),
+                    MeshMaterial3d<StandardMaterial>(asset_value(Color::WHITE))
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))
+                ),
             ]
         ),
         (
+            #acromioclavicular_frame Frame
+            ChildOf(#scapula)
+            Transform::from_xyz(-0.00955, 0.009, 0.034)
+        ),
+        (
             #acromioclavicular Joint
-            ChildOf(#acromioclavicular_offset)
+            ChildOf(#acromioclavicular_frame)
             JointCoordinates [
-                (#acromioclavicular_r1 Coordinate
+                (
+                    #acromioclavicular_r1 Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(0.638, 0.119, 0.761)}),
-                (#acromioclavicular_r2 Coordinate
+                    Twist::rotation(Vector3::new(0.638, 0.119, 0.761))
+                ),
+                (
+                    #acromioclavicular_r2 Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(0.157, 0.947, -0.279)}),
-                (#acromioclavicular_r3 Coordinate
+                    Twist::rotation(Vector3::new(0.157, 0.947, -0.279))
+                ),
+                (
+                    #acromioclavicular_r3 Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(-0.754, 0.298, 0.585)}),
+                    Twist::rotation(Vector3::new(-0.754, 0.298, 0.585))
+                ),
             ]
         ),
 
@@ -91,30 +105,38 @@ pub fn myoarm_skeleton() -> impl SceneList {
             #humerus Body
             ChildOf(#acromioclavicular)
             InertialProperties {
-                mass: 1.998,
-                mass_center: nalgebra::Vector3::new(0.018, -0.140, -0.013),
-                inertia: Inertia::new(0.013, 0.012, 0.002, 0.0, 0.0, 0.0),
+                mass: 1.998, 
+                mass_center: Vector3::new(0.018, -0.140, -0.013),
+                inertia: Inertia::diag(0.013, 0.012, 0.002)
             }
             Children [
-                (#humerus_mesh
+                (
+                    #humerus_mesh
                     Mesh3d("gltf/humerus.glb#Mesh0/Primitive0")
-                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
-                        Color::srgb(0.8, 0.7, 0.6),
-                    )))
-                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
-                ( #shoulder_offset Frame Transform::from_xyz(0.0061, -0.0123, 0.2904)),
+                    MeshMaterial3d<StandardMaterial>(asset_value(Color::WHITE))
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))
+                ),
             ]
         ),
         (
+            #shoulder_frame Frame
+            ChildOf(#humerus)
+            Transform::from_xyz(0.0061, -0.0123, 0.2904)
+        ),
+        (
             #shoulder Joint
-            ChildOf(#shoulder_offset)
+            ChildOf(#shoulder_frame)
             JointCoordinates [
-                (#shoulder_elv Coordinate
+                (
+                    #shoulder_elv Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(-0.998, 0.002, 0.059)}),
-                (#shoulder_rot Coordinate
+                    Twist::rotation(Vector3::new(-0.998, 0.002, 0.059))
+                ),
+                (
+                    #shoulder_rot Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(0.005, 0.999, 0.042)}),
+                    Twist::rotation(Vector3::new(0.005, 0.999, 0.042))
+                ),
             ]
         ),
 
@@ -124,17 +146,16 @@ pub fn myoarm_skeleton() -> impl SceneList {
             ChildOf(#shoulder)
             InertialProperties {
                 mass: 0.118,
-                mass_center: nalgebra::Vector3::new(0.002, -0.133, 0.008),
-                inertia: Inertia::new(0.0005, 0.0005, 0.00003, 0.0, 0.0, 0.0),
+                mass_center: Vector3::new(0.002, -0.133, 0.008), 
+                inertia: Inertia::diag(0.0005, 0.0005, 0.00003)
             }
             Children [
-                (#ulna_mesh
+                (
+                    #ulna_mesh
                     Mesh3d("gltf/ulna.glb#Mesh0/Primitive0")
-                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
-                        Color::srgb(0.8, 0.7, 0.6),
-                    )))
-                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
-                (#pro_sup_offset Frame Transform::from_xyz(0.0004, 0.020, 0.0115)),
+                    MeshMaterial3d<StandardMaterial>(asset_value(Color::WHITE))
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))
+                ),
             ]
         ),
         (
@@ -144,7 +165,7 @@ pub fn myoarm_skeleton() -> impl SceneList {
                 (
                     #elbow_flex Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(0.005, 0.999, 0.042)}
+                    Twist::rotation(Vector3::new(0.005, 0.999, 0.042))
                 ),
             ]
         ),
@@ -152,11 +173,13 @@ pub fn myoarm_skeleton() -> impl SceneList {
         // Radius
         (
             #pro_sup Joint
-            ChildOf(#pro_sup_offset)
+            ChildOf(#ulna)
             JointCoordinates [
-                (#pro_sup_rot Coordinate
+                (
+                    #pro_sup_rot Coordinate
                     InitialConditions { value: 0.0, velocity: 0.0 }
-                    Twist{angular: nalgebra::Vector3::new(-0.017, 0.993, -0.120)}),
+                    Twist::rotation(Vector3::new(-0.017, 0.993, -0.120))
+                ),
             ]
         ),
         (
@@ -164,16 +187,16 @@ pub fn myoarm_skeleton() -> impl SceneList {
             ChildOf(#pro_sup)
             InertialProperties {
                 mass: 0.234,
-                mass_center: nalgebra::Vector3::new(0.034, -0.182, 0.016),
-                inertia: Inertia::new(0.001, 0.001, 0.001, 0.0, 0.0, 0.0),
+                mass_center: Vector3::new(0.034, -0.182, 0.016),
+                inertia: Inertia::diag(0.001, 0.001, 0.001)
             }
             Children [
-                (#radius_mesh
+                (
+                    #radius_mesh
                     Mesh3d("gltf/radius.glb#Mesh0/Primitive0")
-                    MeshMaterial3d<StandardMaterial>(asset_value(StandardMaterial::from(
-                        Color::srgb(0.8, 0.7, 0.6),
-                    )))
-                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))),
+                    MeshMaterial3d<StandardMaterial>(asset_value(Color::WHITE))
+                    Transform::from_rotation(Quat::from_xyzw(-0.707107, 0.0, 0.0, 0.707107))
+                ),
             ]
         ),
 

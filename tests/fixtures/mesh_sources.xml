@@ -1,0 +1,12 @@
+<mujoco>
+  <compiler angle="radian"/>
+  <asset>
+    <mesh name="shared" file="asymmetric.obj" scale="2 3 4" refpos="0.01 0.02 0.03" refquat="0.9238795325 0 0.3826834324 0"/>
+  </asset>
+  <worldbody>
+    <body name="base" pos="0.2 0.3 0.4" quat="0.9238795325 0.3826834324 0 0">
+      <geom name="first" type="mesh" mesh="shared" pos="0.1 0.2 0.3" quat="0.9238795325 0 0 0.3826834324" rgba="0.2 0.4 0.6 1" contype="2" conaffinity="4" friction="0.8 0.02 0.003"/>
+      <geom type="mesh" mesh="shared" pos="-0.3 0.1 0.2"/>
+    </body>
+  </worldbody>
+</mujoco>

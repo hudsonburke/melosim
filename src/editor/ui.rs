@@ -21,8 +21,9 @@ use super::panels;
 use super::popups::ActivePopup;
 use super::selection::Selection;
 use crate::model::{
-    Body, Coordinate, CoordinateProperties, CoordinateState, Frame, HillTypeMuscleParams,
-    InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle, Site, Twist,
+    Body, Cable, CableParameters, Coordinate, CoordinateProperties, CoordinateState, Frame,
+    HillTypeMuscleParams, InitialConditions, InertialProperties, Joint, JointCoordinates, Muscle,
+    PathEntities, Site, Twist,
 };
 use crate::render::RenderSettings;
 
@@ -52,8 +53,9 @@ pub fn toolbar_panel(
     names: Query<&mut Name>,
     mut active_popup: ResMut<ActivePopup>,
     mut pending_model_import: ResMut<super::PendingModelImport>,
-    mut pending_mesh_import: ResMut<super::PendingMeshImport>,
     mut pending_export: ResMut<super::PendingMujocoExport>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
@@ -69,8 +71,9 @@ pub fn toolbar_panel(
                 &names,
                 &mut active_popup,
                 &mut pending_model_import,
-                &mut pending_mesh_import,
                 &mut pending_export,
+                &mut commands,
+                &asset_server,
             );
         });
 }
@@ -87,6 +90,7 @@ pub fn hierarchy_panel(
                 With<Frame>,
                 With<Joint>,
                 With<Muscle>,
+                With<Cable>,
                 With<Site>,
                 With<Coordinate>,
             )>,
@@ -101,6 +105,7 @@ pub fn hierarchy_panel(
         Option<&Coordinate>,
         Option<&Site>,
         Option<&Muscle>,
+        Option<&Cable>,
         Option<&Frame>,
     )>,
     selection: Res<Selection>,
@@ -178,14 +183,20 @@ pub fn inspector_panel(
         Option<&Coordinate>,
         Option<&Site>,
         Option<&Muscle>,
+        Option<&Cable>,
         Option<&Frame>,
     )>,
     mut inertial: Query<&mut InertialProperties>,
+    mut transforms: Query<&mut Transform>,
     mut twists: Query<&mut Twist>,
     mut coord_editor: Query<(&mut CoordinateProperties, &mut InitialConditions, &mut CoordinateState)>,
     mut hill: Query<&mut HillTypeMuscleParams>,
+    mut cable_parameters: Query<&mut CableParameters>,
+    cable_paths: Query<&PathEntities>,
+    mut active_popup: ResMut<ActivePopup>,
     mut commands: Commands,
     mut part_counter: Local<u64>,
+    validation: Res<super::KinematicValidationState>,
 ) {
     let ctx = contexts.ctx_mut().expect("one primary egui context");
     #[expect(deprecated, reason = "top-level panels require show(ctx), not show_inside")]
@@ -197,15 +208,40 @@ pub fn inspector_panel(
                 ui.add_space(4.0);
                 ui.heading("Inspector");
 
+                if !validation.issues.is_empty() {
+                    ui.separator();
+                    ui.colored_label(egui::Color32::YELLOW, format!(
+                        "Kinematic issues ({})",
+                        validation.issues.len()
+                    ));
+                    for issue in &validation.issues {
+                        let label = names
+                            .get(issue.entity)
+                            .map(|name| name.as_str().to_owned())
+                            .unwrap_or_else(|_| format!("{:?}", issue.entity));
+                        ui.label(format!("{label}: {}", issue.message));
+                    }
+                }
+
                 let Some(entity) = panels::inspector::show_name(ui, &selection, &mut names) else {
                     ui.label("Nothing selected");
                     return;
                 };
 
+                panels::inspector::show_transform(ui, entity, &mut transforms);
                 panels::inspector::show_inertial(ui, entity, &mut inertial);
                 panels::inspector::show_twist(ui, entity, &mut twists);
                 panels::inspector::show_coordinate(ui, entity, &mut coord_editor);
                 panels::inspector::show_muscle(ui, entity, &mut hill);
+                panels::inspector::show_cable(
+                    ui,
+                    entity,
+                    &selection,
+                    &mut active_popup,
+                    &mut cable_parameters,
+                    &cable_paths,
+                    &names,
+                );
                 panels::inspector::show_children(
                     ui,
                     entity,
