@@ -1,4 +1,9 @@
-{ pkgs, lib, config, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 
 let
   # Native libs Tauri needs for WebKitGTK rendering on Linux.
@@ -42,9 +47,7 @@ in
   # ── Rust ──────────────────────────────────────────────────────────
   languages.rust = {
     enable = true;
-    # nixpkgs channel — uses whatever rustc is in the nixpkgs revision.
-    # Switch to channel = "stable" and add rust-overlay to devenv.yaml
-    # if you need a pinned Rust version.
+    channel = "nightly";
   };
 
   # ── Node (for the R3F UI) ────────────────────────────────────────
@@ -54,36 +57,41 @@ in
   };
 
   # ── Build tools ──────────────────────────────────────────────────
-  packages = with pkgs; [
-    pkg-config
-    cmake
-    patchelf
-    curl
-    wget
-    file
-  ] ++ tauriNativeLibs;
+  packages =
+    with pkgs;
+    [
+      cargo-tauri
+      pkg-config
+      cmake
+      patchelf
+      curl
+      wget
+      file
+    ]
+    ++ tauriNativeLibs;
 
-  # ── Environment ──────────────────────────────────────────────────
-  env.MUJOCO_DOWNLOAD_DIR = "${config.env.DEVENV_ROOT}/.mujoco";
+  env = {
+    MUJOCO_DOWNLOAD_DIR = "${config.env.DEVENV_ROOT}/.mujoco";
 
-  # Opensim feature: PyO3 needs a system-python venv (not a nix-python venv,
-  # whose libpython can't embed into a nix-glibc binary).
-  env.PYO3_PYTHON = "${config.env.DEVENV_ROOT}/.venv-sys/bin/python";
-  env.PYTHONPATH = "${config.env.DEVENV_ROOT}/.venv-sys/lib/python3.12/site-packages";
+    # Opensim feature: PyO3 needs a system-python venv (not a nix-python venv,
+    # whose libpython can't embed into a nix-glibc binary).MUJOCO_DOWNLOAD_DIR
+    PYO3_PYTHON = "${config.env.DEVENV_ROOT}/.venv-sys/bin/python";
+    PYTHONPATH = "${config.env.DEVENV_ROOT}/.venv-sys/lib/python3.12/site-packages";
 
-  # All runtime native libs in one place — cargo, tauri.mjs, and
-  # direct cargo run all inherit this.
-  env.LD_LIBRARY_PATH = lib.concatStringsSep ":" [
-    (lib.makeLibraryPath tauriNativeLibs)
-    mujocoLibDir
-  ];
+    # All runtime native libs in one place — cargo, tauri.mjs, and
+    # direct cargo run all inherit this.
+    LD_LIBRARY_PATH = lib.concatStringsSep ":" [
+      (lib.makeLibraryPath tauriNativeLibs)
+      mujocoLibDir
+    ];
 
-  env.PKG_CONFIG_PATH = lib.concatStringsSep ":" (
-    lib.concatMap (pkg: [
-      "${pkg}/lib/pkgconfig"
-      "${pkg}/share/pkgconfig"
-    ]) tauriNativeLibs
-  );
+    PKG_CONFIG_PATH = lib.concatStringsSep ":" (
+      lib.concatMap (pkg: [
+        "${pkg}/lib/pkgconfig"
+        "${pkg}/share/pkgconfig"
+      ]) tauriNativeLibs
+    );
+  };
 
   # ── Scripts ──────────────────────────────────────────────────────
   scripts = {
@@ -101,7 +109,7 @@ in
     build-ui.exec = "cd ui && npm run build";
     typecheck-ui.exec = "cd ui && npm run typecheck";
 
-    tauri.exec = "cd ui && npm run tauri dev";
+    tauri.exec = "cd ui/src-tauri && cargo tauri dev";
   };
 
   enterShell = ''
