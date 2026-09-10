@@ -5,38 +5,20 @@ exclude = ["ui/src-tauri"]
 
 [package]
 name = "melosim"
-default-run = "melosim"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 bevy = { version = "0.19.1", default-features = false, features = [
-  "3d",
-  "bevy_dev_tools",
-  "free_camera",
-  "x11",
-  "wayland",
-  "png",
-  "bevy_window",
-  "bevy_state",
+  "default_app",
+  "bevy_mesh",
   "dynamic_linking",
-  "bevy_world_serialization",
-  "bevy_picking",
-  "bevy_ui",
-  "bevy_ui_render",
-  "bevy_feathers",
 ] }
 nalgebra = "0.35"
-bevy-inspector-egui = "0.37"
-rfd = "0.15"
-# Enable bevy_egui's `picking` feature so it suppresses `bevy_picking` events over
-# egui windows (capture_pointer_input) — clicks on panels/sliders never pick the 3D scene.
-bevy_egui = { version = "0.40", features = ["picking"] }
 pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
 # MuJoCo I/O via its editing API (MjSpec) — parse + build MJCF, no hand XML.
 mujoco-rs = { version = "5", features = ["auto-download-mujoco"], optional = true }
 anyhow = { version = "1", optional = true }
-egui_dock = "0.19"
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 tiny_http = { version = "0.12", optional = true }
