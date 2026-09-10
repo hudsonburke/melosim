@@ -1,0 +1,1 @@
+{"$schema":"https://schema.tauri.app/config/2","productName":"melosim UI","version":"0.1.0","identifier":"com.melosim.ui","build":{"beforeDevCommand":"npm run dev","devUrl":"http://localhost:1420","frontendDist":"../dist"},"app":{"windows":[{"title":"melosim UI","width":1280,"height":800}],"security":{"csp":null}},"bundle":{"active":false}}
