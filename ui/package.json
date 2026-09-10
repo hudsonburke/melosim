@@ -2,7 +2,29 @@
   "name": "melosim-ui-prototype",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build" },
-  "dependencies": { "@tauri-apps/api": "^2.8.0", "three": "^0.180.0" },
-  "devDependencies": { "vite": "^7.1.0", "typescript": "^5.9.0" }
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "backend": "cd .. && cargo run --features web-editor --bin web-editor",
+    "tauri": "node scripts/tauri.mjs"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@tauri-apps/api": "^2.8.0",
+    "react": "~19.2.0",
+    "react-dom": "~19.2.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.185.4",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
 }

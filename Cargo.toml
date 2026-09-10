@@ -1,9 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["."]
+exclude = ["ui/src-tauri"]
 
 [package]
 name = "melosim"
+default-run = "melosim"
 version = "0.1.0"
 edition = "2024"
 
@@ -35,6 +37,9 @@ pyo3 = { version = "0.26", features = ["auto-initialize"], optional = true }
 mujoco-rs = { version = "5", features = ["auto-download-mujoco"], optional = true }
 anyhow = { version = "1", optional = true }
 egui_dock = "0.19"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tiny_http = { version = "0.12", optional = true }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -51,3 +56,9 @@ opensim = ["dep:pyo3"]
 # MuJoCo import/export via mujoco-rs MjSpec. Downloads MuJoCo into .mujoco/ at
 # build (auto-download-mujoco); set LD_LIBRARY_PATH to .mujoco at runtime.
 mujoco = ["dep:mujoco-rs", "dep:anyhow"]
+web-editor = ["mujoco", "dep:serde", "dep:serde_json", "dep:tiny_http"]
+
+[[bin]]
+name = "web-editor"
+path = "src/bin/web_editor.rs"
+required-features = ["web-editor"]

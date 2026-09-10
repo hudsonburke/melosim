@@ -32,6 +32,10 @@
             # GTK3 — `rfd` (native file dialog) links against gtk+-3.0. Its
             # transitive deps (glib, gdk-pixbuf, cairo, pango, ...) come along.
             gtk3
+            webkitgtk_4_1
+            libsoup_3
+            openssl
+            librsvg
           ];
         in
         {
@@ -46,6 +50,8 @@
               binutils
               pkg-config
               cmake
+              nodejs_22
+              patchelf
             ];
 
             # Make native deps visible to pkg-config and the dynamic loader.
