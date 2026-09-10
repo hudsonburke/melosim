@@ -4,3 +4,4 @@
 .x86-pip-ready
 .venv*/
 assets/*
+/.devenv/
