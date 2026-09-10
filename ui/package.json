@@ -1,0 +1,8 @@
+{
+  "name": "melosim-ui-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "dependencies": { "@tauri-apps/api": "^2.8.0", "three": "^0.180.0" },
+  "devDependencies": { "vite": "^7.1.0", "typescript": "^5.9.0" }
+}
