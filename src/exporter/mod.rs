@@ -18,7 +18,18 @@ pub enum ExportError {
 ///
 /// Imported mesh sources and their local poses are retained. Standalone GLTF
 /// scenes still require an explicit physical geometry representation.
-pub fn to_mjcf(world: &mut World, _root: Entity) -> Result<MjSpec, ExportError> {
+pub fn to_mjcf(world: &mut World, root: Entity) -> Result<MjSpec, ExportError> {
+    to_mjcf_impl(world, root, false)
+}
+pub fn to_mjcf_visual(world: &mut World, root: Entity) -> Result<MjSpec, ExportError> {
+    to_mjcf_impl(world, root, true)
+}
+fn to_mjcf_impl(world: &mut World, root: Entity, visual_only: bool) -> Result<MjSpec, ExportError> {
+    let mut document = world.get::<crate::mjcf_document::MjcfDocument>(root).cloned();
+    if let Some(source) = &document {
+        if visual_only { document = Some(source.visual_only().map_err(ExportError::Asset)?); }
+        else if let Some(warning) = &source.warning { return Err(ExportError::Asset(format!("Source model cannot compile: {warning}. Choose visual-only export to omit simulation sections."))); }
+    }
     let mut spec = MjSpec::new();
     spec.compiler_mut().set_balanceinertia(true);
     spec.compiler_mut().set_degree(false);
@@ -26,7 +37,7 @@ pub fn to_mjcf(world: &mut World, _root: Entity) -> Result<MjSpec, ExportError> 
     for geometry in world.query::<&MeshGeometry>().iter(world) {
         let key = Arc::as_ptr(&geometry.source) as usize;
         if meshes.contains_key(&key) { continue; }
-        let name = format!("mesh_{}", meshes.len());
+        let name = format!("melosim_generated_mesh_{}", meshes.len());
         let mesh = spec.add_mesh().with_name(&name);
         let source = &geometry.source;
         if let Some(file) = &source.file {
@@ -39,8 +50,14 @@ pub fn to_mjcf(world: &mut World, _root: Entity) -> Result<MjSpec, ExportError> 
         }
         meshes.insert(key, name);
     }
-    build_model(world, &mut spec, &meshes)?;
-    Ok(spec)
+    build_model(world, &mut spec, &meshes, document.as_ref(), visual_only)?;
+    if let Some(document) = document {
+        let names = document.names.iter().filter_map(|(e, old)| world.get::<Name>(*e).filter(|n| n.as_str() != old).map(|n| (old.clone(), n.as_str().to_owned()))).collect();
+        let colors = document.colors.iter().filter_map(|(e, old)| world.get::<MeshGeometry>(*e).filter(|g| g.rgba != *old).and_then(|_| world.get::<Name>(*e)).map(|n| n.as_str().to_owned())).collect();
+        // mj_saveXML requires compilation before serializing a generated spec.
+        spec.compile().map_err(|e| ExportError::Asset(e.to_string()))?;
+        crate::mjcf_document::merge(&document, &spec, &names, &colors).map_err(ExportError::Asset)
+    } else { Ok(spec) }
 }
 #[derive(Clone)]
 struct CoordSpec { name: String, twist: Twist, props: Option<CoordinateProperties> }
@@ -91,7 +108,7 @@ fn collect_subtree_joints_sites(
     }
 }
 
-fn build_model(world: &mut World, spec: &mut MjSpec, meshes: &HashMap<usize, String>) -> Result<(), ExportError> {
+fn build_model(world: &mut World, spec: &mut MjSpec, meshes: &HashMap<usize, String>, document: Option<&crate::mjcf_document::MjcfDocument>, visual_only: bool) -> Result<(), ExportError> {
     let child_to_parent: HashMap<Entity, Entity> = world
         .query::<(Entity, &ChildOf)>().iter(world)
         .map(|(e, co)| (e, co.parent())).collect();
@@ -134,7 +151,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec, meshes: &HashMap<usize, Str
             pose.rotation = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2) * pose.rotation;
             pose
         };
-        if geometry.source.file.is_some() {
+        if geometry.source.file.is_some() || document.is_some_and(|d| d.names.contains_key(&entity)) {
             // Remove only the compiler's rigid frame. Source scale/ref transforms
             // remain on the mesh asset and are reapplied by MuJoCo.
             let frame = geometry.source.compiled_frame;
@@ -181,7 +198,7 @@ fn build_model(world: &mut World, spec: &mut MjSpec, meshes: &HashMap<usize, Str
     for r in roots { write_body(wb, r, None, None, &spec_map, &children_map)?; }
 
     // Export tendons (muscle paths).
-    build_tendons(world, spec);
+    if !visual_only { build_tendons(world, spec); }
 
     Ok(())
 }
@@ -259,12 +276,6 @@ fn write_body(p: &mut MjsBody, e: Entity, pw: Option<Vec3>, pgrot: Option<Quat>,
         }
     }
     for geom in &s.geoms { write_geom(b, geom); }
-    // Placeholder for bodies without physical geometry (existing editor bodies).
-    if s.geoms.is_empty() { b.add_geom()
-        .with_type(mujoco_rs::wrappers::mj_model::MjtGeom::mjGEOM_SPHERE)
-        .with_size([0.001, 0.0, 0.0])
-        .with_contype(0)
-        .with_conaffinity(0); }
 
     for (sn, sp) in &s.sites {
         let d = s.grot.inverse() * (*sp - s.gpos);
@@ -297,42 +308,19 @@ fn write_geom(body: &mut MjsBody, geom: &(String, String, MeshGeometry, Transfor
 /// Write a portable MJCF plus a fresh sibling asset directory. Original source
 /// files are copied byte-for-byte; shared references are packaged once.
 pub fn save_mjcf(world: &mut World, root: Entity, path: &Path) -> Result<(), ExportError> {
+    save_mjcf_impl(world, root, path, false)
+}
+pub fn save_mjcf_visual(world: &mut World, root: Entity, path: &Path) -> Result<(), ExportError> {
+    save_mjcf_impl(world, root, path, true)
+}
+fn save_mjcf_impl(world: &mut World, root: Entity, path: &Path, visual_only: bool) -> Result<(), ExportError> {
     let fail = |error: String| ExportError::Asset(error);
-    let mut spec = to_mjcf(world, root)?;
+    let mut spec = to_mjcf_impl(world, root, visual_only)?;
     spec.compile().map_err(|e| fail(e.to_string()))?;
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let directory_name = format!("meshes_{stamp}");
-    let directory = parent.join(&directory_name);
-    let mut copied: HashMap<String, String> = HashMap::new();
-    for mesh in spec.mesh_iter_mut() {
-        let file = mesh.file().to_owned();
-        if file.is_empty() { continue; }
-        let relative = if let Some(relative) = copied.get(&file) {
-            relative.clone()
-        } else {
-            std::fs::create_dir_all(&directory).map_err(|e| fail(e.to_string()))?;
-            let extension = Path::new(&file).extension().and_then(|s| s.to_str()).unwrap_or("stl");
-            let filename = format!("mesh_{}.{}", copied.len(), extension);
-            std::fs::copy(&file, directory.join(&filename)).map_err(|e| fail(e.to_string()))?;
-            let relative = format!("{directory_name}/{filename}");
-            copied.insert(file, relative.clone());
-            relative
-        };
-        mesh.set_file(&relative);
-    }
-    // MuJoCo's XML writer reflects the last compile. Compile again after
-    // changing file references, resolving them from the package directory.
-    let output = std::path::absolute(path).map_err(|e| fail(e.to_string()))?;
-    struct RestoreDirectory(std::path::PathBuf);
-    impl Drop for RestoreDirectory {
-        fn drop(&mut self) { let _ = std::env::set_current_dir(&self.0); }
-    }
-    let _restore = RestoreDirectory(std::env::current_dir().map_err(|e| fail(e.to_string()))?);
-    std::env::set_current_dir(output.parent().unwrap()).map_err(|e| fail(e.to_string()))?;
-    spec.compile().map_err(|e| fail(e.to_string()))?;
-    spec.save_xml(&output).map_err(|e| fail(e.to_string()))?;
-    Ok(())
+    let directory = std::env::current_dir().map_err(|e| fail(e.to_string()))?;
+    let document = crate::mjcf_document::MjcfDocument::capture(&spec, &directory, HashMap::new()).map_err(fail)?;
+    document.package(parent, path.file_name().and_then(|s| s.to_str()).ok_or_else(|| fail("Invalid output filename".into()))?).map_err(fail)
 }
 
 fn add_joint(b: &mut MjsBody, c: &CoordSpec, pos: [f64; 3]) {

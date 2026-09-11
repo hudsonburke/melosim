@@ -1,4 +1,5 @@
 //! Transport-independent editor commands. A single worker owns the ECS World.
+mod project;
 use crate::model::*;
 use bevy::prelude::*;
 use mujoco_rs::wrappers::SpecItem;
@@ -9,7 +10,7 @@ use std::{
     sync::{Arc, mpsc},
 };
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
     Snapshot,
@@ -17,6 +18,16 @@ pub enum Command {
         path: String,
     },
     LoadArm,
+    SaveProject {
+        path: String,
+    },
+    OpenProject {
+        path: String,
+    },
+    SetColor {
+        id: String,
+        rgba: [f32; 4],
+    },
     SetCoordinate {
         id: String,
         value: f64,
@@ -73,8 +84,32 @@ pub enum Command {
     Export {
         path: String,
     },
+    ExportVisual {
+        path: String,
+    },
     Undo,
     Redo,
+}
+
+impl Command {
+    fn is_edit(&self) -> bool {
+        matches!(
+            self,
+            Self::SetColor { .. }
+                | Self::SetCoordinate { .. }
+                | Self::SetTransform { .. }
+                | Self::Rename { .. }
+                | Self::AddBody { .. }
+                | Self::ImportPart { .. }
+                | Self::AddJoint { .. }
+                | Self::AddCable { .. }
+                | Self::AddSite { .. }
+                | Self::SetPath { .. }
+                | Self::SetCable { .. }
+                | Self::Undo
+                | Self::Redo
+        )
+    }
 }
 
 #[derive(Serialize)]
@@ -146,6 +181,8 @@ pub struct Editor {
     epoch: u64,
     undo: Vec<(Command, Command)>,
     redo: Vec<(Command, Command)>,
+    journal: Vec<Command>,
+    part_files: HashMap<String, Arc<[u8]>>,
 }
 impl Default for Editor {
     fn default() -> Self {
@@ -156,6 +193,8 @@ impl Default for Editor {
             epoch: 0,
             undo: vec![],
             redo: vec![],
+            journal: vec![],
+            part_files: HashMap::new(),
         }
     }
 }
@@ -211,9 +250,17 @@ impl Editor {
         self.epoch += 1;
         self.undo.clear();
         self.redo.clear();
+        self.journal.clear();
+        self.part_files.clear();
         Ok(())
     }
-    pub fn execute(&mut self, command: Command) -> Result<Snapshot, String> {
+    pub fn execute(&mut self, mut command: Command) -> Result<Snapshot, String> {
+        if let Command::ImportPart { path, .. } = &mut command {
+            *path = std::fs::canonicalize(&*path)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .into_owned();
+        }
         if matches!(command, Command::Undo | Command::Redo) {
             let undo = matches!(command, Command::Undo);
             let pair = if undo {
@@ -229,6 +276,7 @@ impl Editor {
                 self.undo.push(pair);
             }
             self.app.update();
+            self.journal.push(command);
             return Ok(self.snapshot(
                 false,
                 None,
@@ -238,15 +286,25 @@ impl Editor {
         let inverse = self.inverse(&command)?;
         let (assets, selected, message) = self.apply(&command)?;
         if let Some(before) = inverse {
-            self.undo.push((before, command));
+            self.undo.push((before, command.clone()));
             self.redo.clear();
         }
         self.app.update();
+        if command.is_edit() {
+            self.journal.push(command);
+        }
         Ok(self.snapshot(assets, selected, &message))
     }
     fn inverse(&self, c: &Command) -> Result<Option<Command>, String> {
         let w = self.app.world();
         Ok(match c {
+            Command::SetColor { id: key, .. } => Some(Command::SetColor {
+                id: key.clone(),
+                rgba: w
+                    .get::<MeshGeometry>(self.entity(key)?)
+                    .ok_or("Select a mesh")?
+                    .rgba,
+            }),
             Command::SetCoordinate { id: key, .. } => Some(Command::SetCoordinate {
                 id: key.clone(),
                 value: w
@@ -302,6 +360,27 @@ impl Editor {
         let mut selected = None;
         let mut message = "Model updated".to_string();
         match c {
+            Command::SaveProject { path } => {
+                self.save_project(Path::new(path))?;
+                message = format!("Project saved: {path}");
+            }
+            Command::OpenProject { path } => {
+                self.open_project(Path::new(path))?;
+                assets = true;
+                message = "Project opened".into();
+            }
+            Command::SetColor { id: key, rgba } => {
+                finite(&rgba.map(f64::from))?;
+                if rgba.iter().any(|v| !(0.0..=1.0).contains(v)) {
+                    return Err("RGBA values must be between zero and one".into());
+                }
+                let entity = self.entity(key)?;
+                self.app
+                    .world_mut()
+                    .get_mut::<MeshGeometry>(entity)
+                    .ok_or("Select a mesh")?
+                    .rgba = *rgba;
+            }
             Command::Snapshot => {
                 assets = true;
                 message = "Connected".into();
@@ -465,6 +544,8 @@ impl Editor {
                     return Err("Mass must be positive".into());
                 }
                 let path = Path::new(path).canonicalize().map_err(|e| e.to_string())?;
+                let part_bytes: Arc<[u8]> =
+                    Arc::from(std::fs::read(&path).map_err(|e| e.to_string())?);
                 let mut spec = mujoco_rs::wrappers::mj_editing::MjSpec::new();
                 spec.add_mesh()
                     .with_name("part_mesh")
@@ -520,6 +601,8 @@ impl Editor {
                 }
                 selected = Some(id(body));
                 assets = true;
+                self.part_files
+                    .insert(path.to_string_lossy().into_owned(), part_bytes);
             }
             Command::AddJoint {
                 parent,
@@ -696,7 +779,8 @@ impl Editor {
                     actuator_force: *actuator_force,
                 };
             }
-            Command::Export { path } => {
+            Command::Export { path } | Command::ExportVisual { path } => {
+                let visual_only = matches!(c, Command::ExportVisual { .. });
                 self.app.update();
                 let issues = validate_kinematic_hierarchy(self.app.world_mut());
                 if !issues.is_empty() {
@@ -711,14 +795,19 @@ impl Editor {
                     .query::<(&Name, &PathEntities)>()
                     .iter(self.app.world())
                 {
-                    if path.len() < 2 {
+                    if !visual_only && path.len() < 2 {
                         return Err(format!("{} needs at least two path sites", name.as_str()));
                     }
                 }
                 if Path::new(path).exists() {
                     return Err("That file already exists. Choose a new export filename.".into());
                 }
-                crate::exporter::save_mjcf(
+                let save = if visual_only {
+                    crate::exporter::save_mjcf_visual
+                } else {
+                    crate::exporter::save_mjcf
+                };
+                save(
                     self.app.world_mut(),
                     self.root.unwrap_or(Entity::PLACEHOLDER),
                     Path::new(path),
@@ -862,6 +951,13 @@ impl Editor {
             .into_iter()
             .map(|i| i.to_string())
             .collect::<Vec<_>>();
+        if let Some(warning) = self
+            .root
+            .and_then(|r| w.get::<crate::mjcf_document::MjcfDocument>(r))
+            .and_then(|d| d.warning.as_ref())
+        {
+            issues.push(format!("Source simulation error: {warning}. Project saving retains the source; use visual-only export for appearance."));
+        }
         for n in &nodes {
             if n.kind == "cable" && n.path.len() < 2 {
                 issues.push(format!("{} needs at least two path sites", n.name));
@@ -894,6 +990,36 @@ fn tempfile_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saves_invalid_myoarm_source_without_discarding_it() {
+        let mut editor = Editor::default();
+        editor.execute(Command::LoadArm).unwrap();
+        let destination = tempfile_path();
+        editor.save_project(&destination).unwrap();
+        let mut restored = Editor::default();
+        restored.open_project(&destination).unwrap();
+        let document = restored
+            .app
+            .world()
+            .get::<crate::mjcf_document::MjcfDocument>(restored.root.unwrap())
+            .unwrap();
+        assert!(document.xml.contains("PECM2_PECM2-P3_r"));
+        assert!(document.warning.is_some());
+        assert_eq!(
+            editor.snapshot(false, None, "").nodes.len(),
+            restored.snapshot(false, None, "").nodes.len()
+        );
+        restored
+            .execute(Command::ExportVisual {
+                path: destination
+                    .join("visual.xml")
+                    .to_string_lossy()
+                    .into_owned(),
+            })
+            .unwrap();
+        std::fs::remove_dir_all(destination).unwrap();
+    }
 
     #[test]
     fn editor_workflow_and_export() {
@@ -1045,6 +1171,76 @@ mod tests {
                 mass: 0.3,
             })
             .unwrap();
+        let mesh = editor
+            .snapshot(false, None, "")
+            .nodes
+            .iter()
+            .find(|n| n.kind == "mesh")
+            .unwrap()
+            .id
+            .clone();
+        editor
+            .execute(Command::SetColor {
+                id: mesh.clone(),
+                rgba: [0.1, 0.8, 0.3, 0.6],
+            })
+            .unwrap();
+        editor
+            .execute(Command::SetCable {
+                id: cable.clone(),
+                rest_length: 0.3,
+                stiffness: 250.,
+                damping: 2.,
+                max_tension: 80.,
+                actuator_force: 20.,
+            })
+            .unwrap();
+        let package = destination.join("edited.melosim");
+        editor
+            .execute(Command::SaveProject {
+                path: package.to_string_lossy().into(),
+            })
+            .unwrap();
+        let mut restored = Editor::default();
+        let opened = restored
+            .execute(Command::OpenProject {
+                path: package.to_string_lossy().into(),
+            })
+            .unwrap();
+        assert_eq!(
+            opened.nodes.iter().find(|n| n.id == mesh).unwrap().rgba,
+            Some([0.1, 0.8, 0.3, 0.6])
+        );
+        assert_eq!(
+            opened.nodes.iter().find(|n| n.id == cable).unwrap().cable,
+            Some([0.3, 250., 2., 80., 20.])
+        );
+        assert!(opened.can_undo);
+        restored.execute(Command::Undo).unwrap();
+        restored.execute(Command::Redo).unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(package.join("project.json")).unwrap()).unwrap();
+        manifest["commands"] =
+            serde_json::json!([{"type":"export","path":"/tmp/should-not-write.xml"}]);
+        std::fs::write(
+            package.join("project.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            restored
+                .execute(Command::OpenProject {
+                    path: package.to_string_lossy().into()
+                })
+                .is_err()
+        );
+        assert!(
+            restored
+                .snapshot(false, None, "")
+                .nodes
+                .iter()
+                .any(|n| n.name == "custom_part")
+        );
         editor
             .execute(Command::Export { path: path.clone() })
             .unwrap();
@@ -1056,7 +1252,12 @@ mod tests {
         let mut roundtrip = Editor::default();
         let result = roundtrip.execute(Command::Import { path }).unwrap();
         assert!(result.nodes.iter().any(|n| n.name == "custom_part"));
-        assert!(result.nodes.iter().any(|n| n.name == "assist_tendon" && n.path.len() == 2));
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "assist_tendon" && n.path.len() == 2)
+        );
         assert!(
             editor
                 .execute(Command::Import {

@@ -196,6 +196,15 @@ function App() {
           {snapshot.model}
         </div>
         <div className="header-actions">
+          <button disabled={busy} onClick={() => showDialog("open_project")}>
+            Open project
+          </button>
+          <button
+            disabled={!bodyCount || busy}
+            onClick={() => showDialog("save_project")}
+          >
+            Save project…
+          </button>
           <span className="quiet">{desktop ? "Desktop" : "Local editor"}</span>
           <button
             onClick={() => showDialog("export")}

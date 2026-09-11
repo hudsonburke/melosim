@@ -1,5 +1,6 @@
 //! Round-trip test: import a myo_sim MJCF into the melosim World, export it
-//! back via `to_mjcf`, save to XML, reload in MjSpec, and compare counts.
+//! back via explicit visual-only export, reload in MjSpec, and compare counts.
+//! The bundled source has invalid tendon references; this test does not claim dynamics fidelity.
 //!
 //! Requires `--features mujoco` and `TEST_MJCF` pointing to a myo_sim model.
 //!
@@ -12,7 +13,7 @@
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::prelude::*;
-use melosim::exporter::to_mjcf;
+use melosim::exporter::to_mjcf_visual as to_mjcf;
 use melosim::importer::import_mjcf;
 use melosim::model::{Body, Coordinate, Joint, Muscle, Site};
 use mujoco_rs::wrappers::mj_editing::MjSpec;

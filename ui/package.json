@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev.mjs",
+    "test:processes": "node --test scripts/supervise.test.mjs",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "backend": "cd .. && cargo run --features web-editor --bin web-editor",
