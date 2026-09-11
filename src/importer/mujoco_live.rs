@@ -30,6 +30,8 @@ use crate::model::{
 ///
 /// Returns the top-level container entity.
 pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError> {
+    static IMPORT_DIRECTORY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _directory_lock = IMPORT_DIRECTORY.lock().map_err(|_| ImportError::Load("An earlier import panicked".into()))?;
     // Canonicalize to an absolute path so CWD changes don't break it.
     let abs_path = path
         .canonicalize()
@@ -59,6 +61,14 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
             let mut name = format!("melosim_body_{i}");
             while used.contains(&name) { name.push('_'); }
             body.set_name(&name).map_err(|e| ImportError::Load(e.to_string()))?;
+        }
+    }
+    let used: std::collections::HashSet<String> = spec.geom_iter().map(|g| g.name().to_owned()).collect();
+    for (i, geom) in spec.geom_iter_mut().enumerate() {
+        if geom.name().is_empty() {
+            let mut name = format!("melosim_geom_{i}");
+            while used.contains(&name) { name.push('_'); }
+            geom.set_name(&name).map_err(|e| ImportError::Load(e.to_string()))?;
         }
     }
     // Convert the world basis once; all body and geom poses remain local.
@@ -96,10 +106,17 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
             update_body_rotations_from_compiled(world, &compiled);
             import_compiled_meshes(world, &compiled, &spec, &model_dir, &meshdir, anchor);
             import_muscles_compiled(world, &compiled, &site_map);
+            let names = world.query::<(Entity, &Name)>().iter(world).map(|(e,n)| (e,n.as_str().to_owned())).collect();
+            let mut document = crate::mjcf_document::MjcfDocument::capture(&spec, &model_dir, names)
+                .map_err(ImportError::Load)?;
+            document.colors = world.query::<(Entity, &MeshGeometry)>().iter(world).map(|(e,g)|(e,g.rgba)).collect();
+            world.entity_mut(anchor).insert(document);
         }
         Err(error) => {
             warn!("model import: full MuJoCo compile failed; using geometry-only compile: {error}");
-            match compile_geometry_only(&abs_path) {
+            let mut document = crate::mjcf_document::MjcfDocument::capture_uncompiled(&abs_path, HashMap::new(), error.to_string()).map_err(ImportError::Load)?;
+            let geometry = document.visual_only().and_then(|d| MjSpec::from_xml_string(&d.xml).map_err(|e| e.to_string())?.compile().map_err(|e| e.to_string()));
+            match geometry {
                 Ok(compiled) => {
                     update_body_rotations_from_compiled(world, &compiled);
                     import_compiled_meshes(world, &compiled, &spec, &model_dir, &meshdir, anchor);
@@ -108,8 +125,10 @@ pub fn import_mjcf(world: &mut World, path: &Path) -> Result<Entity, ImportError
                     warn!("geometry-only MuJoCo compile failed: {error}");
                 }
             }
-            let resolved = resolve_mjcf_includes(&abs_path);
-            import_muscles_from_xml(world, &resolved, &site_map);
+            import_muscles_from_xml(world, &document.xml, &site_map);
+            document.names = world.query::<(Entity, &Name)>().iter(world).map(|(e,n)| (e,n.as_str().to_owned())).collect();
+            document.colors = world.query::<(Entity, &MeshGeometry)>().iter(world).map(|(e,g)|(e,g.rgba)).collect();
+            world.entity_mut(anchor).insert(document);
         }
     }
 
@@ -331,102 +350,6 @@ fn import_muscles_from_xml(
     }
 }
 
-fn strip_non_geometry_includes(xml: &str) -> String {
-    let mut output = String::with_capacity(xml.len());
-    let mut rest = xml;
-    while let Some(start) = rest.find("<include") {
-        output.push_str(&rest[..start]);
-        let tag_end = rest[start..].find('>').map(|index| start + index + 1);
-        let Some(tag_end) = tag_end else {
-            output.push_str(&rest[start..]);
-            return output;
-        };
-        let tag = &rest[start..tag_end];
-        let ignored = tag.contains("tendon") || tag.contains("muscle") || tag.contains("actuator");
-        if !ignored {
-            output.push_str(tag);
-        }
-        rest = &rest[tag_end..];
-    }
-    output.push_str(rest);
-    output
-}
-
-/// Compile a copy with tendon/actuator sections removed. This preserves
-/// MuJoCo's compiled mesh transforms even when an unrelated tendon reference
-/// prevents the complete model from compiling.
-fn compile_geometry_only(path: &Path) -> Result<MjModel, String> {
-    let raw = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let mut xml = strip_non_geometry_includes(&raw);
-    for section in ["tendon", "actuator"] {
-        let open = format!("<{section}");
-        let close = format!("</{section}>");
-        while let Some(start) = xml.find(&open) {
-            let Some(end) = xml[start..].find(&close) else { break };
-            let end = start + end + close.len();
-            xml.replace_range(start..end, "");
-        }
-    }
-
-    let directory = path.parent().unwrap_or(Path::new("."));
-    let temporary = directory.join(format!(".melosim_geometry_{}.xml", std::process::id()));
-    std::fs::write(&temporary, xml).map_err(|error| error.to_string())?;
-    let result = MjSpec::from_xml(&temporary)
-        .map_err(|error| error.to_string())?
-        .compile()
-        .map_err(|error| error.to_string());
-    let _ = std::fs::remove_file(&temporary);
-    result
-}
-
-/// Recursively resolve `<include file="..."/>` references in an MJCF file,
-/// merging all content into a single XML string so that text-based parsers
-/// (like tendon extraction) can see the full model definition.
-fn resolve_mjcf_includes(main_path: &Path) -> String {
-    let dir = main_path.parent().unwrap_or(Path::new("."));
-    let mut visited = std::collections::HashSet::new();
-    resolve_includes_recursive(main_path, dir, &mut visited)
-}
-
-fn resolve_includes_recursive(
-    path: &Path,
-    base_dir: &Path,
-    visited: &mut std::collections::HashSet<PathBuf>,
-) -> String {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    if !visited.insert(canonical.clone()) {
-        return String::new(); // already included, avoid cycles
-    }
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        eprintln!("importer: could not read include '{}'", path.display());
-        return String::new();
-    };
-    let mut out = String::with_capacity(raw.len());
-    let mut rest = raw.as_str();
-    while let Some(pos) = rest.find("<include") {
-        // Emit everything before this <include>
-        out.push_str(&rest[..pos]);
-        let tag_start = &rest[pos..];
-        // Find the end of this self-closing or inline tag
-        let tag_end = tag_start.find('>').map(|i| i + 1).unwrap_or(tag_start.len());
-        let tag = &tag_start[..tag_end];
-        // Extract file attribute
-        if let Some(file_path) = tag
-            .split("file=\"")
-            .nth(1)
-            .and_then(|s| s.split('"').next())
-        {
-            let include_path = base_dir.join(file_path);
-            let resolved = resolve_includes_recursive(&include_path, base_dir, visited);
-            out.push_str(&resolved);
-        }
-        // Advance past this tag
-        rest = &tag_start[tag_end..];
-    }
-    // Emit remaining content after the last <include>
-    out.push_str(rest);
-    out
-}
 
 /// Extract spatial tendon → ordered site names from MJCF XML text.
 fn parse_spatial_tendon_sites(xml: &str) -> Vec<(String, Vec<String>)> {

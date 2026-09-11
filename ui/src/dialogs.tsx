@@ -1,7 +1,15 @@
 import { useState, type FormEvent } from "react";
 import { desktop, pickPath, type Node, type Command } from "./api";
 export type Dialog =
-  "import" | "body" | "part" | "joint" | "cable" | "site" | "export";
+  | "import"
+  | "body"
+  | "part"
+  | "joint"
+  | "cable"
+  | "site"
+  | "export"
+  | "save_project"
+  | "open_project";
 export function CommandDialog({
   dialog,
   parents,
@@ -35,6 +43,8 @@ export function CommandDialog({
     cable: "Create cable",
     site: "Add cable path site",
     export: "Export MuJoCo model",
+    save_project: "Save project as",
+    open_project: "Open project",
   }[dialog];
   const option = (n: Node) => (
     <option key={n.id} value={n.id}>
@@ -48,7 +58,9 @@ export function CommandDialog({
       num = (k: string) => Number(data.get(k));
     const values: Record<Dialog, Command> = {
       import: { type: "import", path },
-      export: { type: "export", path },
+      export: { type: data.has("visualOnly") ? "export_visual" : "export", path },
+      save_project: { type: "save_project", path },
+      open_project: { type: "open_project", path },
       body: {
         type: "add_body",
         parent: text("parent"),
@@ -91,10 +103,25 @@ export function CommandDialog({
             ×
           </button>
         </div>
-        {["import", "part", "export"].includes(dialog) && (
+        {dialog === "export" && (
+          <label>
+            <input type="checkbox" name="visualOnly" />
+            Visual-only (omit tendons, actuators, constraints, contacts, sensors
+            and keyframes)
+          </label>
+        )}
+        {["import", "part", "export", "save_project", "open_project"].includes(
+          dialog,
+        ) && (
           <>
             <label>
-              {dialog === "export" ? "New output path" : "Local file path"}
+              {dialog === "save_project"
+                ? "New project folder (.melosim)"
+                : dialog === "open_project"
+                  ? "Project folder or project.json path"
+                  : dialog === "export"
+                    ? "New output path"
+                    : "Local file path"}
               <div className="inline-field">
                 <input
                   autoFocus
@@ -109,20 +136,21 @@ export function CommandDialog({
                         : "/path/to/model.xml"
                   }
                 />
-                {desktop && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void pickPath(dialog === "export", dialog === "part")
-                        .then((p) => {
-                          if (p) setPath(p);
-                        })
-                        .catch((e) => setLocalError(String(e)));
-                    }}
-                  >
-                    Browse
-                  </button>
-                )}
+                {desktop &&
+                  !["save_project", "open_project"].includes(dialog) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void pickPath(dialog === "export", dialog === "part")
+                          .then((p) => {
+                            if (p) setPath(p);
+                          })
+                          .catch((e) => setLocalError(String(e)));
+                      }}
+                    >
+                      Browse
+                    </button>
+                  )}
               </div>
             </label>
             {!desktop && (
@@ -139,7 +167,22 @@ export function CommandDialog({
             want to keep first.
           </p>
         )}
-        {!["import", "export"].includes(dialog) && (
+        {dialog === "save_project" && (
+          <p className="hint">
+            Creates a portable folder with the source scene, assets, and edit
+            history. Choose a new folder name. This preserves editor data that
+            MJCF export alone cannot retain.
+          </p>
+        )}
+        {dialog === "open_project" && (
+          <p className="hint">
+            Opening a project replaces the workspace only after successful
+            validation. Save current edits first.
+          </p>
+        )}
+        {!["import", "export", "save_project", "open_project"].includes(
+          dialog,
+        ) && (
           <label>
             Name
             <input
@@ -255,9 +298,10 @@ export function CommandDialog({
         )}
         {dialog === "export" && (
           <p className="hint">
-            Writes MJCF and a sibling folder of mesh assets. Primitive wrapping
-            surfaces, muscle physiology, and cable force parameters are not yet
-            preserved.
+            Writes MJCF and portable mesh/texture assets. Imported scene
+            appearances and source-only elements are retained. Newly authored
+            cable dynamics are not yet fully exported; use Save project to
+            preserve editor data.
           </p>
         )}
         {(error || localError) && (
@@ -276,7 +320,11 @@ export function CommandDialog({
                 ? "Export"
                 : dialog === "import"
                   ? "Open model"
-                  : "Create"}
+                  : dialog === "save_project"
+                    ? "Save project"
+                    : dialog === "open_project"
+                      ? "Open project"
+                      : "Create"}
           </button>
         </div>
       </form>

@@ -52,6 +52,80 @@ export function Inspector({
           </div>
         )}
       </section>
+      {(n.kind === "body" || n.kind === "mesh") && (
+        <section>
+          <h3>Appearance</h3>
+          {snapshot.nodes
+            .filter(
+              (g) => g.kind === "mesh" && (g.id === n.id || g.parent === n.id),
+            )
+            .map((g) => (
+              <div key={g.id}>
+                <label>
+                  {g.name}
+                  <input
+                    type="color"
+                    aria-label={`${g.name} color`}
+                    disabled={busy}
+                    value={`#${(g.rgba || [0.5, 0.5, 0.5, 1])
+                      .slice(0, 3)
+                      .map((v) =>
+                        Math.round(v * 255)
+                          .toString(16)
+                          .padStart(2, "0"),
+                      )
+                      .join("")}`}
+                    onChange={(e) => {
+                      const hex = e.target.value;
+                      const rgb = [1, 3, 5].map(
+                        (i) => parseInt(hex.slice(i, i + 2), 16) / 255,
+                      );
+                      void send({
+                        type: "set_color",
+                        id: g.id,
+                        rgba: [...rgb, g.rgba?.[3] ?? 1],
+                      });
+                    }}
+                  />
+                </label>
+                <label>
+                  Opacity
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    defaultValue={g.rgba?.[3] ?? 1}
+                    key={`${g.id}-${g.rgba?.[3]}`}
+                    disabled={busy}
+                    onBlur={(e) => {
+                      const alpha = Number(e.target.value);
+                      if (
+                        Number.isFinite(alpha) &&
+                        alpha >= 0 &&
+                        alpha <= 1 &&
+                        alpha !== g.rgba?.[3]
+                      )
+                        void send({
+                          type: "set_color",
+                          id: g.id,
+                          rgba: [
+                            ...(g.rgba || [0.5, 0.5, 0.5, 1]).slice(0, 3),
+                            alpha,
+                          ],
+                        });
+                    }}
+                  />
+                </label>
+              </div>
+            ))}
+          <p className="hint">
+            Mesh color and opacity are exported. Imported materials and textures
+            are preserved in MJCF; the viewport currently previews solid mesh
+            colors.
+          </p>
+        </section>
+      )}
       {n.value !== null && n.range && (
         <section>
           <h3>

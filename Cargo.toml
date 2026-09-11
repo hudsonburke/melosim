@@ -24,6 +24,7 @@ anyhow = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 tiny_http = { version = "0.12", optional = true }
+xmltree = { version = "0.11", optional = true }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -39,7 +40,7 @@ opt-level = 3
 opensim = ["dep:pyo3"]
 # MuJoCo import/export via mujoco-rs MjSpec. Downloads MuJoCo into .mujoco/ at
 # build (auto-download-mujoco); set LD_LIBRARY_PATH to .mujoco at runtime.
-mujoco = ["dep:mujoco-rs", "dep:anyhow"]
+mujoco = ["dep:mujoco-rs", "dep:anyhow", "dep:xmltree"]
 web-editor = ["mujoco", "dep:serde", "dep:serde_json", "dep:tiny_http"]
 
 [[bin]]

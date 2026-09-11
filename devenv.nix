@@ -99,17 +99,14 @@ in
     test.exec = "cargo test --features web-editor";
     clippy.exec = "cargo clippy --features web-editor";
 
-    dev.exec = ''
-      cargo run --features web-editor --bin web-editor &
-      cd ui && npm run dev
-    '';
-    dev-backend.exec = "cargo run --features web-editor --bin web-editor";
-    dev-frontend.exec = "cd ui && npm run dev";
+    dev.exec = ''exec node "$DEVENV_ROOT/ui/scripts/dev.mjs"'';
+    dev-backend.exec = ''cd "$DEVENV_ROOT" && exec cargo run --features web-editor --bin web-editor'';
+    dev-frontend.exec = ''cd "$DEVENV_ROOT/ui" && exec node node_modules/vite/bin/vite.js'';
 
     build-ui.exec = "cd ui && npm run build";
     typecheck-ui.exec = "cd ui && npm run typecheck";
 
-    tauri.exec = "cd ui/src-tauri && cargo tauri dev";
+    tauri.exec = ''exec node "$DEVENV_ROOT/ui/scripts/tauri.mjs" dev "$@"'';
   };
 
   enterShell = ''
