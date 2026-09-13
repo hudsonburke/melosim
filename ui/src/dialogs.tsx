@@ -4,6 +4,7 @@ export type Dialog =
   | "import"
   | "body"
   | "part"
+  | "frame"
   | "joint"
   | "cable"
   | "site"
@@ -37,8 +38,9 @@ export function CommandDialog({
     [localError, setLocalError] = useState("");
   const title = {
     import: "Open MuJoCo model",
-    body: "Add exoskeleton body",
-    part: "Import exoskeleton mesh",
+    body: "Add body",
+    part: "Import mesh part",
+    frame: "Add fixed frame",
     joint: "Connect a joint",
     cable: "Create cable",
     site: "Add cable path site",
@@ -68,6 +70,12 @@ export function CommandDialog({
         mass: num("mass"),
         size: [num("x"), num("y"), num("z")],
       },
+      frame: {
+        type: "add_frame",
+        parent: text("parent"),
+        name: text("name"),
+        position: [num("x"), num("y"), num("z")],
+      },
       part: {
         type: "import_part",
         parent: text("parent"),
@@ -87,7 +95,7 @@ export function CommandDialog({
       site: {
         type: "add_site",
         parent: text("parent"),
-        cable: text("cable"),
+        cable: text("cable") || null,
         name: text("name"),
         position: [num("x"), num("y"), num("z")],
       },
@@ -192,7 +200,7 @@ export function CommandDialog({
             />
           </label>
         )}
-        {["body", "part", "joint", "site"].includes(dialog) && (
+        {["body", "part", "frame", "joint", "site"].includes(dialog) && (
           <label>
             Parent body or frame
             <select name="parent" defaultValue={parentDefault} required>
@@ -244,19 +252,19 @@ export function CommandDialog({
         )}
         {dialog === "site" && (
           <label>
-            Cable
+            Add to cable <span className="optional">optional</span>
             <select
               name="cable"
-              required
               defaultValue={
                 selected?.kind === "cable" ? selected.id : cables[0]?.id
               }
             >
+              <option value="">None — attachment site only</option>
               {cables.map(option)}
             </select>
           </label>
         )}
-        {["body", "joint", "site"].includes(dialog) && (
+        {["body", "frame", "joint", "site"].includes(dialog) && (
           <>
             <h3>
               {dialog === "body"
@@ -294,6 +302,12 @@ export function CommandDialog({
           <p className="hint">
             STL and OBJ meshes are compiled by MuJoCo. Geometry and inertial
             properties are retained for export.
+          </p>
+        )}
+        {dialog === "frame" && (
+          <p className="hint">
+            Frames are fixed local coordinate systems. Add sites to a frame to
+            author attachments independently of the full model.
           </p>
         )}
         {dialog === "export" && (

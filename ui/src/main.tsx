@@ -218,13 +218,10 @@ function App() {
         <div className="tool-group">
           <button
             className="primary"
-            onClick={() => void send({ type: "load_arm" })}
+            onClick={() => showDialog("import")}
             disabled={busy}
           >
-            Load MyoArm
-          </button>
-          <button onClick={() => showDialog("import")} disabled={busy}>
-            Open model…
+            Import…
           </button>
         </div>
         <div className="tool-group">
@@ -239,6 +236,12 @@ function App() {
             onClick={() => showDialog("part")}
           >
             Import part
+          </button>
+          <button
+            disabled={!bodyCount || busy}
+            onClick={() => showDialog("frame")}
+          >
+            Frame
           </button>
           <button
             disabled={!bodyCount || busy}
@@ -324,8 +327,8 @@ function App() {
                   .map((n) => row(n))}
           {!bodyCount && (
             <p className="empty-note">
-              Load an arm model to explore its bodies, joints, and attachment
-              sites.
+              Import a model to explore its bodies, joints, frames, and
+              attachment sites.
             </p>
           )}
         </div>
@@ -409,16 +412,16 @@ function App() {
             <div className="eyebrow">MODEL · DESIGN · SIMULATE</div>
             <h1>Your model, in motion.</h1>
             <p>
-              Import a musculoskeletal model, add an exoskeleton,
+              Import a musculoskeletal model, then author its parts,
               <br />
-              and author its cable paths in one workspace.
+              frames, attachment sites, and cable paths.
             </p>
             <button
               className="primary"
               disabled={busy}
-              onClick={() => void send({ type: "load_arm" })}
+              onClick={() => showDialog("import")}
             >
-              Open the MyoArm example →
+              Import a model →
             </button>
           </div>
         )}
@@ -449,14 +452,15 @@ function App() {
               setPlacing(node.id);
               setSites(true);
             }}
+            create={showDialog}
           />
         ) : (
           <div className="empty-inspector">
             <span>⌖</span>
             <h3>Select an item</h3>
             <p>
-              Choose a body in the viewport or an item in the explorer to edit
-              its properties.
+              Choose a part in the viewport or explorer to edit its frame,
+              attachment sites, and properties.
             </p>
           </div>
         )}

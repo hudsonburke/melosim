@@ -47,6 +47,11 @@ pub enum Command {
         mass: f64,
         size: [f32; 3],
     },
+    AddFrame {
+        parent: String,
+        name: String,
+        position: [f32; 3],
+    },
     ImportPart {
         parent: String,
         path: String,
@@ -65,7 +70,7 @@ pub enum Command {
     },
     AddSite {
         parent: String,
-        cable: String,
+        cable: Option<String>,
         name: String,
         position: [f32; 3],
     },
@@ -100,6 +105,7 @@ impl Command {
                 | Self::SetTransform { .. }
                 | Self::Rename { .. }
                 | Self::AddBody { .. }
+                | Self::AddFrame { .. }
                 | Self::ImportPart { .. }
                 | Self::AddJoint { .. }
                 | Self::AddCable { .. }
@@ -531,6 +537,21 @@ impl Editor {
                 selected = Some(id(body));
                 assets = true;
             }
+            Command::AddFrame {
+                parent,
+                name,
+                position,
+            } => {
+                let parent = self.parent(parent)?;
+                let name = self.name(name, None)?;
+                finite(&position.map(f64::from))?;
+                let frame = ModelBuilder::new(self.app.world_mut()).frame(
+                    name,
+                    Transform::from_translation(Vec3::from_array(*position)),
+                    parent,
+                );
+                selected = Some(id(frame));
+            }
             Command::ImportPart {
                 parent,
                 path,
@@ -703,23 +724,28 @@ impl Editor {
                 position,
             } => {
                 let parent = self.parent(parent)?;
-                let cable = self.entity(cable)?;
                 let name = self.name(name, None)?;
                 finite(&position.map(f64::from))?;
-                if self.app.world().get::<Cable>(cable).is_none() {
-                    return Err("Choose a cable".into());
+                let cable = match cable {
+                    Some(cable) => {
+                        let cable = self.entity(cable)?;
+                        if self.app.world().get::<Cable>(cable).is_none() {
+                            return Err("Choose a cable".into());
+                        }
+                        Some(cable)
+                    }
+                    None => None,
+                };
+                let mut site = self.app.world_mut().spawn((
+                    Site,
+                    Name::new(name),
+                    ChildOf(parent),
+                    Transform::from_translation(Vec3::from_array(*position)),
+                ));
+                if let Some(cable) = cable {
+                    site.insert(PathElement(cable));
                 }
-                let site = self
-                    .app
-                    .world_mut()
-                    .spawn((
-                        Site,
-                        Name::new(name),
-                        ChildOf(parent),
-                        Transform::from_translation(Vec3::from_array(*position)),
-                        PathElement(cable),
-                    ))
-                    .id();
+                let site = site.id();
                 selected = Some(id(site));
             }
             Command::SetPath { id: key, sites } => {
@@ -820,6 +846,7 @@ impl Editor {
         if matches!(
             c,
             Command::AddBody { .. }
+                | Command::AddFrame { .. }
                 | Command::ImportPart { .. }
                 | Command::AddJoint { .. }
                 | Command::AddCable { .. }
@@ -1132,7 +1159,7 @@ mod tests {
         let first = editor
             .execute(Command::AddSite {
                 parent: upper.clone(),
-                cable: cable.clone(),
+                cable: Some(cable.clone()),
                 name: "assist_origin".into(),
                 position: [0., 0., 0.],
             })
@@ -1142,7 +1169,7 @@ mod tests {
         let second = editor
             .execute(Command::AddSite {
                 parent: forearm,
-                cable: cable.clone(),
+                cable: Some(cable.clone()),
                 name: "assist_end".into(),
                 position: [0., -0.1, 0.],
             })
