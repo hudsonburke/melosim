@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Node, Snapshot, Command } from "./api";
+import type { Dialog } from "./dialogs";
 export function Inspector({
   node: n,
   snapshot,
@@ -7,6 +8,7 @@ export function Inspector({
   busy,
   select,
   place,
+  create,
 }: {
   node: Node;
   snapshot: Snapshot;
@@ -14,6 +16,7 @@ export function Inspector({
   busy: boolean;
   select: (id: string) => void;
   place: () => void;
+  create: (dialog: Dialog) => void;
 }) {
   const [name, setName] = useState(n.name),
     [position, setPosition] = useState(n.position),
@@ -124,6 +127,24 @@ export function Inspector({
             are preserved in MJCF; the viewport currently previews solid mesh
             colors.
           </p>
+        </section>
+      )}
+      {["body", "frame"].includes(n.kind) && (
+        <section className="part-editor">
+          <div className="eyebrow">PART EDITOR</div>
+          <h3>Attachment features</h3>
+          <p className="hint">
+            Work on this part in its local frame without navigating the full
+            model hierarchy.
+          </p>
+          <div className="inline-field">
+            <button className="wide" disabled={busy} onClick={() => create("frame")}>
+              ＋ Add frame
+            </button>
+            <button className="wide" disabled={busy} onClick={() => create("site")}>
+              ＋ Add site
+            </button>
+          </div>
         </section>
       )}
       {n.value !== null && n.range && (
